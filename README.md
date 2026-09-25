@@ -40,6 +40,26 @@ Steps 5–6 need physical hardware and manual account setup and can't be scripte
 
 **Done when:** the dev client runs on the phone, connects the devnet wallet via MWA, and signs a test memo transaction (exercise this with the existing `hello_world` counter program — see below).
 
+### Phase 1 — token setup scripts
+
+`npm run devnet:mints` ([scripts/setup-mints.ts](scripts/setup-mints.ts)) points `config/devnet.json`'s `mints` at the two devnet mints we don't control and creates the one we do:
+
+- **USDC** — **Circle's real devnet USDC mint**, `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (verified on-chain: an initialized `spl-token` mint, 6 decimals, Circle-owned mint/freeze authorities). We don't create or mint this — fund any wallet from [faucet.circle.com](https://faucet.circle.com) (20 USDC / 2hr / address, public, no account needed). Using Circle's actual mint instead of a self-minted fake means `envelope_vault`'s wrap/unwrap path is exercised against the same asset (and faucet flow) a real deployment would use.
+- **Mock SKR** — classic SPL Token mint, 6 decimals (matches real SKR's decimals — [Solana Mobile's Seeker token](https://www.coingecko.com/en/coins/seeker)). Real SKR only exists on mainnet — it's tied to actual value and to Solana Mobile's own Guardian-delegation staking (`stake.solanamobile.com`), a different mechanism from `envelope_stake`'s custom vault — so there's no devnet/testnet SKR to point at instead. We mint our own for devnet testing.
+- **cUSDC** — Token-2022 mint, 6 decimals, three extensions initialized in the same transaction as `InitializeMint` (required by the `ConfidentialTransferMint` extension): `ConfidentialTransferMint` (`autoApproveNewAccounts: true`, `auditorElgamalPubkey: null`, authority = admin — **revoke this authority before any mainnet use**), `MetadataPointer` (self-hosted, points at the mint itself), and `TokenMetadata` (name "Envelope USD", symbol "cUSDC"). Mint authority is admin, temporarily — Phase 6 hands it to the `envelope_vault` PDA.
+
+`npm run devnet:faucet` ([scripts/faucet.ts](scripts/faucet.ts)) mints 1,000 mock SKR to alice, bob, and carol, creating their ATAs if needed, and prints each wallet's address so you can paste it into [faucet.circle.com](https://faucet.circle.com) for devnet USDC (that step is manual — Circle's public faucet has no scriptable API without a Circle account).
+
+Both scripts build instructions with the current `@solana-program/token`/`@solana-program/token-2022` `InstructionPlan` API (`getCreateMintInstructionPlan`, `getMintToATAInstructionPlanAsync`) and execute them through `scripts/lib/executePlan.ts`, a thin `createTransactionPlanner` + `createTransactionPlanExecutor` wrapper that plans, signs, sends and confirms — splitting into multiple transactions automatically if an instruction set ever grows too large for one.
+
+**Verify:** `spl-token display <cUSDC address> --url devnet` should show the `ConfidentialTransferMint` extension with `Auto Approve: true` and no auditor pubkey.
+
+**Done when:** `spl-token display <cUSDC>` shows the confidential extension with auto-approve on and no auditor.
+
+`scripts/` has its own `tsconfig.json` (Node ESM, `allowImportingTsExtensions`) since it's excluded from the app's tsconfig — run `npm run typecheck -w scripts` to check it in isolation.
+
+> **Blocked on funding:** `admin` (and the other demo wallets) have 0 devnet SOL — the public `api.devnet.solana.com` faucet used by `npm run devnet:airdrop` is still rate-limited as of this writing. `npm run devnet:mints` was dry-run against devnet and got as far as transaction simulation before failing on insufficient funds, which confirms the instruction-building, planning, and RPC plumbing are correct. Fund `admin` (its pubkey is in `config/devnet.json`) via [faucet.solana.com](https://faucet.solana.com) or an already-funded wallet, then rerun `npm run devnet:mints` and `npm run devnet:faucet`.
+
 ## Get started
 
 1. Install dependencies

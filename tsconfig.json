@@ -6,5 +6,5 @@
       "@project/anchor": ["./anchor/src"]
     }
   },
-  "exclude": ["anchor", "node_modules"]
+  "exclude": ["anchor", "node_modules", "scripts", "relayer", "packages"]
 }
