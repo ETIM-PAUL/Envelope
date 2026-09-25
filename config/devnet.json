@@ -1,0 +1,10 @@
+{
+  "cluster": "devnet",
+  "wallets": {
+    "admin": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1",
+    "relayer": "Fjqmc1BpebL3FMVZo93zXMKMuiiMxSS57r5w8PHUP8Fe",
+    "alice": "Cu5aerK8yvzHfrKPSMBwCYM16HSkXRbnUJt4MNPgzkQX",
+    "bob": "DCuGm6sfoc6tBZaU829aFb3VtAMyVksEkvekkoVd3MVG",
+    "carol": "AzxPs3HFbaXktueLPEyBMBBxPzhdE22C8NdxJf2Q4pXG"
+  }
+}

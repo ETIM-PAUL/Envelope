@@ -1,5 +1,10 @@
 {
   "name": "myapp",
+  "workspaces": [
+    "packages/*",
+    "relayer",
+    "scripts"
+  ],
   "scripts": {
     "anchor": "cd anchor && anchor",
     "anchor:build": "cd anchor && anchor build",
@@ -21,7 +26,9 @@
     "lint": "expo lint --fix",
     "lint:check": "expo lint",
     "start": "expo start",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "devnet:keys": "tsx scripts/setup-devnet-keys.ts",
+    "devnet:airdrop": "tsx scripts/airdrop.ts"
   },
   "displayName": "Expo Kit Anchor example",
   "description": "A template for building a Solana mobile app with Expo, React Native, Solana Kit, Anchor, and Uniwind.",
@@ -69,6 +76,7 @@
     "eslint": "^9.25.0",
     "eslint-config-expo": "~57.0.0",
     "prettier": "^3.9.6",
+    "tsx": "^4.20.6",
     "typescript": "~6.0.3",
     "vitest": "^4.1.10"
   },

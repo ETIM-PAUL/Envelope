@@ -1,0 +1,12 @@
+{
+  "name": "@envelope/rn-confidential",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React Native hooks + WebView host that loads the cbridge HTML bundle and exposes deriveKeys / buildTransferPlan / decryptAvailable over postMessage JSON-RPC.",
+  "main": "src/index.ts",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-webview": "*"
+  }
+}
