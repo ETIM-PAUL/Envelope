@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
+    "orientation": "default",
+    "web": {
+      "output": "static"
+    },
+    "name": "myapp",
+    "slug": "myapp",
+    "android": {
+      "package": "com.anonymous.myapp"
+    },
+    "plugins": [
+      [
+        "expo-dev-client",
+        {
+          "showMenuAtLaunch": false,
+          "skipOnboarding": true
+        }
+      ],
+      "expo-router"
+    ]
+  }
+}
