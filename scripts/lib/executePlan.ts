@@ -3,6 +3,7 @@ import {
   createTransactionPlanExecutor,
   createTransactionPlanner,
   getSignatureFromTransaction,
+  getTransactionSize,
   pipe,
   sendAndConfirmTransactionFactory,
   setTransactionMessageFeePayerSigner,
@@ -19,7 +20,16 @@ import {
   type TransactionSigner,
   type TransactionWithBlockhashLifetime,
   type TransactionWithinSizeLimit,
+  type TransactionPlanResultContextWithSignature,
 } from '@solana/kit'
+
+export type TransactionStats = {
+  signature: string
+  bytes: number
+  computeUnitsConsumed: number | null
+}
+
+type ExecutorContext = TransactionPlanResultContextWithSignature & { stats: TransactionStats }
 
 // `signTransactionMessageWithSigners` returns the general `TransactionWithLifetime` union,
 // even though `setTransactionMessageLifetimeUsingBlockhash` guarantees a blockhash lifetime here.
@@ -33,13 +43,14 @@ type Clients = {
   rpcSubscriptions: RpcSubscriptions<SolanaRpcSubscriptionsApi>
 }
 
-// Plans then executes an InstructionPlan (from @solana-program/* createMint/mintToATA helpers),
-// splitting into multiple transactions if needed. Returns every transaction signature, in order.
+// Plans then executes an InstructionPlan (from @solana-program/* createMint/mintToATA/confidential
+// helpers), splitting into multiple transactions if needed. Returns per-transaction stats (bytes,
+// compute units consumed) for benchmarking, in order.
 export async function sendInstructionPlan(
   instructionPlan: InstructionPlan,
   payer: TransactionSigner,
   { rpc, rpcSubscriptions }: Clients,
-): Promise<string[]> {
+): Promise<TransactionStats[]> {
   const sendAndConfirmTransaction = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })
 
   const transactionPlanner = createTransactionPlanner({
@@ -47,7 +58,7 @@ export async function sendInstructionPlan(
       pipe(createTransactionMessage({ version: 0 }), (m) => setTransactionMessageFeePayerSigner(payer, m)),
   })
 
-  const transactionPlanExecutor = createTransactionPlanExecutor({
+  const transactionPlanExecutor = createTransactionPlanExecutor<ExecutorContext>({
     executeTransactionMessage: async (context, message) => {
       const { value: latestBlockhash } = await rpc.getLatestBlockhash().send()
       const messageWithLifetime = setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, message)
@@ -55,7 +66,16 @@ export async function sendInstructionPlan(
       context.transaction = transaction
       const signature = getSignatureFromTransaction(transaction)
       await sendAndConfirmTransaction(transaction, { commitment: 'confirmed' })
-      return { signature, transaction }
+      const confirmed = await rpc
+        .getTransaction(signature, { commitment: 'confirmed', encoding: 'json', maxSupportedTransactionVersion: 0 })
+        .send()
+      const stats: TransactionStats = {
+        signature,
+        bytes: getTransactionSize(transaction),
+        computeUnitsConsumed:
+          confirmed?.meta?.computeUnitsConsumed != null ? Number(confirmed.meta.computeUnitsConsumed) : null,
+      }
+      return { signature, transaction, stats }
     },
   })
 
@@ -69,5 +89,5 @@ export async function sendInstructionPlan(
     )
   }
 
-  return summary.successfulTransactions.map((tx) => tx.context.signature)
+  return summary.successfulTransactions.map((tx) => tx.context.stats)
 }

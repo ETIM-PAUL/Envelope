@@ -60,6 +60,23 @@ Both scripts build instructions with the current `@solana-program/token`/`@solan
 
 > **Blocked on funding:** `admin` (and the other demo wallets) have 0 devnet SOL — the public `api.devnet.solana.com` faucet used by `npm run devnet:airdrop` is still rate-limited as of this writing. `npm run devnet:mints` was dry-run against devnet and got as far as transaction simulation before failing on insufficient funds, which confirms the instruction-building, planning, and RPC plumbing are correct. Fund `admin` (its pubkey is in `config/devnet.json`) via [faucet.solana.com](https://faucet.solana.com) or an already-funded wallet, then rerun `npm run devnet:mints` and `npm run devnet:faucet`.
 
+### Phase 2 — CLI confidential round trip
+
+`npm run devnet:roundtrip` ([scripts/roundtrip.ts](scripts/roundtrip.ts)) is a Node script that exercises every confidential-transfer operation end to end, in order:
+
+1. Derive alice's and bob's confidential keys with `deriveConfidentialKeys` — the standard, non-deprecated wallet-level derivation (`@solana-program/token-2022/confidential`): one Ed25519 signature over a fixed message yields both an ElGamal keypair and an AES key via the WASM ZK SDK. (The plan doc's `deriveElGamalKeypairForOwnerMint`/`deriveAeKeyForOwnerMint` are now marked deprecated in favor of this — kept only for migrating accounts configured under the old owner+mint scheme.)
+2. Configure alice's and bob's cUSDC Token-2022 accounts for confidential transfers (`getCreateConfidentialTransferAccountInstructionPlan` — creates the ATA, reallocates it, runs `ConfigureAccount` with the pubkey-validity proof, `maximumPendingBalanceCreditCounter: 65536`).
+3. Admin mints 100 public cUSDC to alice, she deposits it to her pending balance, then applies it to her available balance.
+4. Alice confidentially transfers 30 cUSDC to bob (`getConfidentialTransferInstructionPlan` — equality, ciphertext-validity, and range proofs via context-state accounts, then the transfer, then the proof accounts close automatically).
+5. Bob applies his pending balance and decrypts it (asserts it equals exactly 30 cUSDC — the script fails loudly if not).
+6. Bob withdraws 10 cUSDC back to his public balance (`getConfidentialWithdrawInstructionPlan` — equality + range proofs).
+
+Each step's transaction count, total compute units consumed, total transaction bytes, and wall-clock time are written to `docs/benchmarks.md` (`scripts/lib/executePlan.ts` now returns per-transaction stats instead of just signatures — `getTransactionSize` for bytes, `getTransaction(...).meta.computeUnitsConsumed` for compute units).
+
+**Done when:** the script completes end to end twice in a row, with a timing table in `docs/benchmarks.md`.
+
+> **Also blocked on funding** — same `admin` wallet as Phase 1. `npm run devnet:roundtrip` correctly refuses to run until `config/devnet.json` has a `mints.cusdc` entry (i.e. until Phase 1's `devnet:mints` has actually succeeded on-chain).
+
 ## Get started
 
 1. Install dependencies

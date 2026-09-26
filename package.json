@@ -30,7 +30,8 @@
     "devnet:keys": "tsx scripts/setup-devnet-keys.ts",
     "devnet:airdrop": "tsx scripts/airdrop.ts",
     "devnet:mints": "tsx scripts/setup-mints.ts",
-    "devnet:faucet": "tsx scripts/faucet.ts"
+    "devnet:faucet": "tsx scripts/faucet.ts",
+    "devnet:roundtrip": "tsx scripts/roundtrip.ts"
   },
   "displayName": "Expo Kit Anchor example",
   "description": "A template for building a Solana mobile app with Expo, React Native, Solana Kit, Anchor, and Uniwind.",
