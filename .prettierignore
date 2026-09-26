@@ -8,6 +8,8 @@
 /anchor/.anchor
 /anchor/src/client/js/generated
 /anchor/target
+packages/cbridge/dist
+packages/cbridge/src/generated
 pnpm-lock.yaml
 .agents
 agent

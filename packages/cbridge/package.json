@@ -4,6 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Web bundle: Token-2022 confidential transfer helpers + @solana/zk-sdk WASM, built as a single local HTML file for the rn-confidential WebView.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./dist/bridge-html": "./dist/bridge-html.ts"
+  },
+  "scripts": {
+    "build": "tsx build.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@solana-program/token-2022": "^0.19.0",
     "@solana-program/zk-elgamal-proof": "^0.4.0",

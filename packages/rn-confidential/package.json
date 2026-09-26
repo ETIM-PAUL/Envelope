@@ -4,6 +4,13 @@
   "private": true,
   "description": "React Native hooks + WebView host that loads the cbridge HTML bundle and exposes deriveKeys / buildTransferPlan / decryptAvailable over postMessage JSON-RPC.",
   "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@envelope/cbridge": "*",
+    "react-native-quick-base64": "^3.0.1"
+  },
   "peerDependencies": {
     "react": "*",
     "react-native": "*",

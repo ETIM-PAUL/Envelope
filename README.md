@@ -77,6 +77,25 @@ Each step's transaction count, total compute units consumed, total transaction b
 
 > **Also blocked on funding** — same `admin` wallet as Phase 1. `npm run devnet:roundtrip` correctly refuses to run until `config/devnet.json` has a `mints.cusdc` entry (i.e. until Phase 1's `devnet:mints` has actually succeeded on-chain).
 
+### Phase 3 — proof bridge on device (GO/NO-GO)
+
+**Why this phase exists:** React Native's Hermes engine has no WebAssembly, and `@solana/zk-sdk` (the confidential-transfer proof library) is WASM. The fix is to run the WASM-heavy code inside a hidden `react-native-webview` instead of the RN JS thread, and talk to it over `postMessage`.
+
+**The packages**
+
+- `packages/cbridge` — bundles `src/bridge.ts` (Token-2022 confidential helpers + `@solana/zk-sdk`) into a single offline HTML file via `npm run cbridge:build`.
+- `packages/rn-confidential` — `<CBridgeHost>` React component + `useCBridge()` hook: mounts a locked-down, zero-size WebView loading that HTML, and exposes `ping`/`deriveKeys`/`buildTransferPlan`/`decryptAvailable` as promise-returning calls.
+
+**The WASM-loading problem, and how it's solved:** `@solana/zk-sdk` ships three wasm-bindgen targets (`node`/`bundler`/`web`), and `@solana-program/token-2022`'s confidential helpers hard-import the `bundler` target. That target does `import * as wasm from "./index_bg.wasm"` — a webpack/Vite-specific convention (the bundler instantiates the wasm and hands back its exports as an ES module) that esbuild does not implement. The `web` target instead exports a plain `async init(bytes)` that calls `WebAssembly.instantiate` directly on whatever bytes it's given — exactly what inlined base64 needs, with no network fetch. `build.ts` aliases `@solana/zk-sdk/bundler` → `@solana/zk-sdk/web` for the whole bundle (esbuild's `alias` option), so both token-2022's internal import and the bridge's own resolve to the same module instance; one `zkInit(...)` call in `bridge.ts` initializes it for both. The `.wasm` file itself (≈2.6MB) is read at build time, base64-encoded, and written to a generated `src/generated/wasmBase64.ts` — no esbuild `.wasm` loader plugin needed, since the base64 encoding happens outside esbuild's module graph entirely.
+
+**The signing split:** the plan's design is "the WebView builds instructions/transactions and proofs; React Native only signs (MWA) and sends." Concretely: `bridge.ts` builds a `TransactionPartialSigner`/`MessagePartialSigner` whose `signTransactions`/`signMessages` round-trip over the bridge to React Native's `signMessage`/`signTransaction` host methods (backed by MWA once Phase 8 wires it up) — so the WebView produces a _fully signed_ transaction without ever holding an MWA-controlled private key; only the derived confidential keys (ElGamal + AES) live in its memory, for the session only. `buildTransferPlan`'s result is base64 wire transactions, ready for the host to send as-is.
+
+**Security lockdown** (`CBridgeHost.tsx`): `source={{ html: BRIDGE_HTML }}` (the bundle is inlined, not loaded from a URL), `originWhitelist={['about:blank']}`, `onShouldStartLoadWithRequest={() => false}` (blocks all navigation), `domStorageEnabled={false}`, `allowFileAccess={false}`, `allowUniversalAccessFromFileURLs={false}`.
+
+**What's actually verified, and what isn't:** the WASM-loading strategy is empirically validated — the built bundle was loaded into a stubbed Node `vm` context (minimal `window`/`document`/`atob`/`btoa`), and both `ping` (confirms `wasmReady`) and a full `deriveKeys` round trip (including the nested bridge → host `signMessage` callback, answered by a real local `@solana/kit` signer standing in for MWA) passed. That's a strong proxy — Android's System WebView is Chromium/V8-based, the same JS engine family as Node, and the whole point of this design is that the WebView (unlike Hermes) has full WASM support. **What it does _not_ prove**: this hasn't run inside an actual `react-native-webview` on a physical Android phone, `WebViewComponent`'s React 19 type-compatibility cast hasn't been exercised at runtime, and no real MWA signature has flowed through `signMessage`/`signTransaction`. That's the actual Phase 3 task ("run the Phase 2 transfer from the phone; time proof generation") and the GO/NO-GO call — both need the physical device from Phase 0 step 5, which this environment doesn't have. `npm run cbridge:build` is ready to go the moment a phone is available to test against.
+
+**Done when:** phone builds a valid transfer that lands on devnet. _(Not yet — needs the physical device.)_
+
 ## Get started
 
 1. Install dependencies
