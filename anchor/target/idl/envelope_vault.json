@@ -1,0 +1,728 @@
+{
+  "address": "B9urpR9ePgLSGPuXv8QDgEBFWth3hJHzPeJoqde3Nrjk",
+  "metadata": {
+    "name": "envelope_vault",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "1:1 USDC <-> cUSDC wrapping, tier-based daily limits, and the event-pot registry"
+  },
+  "instructions": [
+    {
+      "name": "close_pot",
+      "discriminator": [
+        214,
+        103,
+        62,
+        202,
+        132,
+        229,
+        27,
+        86
+      ],
+      "accounts": [
+        {
+          "name": "host",
+          "signer": true,
+          "relations": [
+            "pot"
+          ]
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "host"
+              },
+              {
+                "kind": "arg",
+                "path": "pot_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "pot_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_pot",
+      "discriminator": [
+        232,
+        45,
+        123,
+        181,
+        204,
+        121,
+        131,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "host",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "host"
+              },
+              {
+                "kind": "arg",
+                "path": "pot_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pot_id",
+          "type": "u64"
+        },
+        {
+          "name": "name",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "close_ts",
+          "type": "i64"
+        },
+        {
+          "name": "pot_owner",
+          "type": "pubkey"
+        },
+        {
+          "name": "pot_token_account",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Admin-only, once. Records the mints, the vault's USDC ATA, the stake program to trust",
+        "for tier lookups, and the per-tier daily wrap limits."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "holds no account data of its own."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint",
+          "docs": [
+            "Classic SPL Token mint (mock USDC, or Circle's real devnet/mainnet USDC)."
+          ]
+        },
+        {
+          "name": "cusdc_mint",
+          "docs": [
+            "Token-2022 mint with the `ConfidentialTransferMint` extension (cUSDC). `InterfaceAccount`",
+            "(not `Account<token::Mint>`) because the extension data makes this longer than a base mint."
+          ]
+        },
+        {
+          "name": "vault_usdc",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault_authority"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "limits",
+          "type": {
+            "array": [
+              "u64",
+              3
+            ]
+          }
+        },
+        {
+          "name": "stake_program",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "unwrap",
+      "docs": [
+        "Public cUSDC -> USDC, 1:1. Requires a preceding top-level `Approve(vault_authority,",
+        "amount)` in the same transaction — see `Unwrap`'s account docs for why."
+      ],
+      "discriminator": [
+        126,
+        175,
+        198,
+        14,
+        212,
+        69,
+        50,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "top-level `Approve`) the delegate on `user_cusdc` for at least `amount`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "cusdc_mint",
+          "writable": true
+        },
+        {
+          "name": "user_cusdc",
+          "writable": true
+        },
+        {
+          "name": "vault_usdc",
+          "writable": true
+        },
+        {
+          "name": "user_usdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "wrap",
+      "docs": [
+        "USDC -> public cUSDC, 1:1, gated by the caller's staking tier's daily limit."
+      ],
+      "discriminator": [
+        178,
+        40,
+        10,
+        189,
+        228,
+        129,
+        186,
+        140
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool",
+          "docs": [
+            "The stake pool singleton — read-only, for tier thresholds. Not `Account<'info, T>`: see",
+            "`external`'s module doc for why (its `Owner` impl would wrongly require `crate::ID`)."
+          ]
+        },
+        {
+          "name": "stake_position",
+          "docs": [
+            "The user's stake position — read-only, for their staked amount.",
+            "checked above."
+          ]
+        },
+        {
+          "name": "user_daily",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  97,
+                  105,
+                  108,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_usdc",
+          "writable": true
+        },
+        {
+          "name": "vault_usdc",
+          "writable": true
+        },
+        {
+          "name": "cusdc_mint",
+          "writable": true
+        },
+        {
+          "name": "user_cusdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Pot",
+      "discriminator": [
+        238,
+        118,
+        60,
+        175,
+        178,
+        191,
+        59,
+        58
+      ]
+    },
+    {
+      "name": "UserDaily",
+      "discriminator": [
+        80,
+        73,
+        65,
+        189,
+        164,
+        67,
+        220,
+        47
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6001,
+      "name": "DailyLimitExceeded",
+      "msg": "Daily wrap limit exceeded for this tier"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidStakePosition",
+      "msg": "Stake position does not belong to this user"
+    },
+    {
+      "code": 6003,
+      "name": "MissingDelegateApproval",
+      "msg": "VaultAuth is not the approved delegate on this account"
+    },
+    {
+      "code": 6004,
+      "name": "PotAlreadyClosed",
+      "msg": "Pot is already closed"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "cusdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_usdc",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "limits",
+            "docs": [
+              "Per-tier daily wrap limit, in USDC base units. Indexed by `Tier as usize`."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "host",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot_id",
+            "type": "u64"
+          },
+          {
+            "name": "pot_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "UTF-8, zero-padded; trim trailing `\\0` bytes client-side."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "close_ts",
+            "type": "i64"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserDaily",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "day_index",
+            "docs": [
+              "`unix_timestamp / SECONDS_PER_DAY` — the day this counter last reset on."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "deposited_today",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "CONFIG_SEED",
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "POT_SEED",
+      "type": "bytes",
+      "value": "[112, 111, 116]"
+    },
+    {
+      "name": "USER_DAILY_SEED",
+      "type": "bytes",
+      "value": "[100, 97, 105, 108, 121]"
+    },
+    {
+      "name": "VAULT_AUTH_SEED",
+      "type": "bytes",
+      "value": "[118, 97, 117, 108, 116]"
+    }
+  ]
+}

@@ -96,6 +96,26 @@ Each step's transaction count, total compute units consumed, total transaction b
 
 **Done when:** phone builds a valid transfer that lands on devnet. _(Not yet — needs the physical device.)_
 
+### Phase 4 — `envelope_vault` program
+
+`anchor/programs/envelope_vault` — 1:1 USDC ↔ cUSDC wrapping, tier-based daily limits, and the event-pot registry. Built with `anchor-lang`/`anchor-spl` 1.1.2 (`anchor build --program-name envelope_vault` produces `target/deploy/envelope_vault.so` and `target/idl/envelope_vault.json` cleanly).
+
+**Accounts:** `Config` (PDA `["config"]`), `VaultAuth` (PDA `["vault"]` — a pure signing authority, no stored data), `UserDaily` (PDA `["daily", user]`), `Pot` (PDA `["pot", host, pot_id]`) — as specified in the plan.
+
+**Instructions:** `initialize(limits, stake_program)`, `wrap(amount)`, `unwrap(amount)`, `create_pot(...)`, `close_pot(pot_id)`.
+
+**Reading `envelope_stake`'s accounts before Phase 5 exists:** `wrap` needs the caller's staking tier, which means reading `envelope_stake`'s `Pool` (thresholds) and `StakePosition` (staked amount) — but that program doesn't exist yet in this build order. `src/external.rs` defines byte-identical mirror structs instead of taking a crate dependency. This works because Anchor's account discriminator is `sha256("account:<StructName>")[..8]`, derived from the struct _name_ alone — so `external::Pool` here and the real `envelope_stake::Pool` (once Phase 5 builds it, using the same name and field layout) produce identical discriminators. One real wrinkle this surfaced: `#[account]`'s generated `Owner` impl hardcodes `owner() == crate::ID`, so `Account<'info, external::Pool>` would wrongly require the account to be owned by `envelope_vault` itself. The fix is to read these as `UncheckedAccount` with explicit `seeds::program = config.stake_program` + `owner = config.stake_program` constraints, then call `external::Pool::try_deserialize` by hand in the handler. `external.rs` has a `TODO(Phase 5)` to replace this with a real crate dependency once `envelope_stake` exists, to remove the duplication risk.
+
+**CPI Guard compatibility:** `unwrap` burns cUSDC _as delegate_, not as owner — CPI Guard blocks an owner-authorized burn/transfer via CPI but allows a delegate-authorized one. The client must submit `[Approve(delegate = vault_authority, amount), unwrap(amount)]` in one transaction; `unwrap`'s `user_cusdc` account has a constraint that `vault_authority` is already the account's delegate, failing fast with a clear error instead of an opaque SPL Token one if the client forgot the `Approve`.
+
+**`init_if_needed` note** (relevant to Phase 18's hardening pass later): `UserDaily` uses `init_if_needed` rather than a hand-rolled manual-init workaround. Anchor's `init_if_needed` footgun is specifically about handlers that assume init-time zeroing for correctness; `wrap`'s handler doesn't — it always re-checks `day_index` against "today" and resets `deposited_today` itself whether the account was just created or already existed — so it's one of the safer, textbook use cases.
+
+**A real Anchor 1.1.2 API difference discovered while building this:** `CpiContext::new`/`new_with_signer` now take the CPI target's `Pubkey` directly, not `.to_account_info()` — a change from older Anchor versions. Also fixed a pre-existing (not caused by this work, but surfaced by building against it) `anchor-lang`/CLI version mismatch warning by pinning `anchor_version = "1.1.2"` in `Anchor.toml`; both programs still build cleanly under it.
+
+**Invariants by construction, not by assertion:** `wrap`/`unwrap` mint and transfer the exact same `amount` on both sides in the same instruction, so `cusdc_mint.supply == vault_usdc.amount` holds automatically — Phase 6 adds the actual randomized-sequence test for it.
+
+**Done when:** program compiles; instruction handlers written with full account constraints. ✅ (`cargo check --workspace` and `anchor build` both clean, no warnings.)
+
 ## Get started
 
 1. Install dependencies

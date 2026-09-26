@@ -1,6 +1,7 @@
 [toolchain]
 package_manager = "pnpm"
 solana_version = "3.1.10"
+anchor_version = "1.1.2"
 
 [features]
 resolution = true
@@ -8,6 +9,7 @@ skip-lint = false
 
 [programs.localnet]
 hello_world = "BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d"
+envelope_vault = "B9urpR9ePgLSGPuXv8QDgEBFWth3hJHzPeJoqde3Nrjk"
 
 [provider]
 cluster = "localnet"
