@@ -608,11 +608,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
+name = "envelope_stake"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+]
+
+[[package]]
 name = "envelope_vault"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "envelope_stake",
 ]
 
 [[package]]

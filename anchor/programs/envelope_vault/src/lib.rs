@@ -1,6 +1,5 @@
 pub mod constants;
 pub mod error;
-pub mod external;
 pub mod instructions;
 pub mod state;
 
@@ -16,14 +15,11 @@ declare_id!("B9urpR9ePgLSGPuXv8QDgEBFWth3hJHzPeJoqde3Nrjk");
 pub mod envelope_vault {
     use super::*;
 
-    /// Admin-only, once. Records the mints, the vault's USDC ATA, the stake program to trust
-    /// for tier lookups, and the per-tier daily wrap limits.
-    pub fn initialize(
-        ctx: Context<Initialize>,
-        limits: [u64; NUM_TIERS],
-        stake_program: Pubkey,
-    ) -> Result<()> {
-        crate::instructions::initialize::handle_initialize(ctx, limits, stake_program)
+    /// Admin-only, once. Records the mints, the vault's USDC ATA, and the per-tier daily wrap
+    /// limits. `envelope_stake` is trusted directly by its compiled-in program ID (see `wrap`),
+    /// not by anything supplied here.
+    pub fn initialize(ctx: Context<Initialize>, limits: [u64; NUM_TIERS]) -> Result<()> {
+        crate::instructions::initialize::handle_initialize(ctx, limits)
     }
 
     /// USDC -> public cUSDC, 1:1, gated by the caller's staking tier's daily limit.

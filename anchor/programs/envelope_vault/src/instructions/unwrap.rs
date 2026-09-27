@@ -12,7 +12,7 @@ pub struct Unwrap<'info> {
     pub user: Signer<'info>,
 
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
 
     /// CHECK: mint authority of `cusdc_mint`, owner of `vault_usdc`, and (via a preceding
     /// top-level `Approve`) the delegate on `user_cusdc` for at least `amount`.
@@ -20,7 +20,7 @@ pub struct Unwrap<'info> {
     pub vault_authority: UncheckedAccount<'info>,
 
     #[account(mut, address = config.cusdc_mint)]
-    pub cusdc_mint: InterfaceAccount<'info, Mint2022>,
+    pub cusdc_mint: Box<InterfaceAccount<'info, Mint2022>>,
 
     // CPI Guard blocks an *owner*-authorized burn/transfer via CPI, but allows a
     // *delegate*-authorized one. So this burns as delegate: the client must submit
@@ -32,13 +32,13 @@ pub struct Unwrap<'info> {
         constraint = user_cusdc.owner == user.key(),
         constraint = user_cusdc.delegate.contains(&vault_authority.key()) @ ErrorCode::MissingDelegateApproval,
     )]
-    pub user_cusdc: InterfaceAccount<'info, TokenAccount2022>,
+    pub user_cusdc: Box<InterfaceAccount<'info, TokenAccount2022>>,
 
     #[account(mut, address = config.vault_usdc)]
-    pub vault_usdc: Account<'info, TokenAccount>,
+    pub vault_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, constraint = user_usdc.owner == user.key())]
-    pub user_usdc: Account<'info, TokenAccount>,
+    pub user_usdc: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,

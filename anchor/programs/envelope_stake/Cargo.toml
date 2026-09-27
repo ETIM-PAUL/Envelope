@@ -1,13 +1,13 @@
 [package]
-name = "envelope_vault"
+name = "envelope_stake"
 version = "0.1.0"
-description = "1:1 USDC <-> cUSDC wrapping, tier-based daily limits, and the event-pot registry"
+description = "SKR staking that defines Envelope's Free/Member/Business tiers"
 edition.workspace = true
 rust-version.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "envelope_vault"
+name = "envelope_stake"
 
 [features]
 default = []
@@ -21,8 +21,7 @@ custom-panic = []
 
 [dependencies]
 anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
-anchor-spl = { version = "1.1.2", features = ["token", "token_2022", "associated_token"] }
-envelope_stake = { path = "../envelope_stake", features = ["no-entrypoint"] }
+anchor-spl = { version = "1.1.2", features = ["token"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

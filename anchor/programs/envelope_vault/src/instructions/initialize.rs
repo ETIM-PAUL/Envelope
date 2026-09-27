@@ -46,17 +46,16 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle_initialize(
-    ctx: Context<Initialize>,
-    limits: [u64; NUM_TIERS],
-    stake_program: Pubkey,
-) -> Result<()> {
+pub fn handle_initialize(ctx: Context<Initialize>, limits: [u64; NUM_TIERS]) -> Result<()> {
     let config = &mut ctx.accounts.config;
     config.admin = ctx.accounts.admin.key();
     config.usdc_mint = ctx.accounts.usdc_mint.key();
     config.cusdc_mint = ctx.accounts.cusdc_mint.key();
     config.vault_usdc = ctx.accounts.vault_usdc.key();
-    config.stake_program = stake_program;
+    // Not caller-supplied: `wrap` trusts `envelope_stake::ID` directly (the real dependency's
+    // compiled-in program ID). Accepting an admin-supplied address here instead would just add a
+    // misconfiguration risk (or an unused, possibly-stale field) for no benefit.
+    config.stake_program = envelope_stake::ID;
     config.limits = limits;
     config.bump = ctx.bumps.config;
 

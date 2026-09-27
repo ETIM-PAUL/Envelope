@@ -2,10 +2,11 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::{self, MintTo, Token2022};
 use anchor_spl::token_interface::{Mint as Mint2022, TokenAccount as TokenAccount2022};
+use envelope_stake::state::{Pool, StakePosition};
+use envelope_stake::tier::tier_for_stake;
 
 use crate::constants::*;
 use crate::error::ErrorCode;
-use crate::external::{self, tier_for_stake};
 use crate::state::{Config, UserDaily};
 
 #[derive(Accounts)]
@@ -14,33 +15,22 @@ pub struct Wrap<'info> {
     pub user: Signer<'info>,
 
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
 
     /// CHECK: mint authority of `cusdc_mint`, owner of `vault_usdc`.
     #[account(seeds = [VAULT_AUTH_SEED], bump)]
     pub vault_authority: UncheckedAccount<'info>,
 
-    /// The stake pool singleton — read-only, for tier thresholds. Not `Account<'info, T>`: see
-    /// `external`'s module doc for why (its `Owner` impl would wrongly require `crate::ID`).
-    #[account(
-        seeds = [b"pool"],
-        bump,
-        seeds::program = config.stake_program,
-        owner = config.stake_program,
-    )]
-    /// CHECK: deserialized as `external::Pool` in the handler; seeds + owner are checked above.
-    pub pool: UncheckedAccount<'info>,
+    /// The stake pool singleton — read-only, for tier thresholds. `envelope_stake` is a real
+    /// dependency (not a mirror), so `Account<'info, Pool>`'s built-in owner check already
+    /// requires ownership by `envelope_stake::ID` correctly; `seeds::program` only needs to
+    /// override which program the PDA is *derived* against (it defaults to this program's ID).
+    #[account(seeds = [b"pool"], bump, seeds::program = envelope_stake::ID)]
+    pub pool: Box<Account<'info, Pool>>,
 
-    /// The user's stake position — read-only, for their staked amount.
-    #[account(
-        seeds = [b"stake", user.key().as_ref()],
-        bump,
-        seeds::program = config.stake_program,
-        owner = config.stake_program,
-    )]
-    /// CHECK: deserialized as `external::StakePosition` in the handler; seeds + owner are
-    /// checked above.
-    pub stake_position: UncheckedAccount<'info>,
+    /// The user's stake position — read-only, for their staked amount and any pending unstake.
+    #[account(seeds = [b"stake", user.key().as_ref()], bump, seeds::program = envelope_stake::ID)]
+    pub stake_position: Box<Account<'info, StakePosition>>,
 
     #[account(
         init_if_needed,
@@ -52,19 +42,19 @@ pub struct Wrap<'info> {
     // Safe here specifically because correctness never depends on init-time zeroing: the handler
     // always re-checks `day_index` against "today" and resets `deposited_today` itself, whether
     // this account was just created or already existed.
-    pub user_daily: Account<'info, UserDaily>,
+    pub user_daily: Box<Account<'info, UserDaily>>,
 
     #[account(mut, constraint = user_usdc.owner == user.key())]
-    pub user_usdc: Account<'info, TokenAccount>,
+    pub user_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, address = config.vault_usdc)]
-    pub vault_usdc: Account<'info, TokenAccount>,
+    pub vault_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, address = config.cusdc_mint)]
-    pub cusdc_mint: InterfaceAccount<'info, Mint2022>,
+    pub cusdc_mint: Box<InterfaceAccount<'info, Mint2022>>,
 
     #[account(mut, constraint = user_cusdc.owner == user.key())]
-    pub user_cusdc: InterfaceAccount<'info, TokenAccount2022>,
+    pub user_cusdc: Box<InterfaceAccount<'info, TokenAccount2022>>,
 
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
@@ -74,14 +64,7 @@ pub struct Wrap<'info> {
 pub fn handle_wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
     require!(amount > 0, ErrorCode::Overflow);
 
-    let pool_data = ctx.accounts.pool.try_borrow_data()?;
-    let pool = external::Pool::try_deserialize(&mut &pool_data[..])?;
-    drop(pool_data);
-
-    let stake_data = ctx.accounts.stake_position.try_borrow_data()?;
-    let stake_position = external::StakePosition::try_deserialize(&mut &stake_data[..])?;
-    drop(stake_data);
-
+    let stake_position = &ctx.accounts.stake_position;
     require_keys_eq!(
         stake_position.user,
         ctx.accounts.user.key(),
@@ -90,8 +73,9 @@ pub fn handle_wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
 
     let tier = tier_for_stake(
         stake_position.amount,
-        pool.member_threshold,
-        pool.business_threshold,
+        stake_position.unlock_requested_at,
+        ctx.accounts.pool.member_threshold,
+        ctx.accounts.pool.business_threshold,
     );
     let limit = ctx.accounts.config.limits[tier as usize];
 

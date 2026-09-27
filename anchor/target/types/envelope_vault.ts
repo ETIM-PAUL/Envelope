@@ -143,8 +143,9 @@ export type EnvelopeVault = {
     {
       "name": "initialize",
       "docs": [
-        "Admin-only, once. Records the mints, the vault's USDC ATA, the stake program to trust",
-        "for tier lookups, and the per-tier daily wrap limits."
+        "Admin-only, once. Records the mints, the vault's USDC ATA, and the per-tier daily wrap",
+        "limits. `envelope_stake` is trusted directly by its compiled-in program ID (see `wrap`),",
+        "not by anything supplied here."
       ],
       "discriminator": [
         175,
@@ -293,10 +294,6 @@ export type EnvelopeVault = {
               3
             ]
           }
-        },
-        {
-          "name": "stakeProgram",
-          "type": "pubkey"
         }
       ]
     },
@@ -450,16 +447,122 @@ export type EnvelopeVault = {
         {
           "name": "pool",
           "docs": [
-            "The stake pool singleton — read-only, for tier thresholds. Not `Account<'info, T>`: see",
-            "`external`'s module doc for why (its `Owner` impl would wrongly require `crate::ID`)."
-          ]
+            "The stake pool singleton — read-only, for tier thresholds. `envelope_stake` is a real",
+            "dependency (not a mirror), so `Account<'info, Pool>`'s built-in owner check already",
+            "requires ownership by `envelope_stake::ID` correctly; `seeds::program` only needs to",
+            "override which program the PDA is *derived* against (it defaults to this program's ID)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                208,
+                214,
+                163,
+                244,
+                85,
+                180,
+                220,
+                97,
+                120,
+                249,
+                110,
+                86,
+                210,
+                107,
+                98,
+                124,
+                195,
+                121,
+                146,
+                24,
+                222,
+                46,
+                83,
+                15,
+                52,
+                70,
+                49,
+                254,
+                200,
+                125,
+                181,
+                168
+              ]
+            }
+          }
         },
         {
           "name": "stakePosition",
           "docs": [
-            "The user's stake position — read-only, for their staked amount.",
-            "checked above."
-          ]
+            "The user's stake position — read-only, for their staked amount and any pending unstake."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                208,
+                214,
+                163,
+                244,
+                85,
+                180,
+                220,
+                97,
+                120,
+                249,
+                110,
+                86,
+                210,
+                107,
+                98,
+                124,
+                195,
+                121,
+                146,
+                24,
+                222,
+                46,
+                83,
+                15,
+                52,
+                70,
+                49,
+                254,
+                200,
+                125,
+                181,
+                168
+              ]
+            }
+          }
         },
         {
           "name": "userDaily",
@@ -634,6 +737,38 @@ export type EnvelopeVault = {
       }
     },
     {
+      "name": "pool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skrMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultSkr",
+            "type": "pubkey"
+          },
+          {
+            "name": "memberThreshold",
+            "type": "u64"
+          },
+          {
+            "name": "businessThreshold",
+            "type": "u64"
+          },
+          {
+            "name": "cooldownSecs",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "pot",
       "type": {
         "kind": "struct",
@@ -673,6 +808,34 @@ export type EnvelopeVault = {
           {
             "name": "closed",
             "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stakePosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "unlockRequestedAt",
+            "docs": [
+              "0 when no unstake has been requested; otherwise the unix timestamp `request_unstake` was",
+              "called at. Tier drops to `Free` the instant this is set — see `tier::tier_for_stake`."
+            ],
+            "type": "i64"
           },
           {
             "name": "bump",
