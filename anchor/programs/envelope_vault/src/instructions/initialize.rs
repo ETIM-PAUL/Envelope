@@ -4,6 +4,7 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 use anchor_spl::token_interface::Mint as Mint2022;
 
 use crate::constants::*;
+use crate::error::ErrorCode;
 use crate::state::Config;
 
 #[derive(Accounts)]
@@ -46,7 +47,13 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle_initialize(ctx: Context<Initialize>, limits: [u64; NUM_TIERS]) -> Result<()> {
+pub fn handle_initialize(
+    ctx: Context<Initialize>,
+    limits: [u64; NUM_TIERS],
+    seconds_per_day: i64,
+) -> Result<()> {
+    require!(seconds_per_day > 0, ErrorCode::Overflow);
+
     let config = &mut ctx.accounts.config;
     config.admin = ctx.accounts.admin.key();
     config.usdc_mint = ctx.accounts.usdc_mint.key();
@@ -57,6 +64,7 @@ pub fn handle_initialize(ctx: Context<Initialize>, limits: [u64; NUM_TIERS]) -> 
     // misconfiguration risk (or an unused, possibly-stale field) for no benefit.
     config.stake_program = envelope_stake::ID;
     config.limits = limits;
+    config.seconds_per_day = seconds_per_day;
     config.bump = ctx.bumps.config;
 
     msg!(

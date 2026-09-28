@@ -1,4 +1,4 @@
-import { fetchMaybeCounter, findCounterPda } from '@project/anchor'
+import { helloWorld } from '@project/anchor'
 import { useQuery } from '@tanstack/react-query'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 
@@ -15,8 +15,8 @@ export function useCounterQuery() {
       if (!account) {
         return null
       }
-      const [counterAddress] = await findCounterPda({ authority: account.address })
-      const counter = await fetchMaybeCounter(client.rpc, counterAddress)
+      const [counterAddress] = await helloWorld.findCounterPda({ authority: account.address })
+      const counter = await helloWorld.fetchMaybeCounter(client.rpc, counterAddress)
       return { address: counterAddress, count: counter.exists ? counter.data.count : null }
     },
   })

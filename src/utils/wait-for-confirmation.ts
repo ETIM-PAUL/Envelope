@@ -1,10 +1,14 @@
-import type { createSolanaRpc, Signature } from '@solana/kit'
+import type { GetSignatureStatusesApi, Rpc, Signature } from '@solana/kit'
 
-type SolanaRpc = ReturnType<typeof createSolanaRpc>
-
-// Polls until the cluster confirms the transaction, for flows where someone
-// else (the wallet, the faucet) submitted it.
-export async function waitForConfirmation(rpc: SolanaRpc, transactionSignature: Signature, timeoutMs = 30_000) {
+// Narrowed to just the one capability this actually calls, rather than a full `Rpc` client type:
+// wallet-ui's `client.rpc` comes from its own internal `@solana/kit` (a different major version
+// than this app's, structurally compatible but not nominally identical), so requiring the whole
+// branded client type here rejects it even though it has everything this function needs.
+export async function waitForConfirmation(
+  rpc: Rpc<GetSignatureStatusesApi>,
+  transactionSignature: Signature,
+  timeoutMs = 30_000,
+) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < timeoutMs) {
     const {

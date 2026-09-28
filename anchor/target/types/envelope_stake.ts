@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/envelope_stake.json`.
  */
 export type EnvelopeStake = {
-  "address": "F4DdZ7ArpYrPGCFnBp8mEtakkwNWWTqDFPirNKqCVwTV",
+  "address": "331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx",
   "metadata": {
     "name": "envelopeStake",
     "version": "0.1.0",
@@ -82,6 +82,14 @@ export type EnvelopeStake = {
           "name": "skrMint"
         },
         {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
           "name": "vaultSkr",
           "writable": true,
           "pda": {
@@ -137,14 +145,6 @@ export type EnvelopeStake = {
               ]
             }
           }
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "systemProgram",

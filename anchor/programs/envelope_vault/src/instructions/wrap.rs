@@ -28,9 +28,14 @@ pub struct Wrap<'info> {
     #[account(seeds = [b"pool"], bump, seeds::program = envelope_stake::ID)]
     pub pool: Box<Account<'info, Pool>>,
 
-    /// The user's stake position — read-only, for their staked amount and any pending unstake.
+    /// CHECK: the user's stake position, read-only. Not `Account<'info, StakePosition>`: a user
+    /// who has never staked has no such account yet (envelope_stake's `stake` creates it on
+    /// first use), and that's an ordinary Free-tier caller, not an error — so this is read as
+    /// `UncheckedAccount` and treated as "nothing staked" when absent. The handler manually
+    /// verifies ownership (`envelope_stake::ID`) and the account's own `user` field whenever it
+    /// isn't empty; the `seeds`/`seeds::program` constraint below additionally pins the address.
     #[account(seeds = [b"stake", user.key().as_ref()], bump, seeds::program = envelope_stake::ID)]
-    pub stake_position: Box<Account<'info, StakePosition>>,
+    pub stake_position: UncheckedAccount<'info>,
 
     #[account(
         init_if_needed,
@@ -61,26 +66,40 @@ pub struct Wrap<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// Split out of `handle_wrap` deliberately, not just for readability: BPF allocates one 4KB stack
+// frame per function call, and this instruction's combined account-reading, tier/limit, and CPI
+// logic overflowed a single frame when it was all inlined together (`#[inline(never)]` stops
+// release-mode LLVM from re-merging the two and reintroducing that).
+#[inline(never)]
+fn read_stake_position(stake_position: &UncheckedAccount, user: &Pubkey) -> Result<(u64, i64)> {
+    let info = stake_position.to_account_info();
+    if info.lamports() == 0 {
+        // Never staked — an ordinary Free-tier caller, not an error.
+        return Ok((0, 0));
+    }
+    require_keys_eq!(*info.owner, envelope_stake::ID, ErrorCode::InvalidStakePosition);
+    let data = info.try_borrow_data()?;
+    let stake_position = StakePosition::try_deserialize(&mut &data[..])?;
+    require_keys_eq!(stake_position.user, *user, ErrorCode::InvalidStakePosition);
+    Ok((stake_position.amount, stake_position.unlock_requested_at))
+}
+
 pub fn handle_wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
     require!(amount > 0, ErrorCode::Overflow);
 
-    let stake_position = &ctx.accounts.stake_position;
-    require_keys_eq!(
-        stake_position.user,
-        ctx.accounts.user.key(),
-        ErrorCode::InvalidStakePosition
-    );
+    let user_key = ctx.accounts.user.key();
+    let (staked_amount, unlock_requested_at) = read_stake_position(&ctx.accounts.stake_position, &user_key)?;
 
     let tier = tier_for_stake(
-        stake_position.amount,
-        stake_position.unlock_requested_at,
+        staked_amount,
+        unlock_requested_at,
         ctx.accounts.pool.member_threshold,
         ctx.accounts.pool.business_threshold,
     );
     let limit = ctx.accounts.config.limits[tier as usize];
 
     let now = Clock::get()?.unix_timestamp;
-    let day_index = now / SECONDS_PER_DAY;
+    let day_index = now / ctx.accounts.config.seconds_per_day;
 
     let user_daily = &mut ctx.accounts.user_daily;
     if user_daily.day_index != day_index {

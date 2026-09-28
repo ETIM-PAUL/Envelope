@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Text, View, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
-import { HELLO_WORLD_PROGRAM_ADDRESS } from '@project/anchor'
+import { helloWorld } from '@project/anchor'
 import { AppAddressLink } from '../components/app-address-link'
 import { CounterFeature } from '../features/counter/counter-feature'
 import { NetworkUiSelect } from '../features/network/network-ui-select'
@@ -54,7 +54,7 @@ export default function App() {
       </Text>
 
       <View className="mb-4">
-        <AppAddressLink address={HELLO_WORLD_PROGRAM_ADDRESS} label="Program" />
+        <AppAddressLink address={helloWorld.HELLO_WORLD_PROGRAM_ADDRESS} label="Program" />
       </View>
 
       <View className="mb-8 items-center">

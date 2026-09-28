@@ -1,24 +1,22 @@
 [toolchain]
-package_manager = "pnpm"
-solana_version = "3.1.10"
 anchor_version = "1.1.2"
+solana_version = "3.1.10"
+package_manager = "pnpm"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-hello_world = "BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d"
-envelope_vault = "B9urpR9ePgLSGPuXv8QDgEBFWth3hJHzPeJoqde3Nrjk"
-envelope_stake = "F4DdZ7ArpYrPGCFnBp8mEtakkwNWWTqDFPirNKqCVwTV"
+envelope_stake = "331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx"
+envelope_vault = "43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi"
+hello_world = "2LFy3y7co2a9Spzg5xaUd79tDHBFgXEaMugPbTJR65Z3"
 
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-# The default 5s timeout is enough for Surfpool, but not for the slower validator
-# that `anchor test --validator legacy` starts, which warms up on first invoke.
-test = "npx vitest run --testTimeout=60000"
+test = "npx vitest run --testTimeout=60000 --hookTimeout=60000 --no-file-parallelism"
 
 [hooks]

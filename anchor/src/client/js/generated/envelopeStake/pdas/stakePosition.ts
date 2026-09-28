@@ -14,22 +14,19 @@ import {
   type ProgramDerivedAddress,
 } from '@solana/kit'
 
-export type CounterSeeds = {
-  authority: Address
+export type StakePositionSeeds = {
+  user: Address
 }
 
-export async function findCounterPda(
-  seeds: CounterSeeds,
+export async function findStakePositionPda(
+  seeds: StakePositionSeeds,
   config: { programAddress?: Address | undefined } = {},
 ): Promise<ProgramDerivedAddress> {
   const {
-    programAddress = 'BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d' as Address<'BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d'>,
+    programAddress = '331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx' as Address<'331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx'>,
   } = config
   return await getProgramDerivedAddress({
     programAddress,
-    seeds: [
-      getBytesEncoder().encode(new Uint8Array([99, 111, 117, 110, 116, 101, 114])),
-      getAddressEncoder().encode(seeds.authority),
-    ],
+    seeds: [getBytesEncoder().encode(new Uint8Array([115, 116, 97, 107, 101])), getAddressEncoder().encode(seeds.user)],
   })
 }

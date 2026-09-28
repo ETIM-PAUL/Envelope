@@ -48,7 +48,7 @@ import {
 import { findCounterPda, findInitializeCounterPda } from '../pdas'
 
 export const HELLO_WORLD_PROGRAM_ADDRESS =
-  'BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d' as Address<'BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d'>
+  '2LFy3y7co2a9Spzg5xaUd79tDHBFgXEaMugPbTJR65Z3' as Address<'2LFy3y7co2a9Spzg5xaUd79tDHBFgXEaMugPbTJR65Z3'>
 
 export enum HelloWorldAccount {
   Counter,
@@ -106,7 +106,7 @@ export function identifyHelloWorldInstruction(
   })
 }
 
-export type ParsedHelloWorldInstruction<TProgram extends string = 'BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d'> =
+export type ParsedHelloWorldInstruction<TProgram extends string = '2LFy3y7co2a9Spzg5xaUd79tDHBFgXEaMugPbTJR65Z3'> =
   | ({ instructionType: HelloWorldInstruction.Increment } & ParsedIncrementInstruction<TProgram>)
   | ({ instructionType: HelloWorldInstruction.Initialize } & ParsedInitializeInstruction<TProgram>)
 

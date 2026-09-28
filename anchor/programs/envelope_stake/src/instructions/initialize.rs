@@ -25,6 +25,9 @@ pub struct Initialize<'info> {
 
     pub skr_mint: Account<'info, Mint>,
 
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+
     #[account(
         init,
         payer = admin,
@@ -34,8 +37,6 @@ pub struct Initialize<'info> {
     )]
     pub vault_skr: Account<'info, TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 

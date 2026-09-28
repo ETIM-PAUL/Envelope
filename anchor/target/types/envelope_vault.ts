@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/envelope_vault.json`.
  */
 export type EnvelopeVault = {
-  "address": "B9urpR9ePgLSGPuXv8QDgEBFWth3hJHzPeJoqde3Nrjk",
+  "address": "43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi",
   "metadata": {
     "name": "envelopeVault",
     "version": "0.1.0",
@@ -294,6 +294,10 @@ export type EnvelopeVault = {
               3
             ]
           }
+        },
+        {
+          "name": "secondsPerDay",
+          "type": "i64"
         }
       ]
     },
@@ -467,38 +471,38 @@ export type EnvelopeVault = {
             "program": {
               "kind": "const",
               "value": [
-                208,
-                214,
-                163,
-                244,
-                85,
-                180,
-                220,
-                97,
-                120,
-                249,
-                110,
+                30,
+                59,
+                28,
                 86,
-                210,
-                107,
-                98,
-                124,
-                195,
-                121,
-                146,
-                24,
-                222,
-                46,
-                83,
-                15,
+                113,
+                215,
+                29,
+                158,
+                122,
+                164,
+                170,
+                211,
                 52,
-                70,
-                49,
-                254,
-                200,
-                125,
-                181,
-                168
+                27,
+                87,
+                96,
+                193,
+                240,
+                242,
+                7,
+                8,
+                93,
+                217,
+                116,
+                195,
+                25,
+                106,
+                76,
+                214,
+                105,
+                224,
+                163
               ]
             }
           }
@@ -506,7 +510,11 @@ export type EnvelopeVault = {
         {
           "name": "stakePosition",
           "docs": [
-            "The user's stake position — read-only, for their staked amount and any pending unstake."
+            "who has never staked has no such account yet (envelope_stake's `stake` creates it on",
+            "first use), and that's an ordinary Free-tier caller, not an error — so this is read as",
+            "`UncheckedAccount` and treated as \"nothing staked\" when absent. The handler manually",
+            "verifies ownership (`envelope_stake::ID`) and the account's own `user` field whenever it",
+            "isn't empty; the `seeds`/`seeds::program` constraint below additionally pins the address."
           ],
           "pda": {
             "seeds": [
@@ -528,38 +536,38 @@ export type EnvelopeVault = {
             "program": {
               "kind": "const",
               "value": [
-                208,
-                214,
-                163,
-                244,
-                85,
-                180,
-                220,
-                97,
-                120,
-                249,
-                110,
+                30,
+                59,
+                28,
                 86,
-                210,
-                107,
-                98,
-                124,
-                195,
-                121,
-                146,
-                24,
-                222,
-                46,
-                83,
-                15,
+                113,
+                215,
+                29,
+                158,
+                122,
+                164,
+                170,
+                211,
                 52,
-                70,
-                49,
-                254,
-                200,
-                125,
-                181,
-                168
+                27,
+                87,
+                96,
+                193,
+                240,
+                242,
+                7,
+                8,
+                93,
+                217,
+                116,
+                195,
+                25,
+                106,
+                76,
+                214,
+                105,
+                224,
+                163
               ]
             }
           }
@@ -730,6 +738,15 @@ export type EnvelopeVault = {
             }
           },
           {
+            "name": "secondsPerDay",
+            "docs": [
+              "Length of a \"day\" for `UserDaily.day_index` purposes, in seconds. A runtime field (not a",
+              "compile-time constant) specifically so tests can pass a short value at `initialize` time",
+              "without needing a second build of the program."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -808,34 +825,6 @@ export type EnvelopeVault = {
           {
             "name": "closed",
             "type": "bool"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "stakePosition",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "user",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "unlockRequestedAt",
-            "docs": [
-              "0 when no unstake has been requested; otherwise the unix timestamp `request_unstake` was",
-              "called at. Tier drops to `Free` the instant this is set — see `tier::tier_for_stake`."
-            ],
-            "type": "i64"
           },
           {
             "name": "bump",

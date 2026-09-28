@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/hello_world.json`.
  */
 export type HelloWorld = {
-  "address": "BneHHhN7nSXgjZytQWLsi1TRY7xMz83FxpkKgoCb1n2d",
+  "address": "2LFy3y7co2a9Spzg5xaUd79tDHBFgXEaMugPbTJR65Z3",
   "metadata": {
     "name": "helloWorld",
     "version": "0.1.0",

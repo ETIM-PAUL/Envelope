@@ -28,14 +28,17 @@ import {
   type InstructionWithData,
   type ReadonlyAccount,
   type ReadonlyUint8Array,
-  type TransactionSigner,
   type WritableAccount,
   type WritableSignerAccount,
 } from '@solana/kit'
 import {
   getAccountMetaFactory,
   getAddressFromResolvedInstructionAccount,
+  type InstructionAccountInput,
+  type InstructionAccountInputAddress,
+  type InstructionSignerInput,
   type ResolvedInstructionAccount,
+  type ResolvedInstructionAccountMeta,
 } from '@solana/kit/program-client-core'
 import { findInitializeCounterPda } from '../pdas'
 import { HELLO_WORLD_PROGRAM_ADDRESS } from '../programs'
@@ -88,46 +91,56 @@ export function getInitializeInstructionDataCodec(): FixedSizeCodec<
 }
 
 export type InitializeAsyncInput<
-  TAccountPayer extends string = string,
-  TAccountCounter extends string = string,
-  TAccountSystemProgram extends string = string,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
+  TAccountCounter extends InstructionAccountInput = InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
-  payer: TransactionSigner<TAccountPayer>
-  counter?: Address<TAccountCounter>
-  systemProgram?: Address<TAccountSystemProgram>
+  payer: TAccountPayer
+  counter?: TAccountCounter
+  systemProgram?: TAccountSystemProgram
 }
 
 export async function getInitializeInstructionAsync<
-  TAccountPayer extends string,
-  TAccountCounter extends string,
-  TAccountSystemProgram extends string,
+  TAccountPayer extends InstructionSignerInput,
+  TAccountCounter extends InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof HELLO_WORLD_PROGRAM_ADDRESS,
 >(
   input: InitializeAsyncInput<TAccountPayer, TAccountCounter, TAccountSystemProgram>,
   config?: { programAddress?: TProgramAddress },
-): Promise<InitializeInstruction<TProgramAddress, TAccountPayer, TAccountCounter, TAccountSystemProgram>> {
+): Promise<
+  InitializeInstruction<
+    TProgramAddress,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
+    ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+    ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
+  >
+> {
   // Program address.
   const programAddress = config?.programAddress ?? HELLO_WORLD_PROGRAM_ADDRESS
 
+  // Account meta helper.
+  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
+
   // Original accounts.
   const originalAccounts = {
-    payer: { value: input.payer ?? null, isWritable: true },
-    counter: { value: input.counter ?? null, isWritable: true },
-    systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
+    counter: { value: input.counter ?? null, isSigner: false, isWritable: true },
+    systemProgram: { value: input.systemProgram ?? null, isSigner: false, isWritable: false },
   }
   const accounts = originalAccounts as Record<keyof typeof originalAccounts, ResolvedInstructionAccount>
 
   // Resolve default values.
   if (!accounts.counter.value) {
-    accounts.counter.value = await findInitializeCounterPda({
-      payer: getAddressFromResolvedInstructionAccount('payer', accounts.payer.value),
-    })
+    accounts.counter.value = await findInitializeCounterPda(
+      { payer: getAddressFromResolvedInstructionAccount('payer', accounts.payer.value) },
+      { programAddress },
+    )
   }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value = '11111111111111111111111111111111' as Address<'11111111111111111111111111111111'>
   }
 
-  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
   return Object.freeze({
     accounts: [
       getAccountMeta('payer', accounts.payer),
@@ -136,36 +149,49 @@ export async function getInitializeInstructionAsync<
     ],
     data: getInitializeInstructionDataEncoder().encode({}),
     programAddress,
-  } as InitializeInstruction<TProgramAddress, TAccountPayer, TAccountCounter, TAccountSystemProgram>)
+  } as InitializeInstruction<
+    TProgramAddress,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
+    ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+    ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
+  >)
 }
 
 export type InitializeInput<
-  TAccountPayer extends string = string,
-  TAccountCounter extends string = string,
-  TAccountSystemProgram extends string = string,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
+  TAccountCounter extends InstructionAccountInput = InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
-  payer: TransactionSigner<TAccountPayer>
-  counter: Address<TAccountCounter>
-  systemProgram?: Address<TAccountSystemProgram>
+  payer: TAccountPayer
+  counter: TAccountCounter
+  systemProgram?: TAccountSystemProgram
 }
 
 export function getInitializeInstruction<
-  TAccountPayer extends string,
-  TAccountCounter extends string,
-  TAccountSystemProgram extends string,
+  TAccountPayer extends InstructionSignerInput,
+  TAccountCounter extends InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof HELLO_WORLD_PROGRAM_ADDRESS,
 >(
   input: InitializeInput<TAccountPayer, TAccountCounter, TAccountSystemProgram>,
   config?: { programAddress?: TProgramAddress },
-): InitializeInstruction<TProgramAddress, TAccountPayer, TAccountCounter, TAccountSystemProgram> {
+): InitializeInstruction<
+  TProgramAddress,
+  ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
+  ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+  ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
+> {
   // Program address.
   const programAddress = config?.programAddress ?? HELLO_WORLD_PROGRAM_ADDRESS
 
+  // Account meta helper.
+  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
+
   // Original accounts.
   const originalAccounts = {
-    payer: { value: input.payer ?? null, isWritable: true },
-    counter: { value: input.counter ?? null, isWritable: true },
-    systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
+    counter: { value: input.counter ?? null, isSigner: false, isWritable: true },
+    systemProgram: { value: input.systemProgram ?? null, isSigner: false, isWritable: false },
   }
   const accounts = originalAccounts as Record<keyof typeof originalAccounts, ResolvedInstructionAccount>
 
@@ -174,7 +200,6 @@ export function getInitializeInstruction<
     accounts.systemProgram.value = '11111111111111111111111111111111' as Address<'11111111111111111111111111111111'>
   }
 
-  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
   return Object.freeze({
     accounts: [
       getAccountMeta('payer', accounts.payer),
@@ -183,7 +208,12 @@ export function getInitializeInstruction<
     ],
     data: getInitializeInstructionDataEncoder().encode({}),
     programAddress,
-  } as InitializeInstruction<TProgramAddress, TAccountPayer, TAccountCounter, TAccountSystemProgram>)
+  } as InitializeInstruction<
+    TProgramAddress,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
+    ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+    ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
+  >)
 }
 
 export type ParsedInitializeInstruction<

@@ -6,5 +6,19 @@
     "alice": "Cu5aerK8yvzHfrKPSMBwCYM16HSkXRbnUJt4MNPgzkQX",
     "bob": "DCuGm6sfoc6tBZaU829aFb3VtAMyVksEkvekkoVd3MVG",
     "carol": "AzxPs3HFbaXktueLPEyBMBBxPzhdE22C8NdxJf2Q4pXG"
+  },
+  "mints": {
+    "usdc": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "skr": "5m3R8bdAZr5xMg7ioMXoPabsKGcRPAWLu2muzyUNzRKY",
+    "cusdc": "8wc4rgUPj4a2542YpgrjaxXW9XzBFZA1PLSvdNXmkjsf"
+  },
+  "programs": {
+    "envelope_stake": "331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx",
+    "envelope_vault": "43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi"
+  },
+  "accounts": {
+    "envelope_stake_pool": "537iXUEmNxtR9KLgsufLC4Wj6Rut8sr9T8kAs9o6Zn5z",
+    "envelope_vault_config": "AEMXeAzUKVHrFcMtMwuXvWMuo2eQyyHjah6u9fq35rgX",
+    "envelope_vault_authority": "Hhs12RNdD5b55qL3YMxBNhEgrvEqjjWqjZKd37ycjQmv"
   }
 }

@@ -12,6 +12,10 @@ pub struct Config {
     pub stake_program: Pubkey,
     /// Per-tier daily wrap limit, in USDC base units. Indexed by `Tier as usize`.
     pub limits: [u64; NUM_TIERS],
+    /// Length of a "day" for `UserDaily.day_index` purposes, in seconds. A runtime field (not a
+    /// compile-time constant) specifically so tests can pass a short value at `initialize` time
+    /// without needing a second build of the program.
+    pub seconds_per_day: i64,
     pub bump: u8,
 }
 

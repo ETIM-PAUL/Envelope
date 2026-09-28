@@ -1,5 +1,5 @@
 {
-  "address": "F4DdZ7ArpYrPGCFnBp8mEtakkwNWWTqDFPirNKqCVwTV",
+  "address": "331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx",
   "metadata": {
     "name": "envelope_stake",
     "version": "0.1.0",
@@ -76,6 +76,14 @@
           "name": "skr_mint"
         },
         {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
           "name": "vault_skr",
           "writable": true,
           "pda": {
@@ -131,14 +139,6 @@
               ]
             }
           }
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "system_program",

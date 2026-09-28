@@ -9,7 +9,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("B9urpR9ePgLSGPuXv8QDgEBFWth3hJHzPeJoqde3Nrjk");
+declare_id!("43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi");
 
 #[program]
 pub mod envelope_vault {
@@ -18,8 +18,8 @@ pub mod envelope_vault {
     /// Admin-only, once. Records the mints, the vault's USDC ATA, and the per-tier daily wrap
     /// limits. `envelope_stake` is trusted directly by its compiled-in program ID (see `wrap`),
     /// not by anything supplied here.
-    pub fn initialize(ctx: Context<Initialize>, limits: [u64; NUM_TIERS]) -> Result<()> {
-        crate::instructions::initialize::handle_initialize(ctx, limits)
+    pub fn initialize(ctx: Context<Initialize>, limits: [u64; NUM_TIERS], seconds_per_day: i64) -> Result<()> {
+        crate::instructions::initialize::handle_initialize(ctx, limits, seconds_per_day)
     }
 
     /// USDC -> public cUSDC, 1:1, gated by the caller's staking tier's daily limit.

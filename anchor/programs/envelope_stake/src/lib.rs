@@ -11,7 +11,7 @@ pub use instructions::*;
 pub use state::*;
 pub use tier::*;
 
-declare_id!("F4DdZ7ArpYrPGCFnBp8mEtakkwNWWTqDFPirNKqCVwTV");
+declare_id!("331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx");
 
 #[program]
 pub mod envelope_stake {

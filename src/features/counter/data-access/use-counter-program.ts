@@ -1,4 +1,4 @@
-import { getIncrementInstructionAsync, getInitializeInstructionAsync } from '@project/anchor'
+import { helloWorld } from '@project/anchor'
 import {
   appendTransactionMessageInstruction,
   assertIsTransactionMessageWithSingleSendingSigner,
@@ -58,11 +58,11 @@ export function useCounterProgram() {
 
   return {
     incrementMutation: useMutation({
-      mutationFn: () => sendInstruction((authority) => getIncrementInstructionAsync({ authority })),
+      mutationFn: () => sendInstruction((authority) => helloWorld.getIncrementInstructionAsync({ authority })),
       onSettled,
     }),
     initializeMutation: useMutation({
-      mutationFn: () => sendInstruction((payer) => getInitializeInstructionAsync({ payer })),
+      mutationFn: () => sendInstruction((payer) => helloWorld.getInitializeInstructionAsync({ payer })),
       onSettled,
     }),
   }

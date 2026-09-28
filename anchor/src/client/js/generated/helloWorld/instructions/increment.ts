@@ -28,13 +28,16 @@ import {
   type InstructionWithData,
   type ReadonlySignerAccount,
   type ReadonlyUint8Array,
-  type TransactionSigner,
   type WritableAccount,
 } from '@solana/kit'
 import {
   getAccountMetaFactory,
   getAddressFromResolvedInstructionAccount,
+  type InstructionAccountInput,
+  type InstructionAccountInputAddress,
+  type InstructionSignerInput,
   type ResolvedInstructionAccount,
+  type ResolvedInstructionAccountMeta,
 } from '@solana/kit/program-client-core'
 import { findCounterPda } from '../pdas'
 import { HELLO_WORLD_PROGRAM_ADDRESS } from '../programs'
@@ -84,73 +87,102 @@ export function getIncrementInstructionDataCodec(): FixedSizeCodec<
   return combineCodec(getIncrementInstructionDataEncoder(), getIncrementInstructionDataDecoder())
 }
 
-export type IncrementAsyncInput<TAccountCounter extends string = string, TAccountAuthority extends string = string> = {
-  counter?: Address<TAccountCounter>
-  authority: TransactionSigner<TAccountAuthority>
+export type IncrementAsyncInput<
+  TAccountCounter extends InstructionAccountInput = InstructionAccountInput,
+  TAccountAuthority extends InstructionSignerInput = InstructionSignerInput,
+> = {
+  counter?: TAccountCounter
+  authority: TAccountAuthority
 }
 
 export async function getIncrementInstructionAsync<
-  TAccountCounter extends string,
-  TAccountAuthority extends string,
+  TAccountCounter extends InstructionAccountInput,
+  TAccountAuthority extends InstructionSignerInput,
   TProgramAddress extends Address = typeof HELLO_WORLD_PROGRAM_ADDRESS,
 >(
   input: IncrementAsyncInput<TAccountCounter, TAccountAuthority>,
   config?: { programAddress?: TProgramAddress },
-): Promise<IncrementInstruction<TProgramAddress, TAccountCounter, TAccountAuthority>> {
+): Promise<
+  IncrementInstruction<
+    TProgramAddress,
+    ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+    ResolvedInstructionAccountMeta<TAccountAuthority, InstructionAccountInputAddress<TAccountAuthority>>
+  >
+> {
   // Program address.
   const programAddress = config?.programAddress ?? HELLO_WORLD_PROGRAM_ADDRESS
 
+  // Account meta helper.
+  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
+
   // Original accounts.
   const originalAccounts = {
-    counter: { value: input.counter ?? null, isWritable: true },
-    authority: { value: input.authority ?? null, isWritable: false },
+    counter: { value: input.counter ?? null, isSigner: false, isWritable: true },
+    authority: { value: input.authority ?? null, isSigner: true, isWritable: false },
   }
   const accounts = originalAccounts as Record<keyof typeof originalAccounts, ResolvedInstructionAccount>
 
   // Resolve default values.
   if (!accounts.counter.value) {
-    accounts.counter.value = await findCounterPda({
-      authority: getAddressFromResolvedInstructionAccount('authority', accounts.authority.value),
-    })
+    accounts.counter.value = await findCounterPda(
+      { authority: getAddressFromResolvedInstructionAccount('authority', accounts.authority.value) },
+      { programAddress },
+    )
   }
 
-  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
   return Object.freeze({
     accounts: [getAccountMeta('counter', accounts.counter), getAccountMeta('authority', accounts.authority)],
     data: getIncrementInstructionDataEncoder().encode({}),
     programAddress,
-  } as IncrementInstruction<TProgramAddress, TAccountCounter, TAccountAuthority>)
+  } as IncrementInstruction<
+    TProgramAddress,
+    ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+    ResolvedInstructionAccountMeta<TAccountAuthority, InstructionAccountInputAddress<TAccountAuthority>>
+  >)
 }
 
-export type IncrementInput<TAccountCounter extends string = string, TAccountAuthority extends string = string> = {
-  counter: Address<TAccountCounter>
-  authority: TransactionSigner<TAccountAuthority>
+export type IncrementInput<
+  TAccountCounter extends InstructionAccountInput = InstructionAccountInput,
+  TAccountAuthority extends InstructionSignerInput = InstructionSignerInput,
+> = {
+  counter: TAccountCounter
+  authority: TAccountAuthority
 }
 
 export function getIncrementInstruction<
-  TAccountCounter extends string,
-  TAccountAuthority extends string,
+  TAccountCounter extends InstructionAccountInput,
+  TAccountAuthority extends InstructionSignerInput,
   TProgramAddress extends Address = typeof HELLO_WORLD_PROGRAM_ADDRESS,
 >(
   input: IncrementInput<TAccountCounter, TAccountAuthority>,
   config?: { programAddress?: TProgramAddress },
-): IncrementInstruction<TProgramAddress, TAccountCounter, TAccountAuthority> {
+): IncrementInstruction<
+  TProgramAddress,
+  ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+  ResolvedInstructionAccountMeta<TAccountAuthority, InstructionAccountInputAddress<TAccountAuthority>>
+> {
   // Program address.
   const programAddress = config?.programAddress ?? HELLO_WORLD_PROGRAM_ADDRESS
 
+  // Account meta helper.
+  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
+
   // Original accounts.
   const originalAccounts = {
-    counter: { value: input.counter ?? null, isWritable: true },
-    authority: { value: input.authority ?? null, isWritable: false },
+    counter: { value: input.counter ?? null, isSigner: false, isWritable: true },
+    authority: { value: input.authority ?? null, isSigner: true, isWritable: false },
   }
   const accounts = originalAccounts as Record<keyof typeof originalAccounts, ResolvedInstructionAccount>
 
-  const getAccountMeta = getAccountMetaFactory(programAddress, 'programId')
   return Object.freeze({
     accounts: [getAccountMeta('counter', accounts.counter), getAccountMeta('authority', accounts.authority)],
     data: getIncrementInstructionDataEncoder().encode({}),
     programAddress,
-  } as IncrementInstruction<TProgramAddress, TAccountCounter, TAccountAuthority>)
+  } as IncrementInstruction<
+    TProgramAddress,
+    ResolvedInstructionAccountMeta<TAccountCounter, InstructionAccountInputAddress<TAccountCounter>>,
+    ResolvedInstructionAccountMeta<TAccountAuthority, InstructionAccountInputAddress<TAccountAuthority>>
+  >)
 }
 
 export type ParsedIncrementInstruction<
