@@ -168,6 +168,24 @@ Each step's transaction count, total compute units consumed, total transaction b
 
 **Done when:** app navigates between empty screens on the phone with wallet connected — ⏳ the navigation graph and connect flow are built and bundle cleanly, but "on the phone" itself needs the physical device this environment doesn't have (see Phase 3's GO/NO-GO note for the same constraint).
 
+### Phase 8 — Key management
+
+`src/features/keys/` — the flow from the plan: "Enable private balance" → bridge `deriveKeys` → MWA `signMessage` → keys derived in the WebView → the derivation signature (not the keys) persisted behind biometric auth → reopening the app replays that signature to reconstruct the same keys with no MWA prompt.
+
+**The bridge protocol needed two new methods, not just wiring the existing one.** `deriveKeys` (built in Phase 3) only ever returned the public ElGamal key — it had no way to hand back _the signature it used_, and there was no way to reconstruct the same keys later without repeating the MWA round trip. Both gaps needed real changes to `packages/cbridge`, not just app-side plumbing:
+
+- `DeriveKeysResult` now also returns `signatureBase64` — the raw Ed25519 signature over `@solana-program/token-2022`'s fixed `solana-conf-bal/v1` derivation message. `createHostMessageSigner` (`bridge.ts`) captures it via an `onSignature` side-channel as the signature comes back from the `signMessage` host round trip.
+- A new `restoreKeys` method takes `{ owner, signatureBase64 }` and reconstructs the same session keys via a `createReplayMessageSigner` — a `MessagePartialSigner` that returns the cached signature bytes directly, no `signMessage` host call, no MWA prompt. This only works because Ed25519 signing is deterministic (RFC 8032): the same wallet key signing the same fixed message twice produces byte-identical signatures, so replaying a stored signature is cryptographically equivalent to signing again.
+- A new `lockKeys` method clears the bridge's in-memory `sessionKeys` map (the "Lock" button) — deliberately separate from forgetting the stored signature, so locking is a soft, reversible action and only disconnecting the wallet actually forgets it (see below).
+
+**Mobile side:** `secure-store.ts` wraps `expo-secure-store` (`requireAuthentication: true`, Android Keystore/iOS Keychain biometric gating) to persist/read/clear the signature, keyed per wallet address. `use-confidential-keys.ts` ties it together: `enablePrivateBalance` (calls `deriveKeys`, persists the signature, sets `keysUnlocked`), `unlockOnOpen` (reads the stored signature — biometric prompt happens here — then calls `restoreKeys`; returns `false` rather than throwing when nothing's stored or the device declines, since that's just "not enabled yet," not an error), and `lock` (calls `lockKeys`, clears the in-memory flag only). `auto-unlock.tsx`'s `<AutoUnlockOnOpen>` is mounted once at the app root (inside `<CBridgeHost>`, since it needs `useCBridge()`) and fires `unlockOnOpen` exactly once per connected wallet, the moment both the wallet and the bridge are ready — this is the "on app open" half of the flow. Disconnecting the wallet (`use-wallet-session.ts`) additionally clears the stored signature — done with a wallet on this device should mean actually forgetting it, not just clearing app state.
+
+**Screens:** `onboarding.tsx` is now real — a single "Enable private balance" button driving `enablePrivateBalance`, busy/error states matching every other screen's pattern. `settings.tsx` gained a "Lock private balance" button (only shown once keys are unlocked) alongside the existing disconnect. `home.tsx` hides the enable-balance CTA once `keysUnlocked` is true.
+
+**Verified without a physical device** (same constraint as Phases 3 and 7): `cbridge:typecheck`, `rn-confidential:typecheck`, and the root `tsc --noEmit` all pass; `expo lint` and `prettier --check` are clean; the cbridge bundle rebuilds (`npm run cbridge:build`) with the new methods; and a full Metro export bundles all 1,859 modules with no resolution errors. **Not verified:** the actual on-device flow — the MWA signature prompt, the biometric prompt on reopen, and Android Keystore's `requireAuthentication` behavior all need a real device (Expo Go can't satisfy `requireAuthentication` at all, per `expo-secure-store`'s own docs — a dev build is required).
+
+**Done when:** reopen app → fingerprint → balance readable without a wallet prompt — ⏳ the full flow (`enablePrivateBalance` → `saveDerivationSignature` → app reopen → `AutoUnlockOnOpen` → biometric read → `restoreKeys`) is implemented and typechecks/bundles clean, but confirming it actually works needs the physical device this environment doesn't have.
+
 ## Get started
 
 1. Install dependencies

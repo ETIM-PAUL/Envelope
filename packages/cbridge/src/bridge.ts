@@ -32,8 +32,12 @@ import type {
   DecryptAvailableResult,
   DeriveKeysParams,
   DeriveKeysResult,
+  LockKeysParams,
+  LockKeysResult,
   PingParams,
   PingResult,
+  RestoreKeysParams,
+  RestoreKeysResult,
   SignMessageResult,
   SignTransactionResult,
 } from './protocol.ts'
@@ -69,7 +73,10 @@ document.addEventListener('message', (event) => channel.receive(String((event as
 
 const sessionKeys = new Map<string, { elgamalKeypair: ElGamalKeypair; aesKey: AeKey }>()
 
-function createHostMessageSigner(owner: Address): MessagePartialSigner {
+// `onSignature` lets deriveKeys capture the raw signature bytes for persistence (Phase 8) without
+// this signer needing to know anything about that — it's just a side channel on top of the normal
+// MWA round trip.
+function createHostMessageSigner(owner: Address, onSignature?: (signature: Uint8Array) => void): MessagePartialSigner {
   return {
     address: owner,
     async signMessages(messages) {
@@ -79,9 +86,23 @@ function createHostMessageSigner(owner: Address): MessagePartialSigner {
             address: owner,
             messageBase64: bytesToBase64(message.content),
           })
-          return { [owner]: base64ToBytes(signatureBase64) } as SignatureDictionary
+          const signature = base64ToBytes(signatureBase64)
+          onSignature?.(signature)
+          return { [owner]: signature } as SignatureDictionary
         }),
       )
+    },
+  }
+}
+
+// Replays a previously captured derivation signature instead of round-tripping through MWA again
+// — same message (`solana-conf-bal/v1`, signed by `deriveConfidentialKeys` internally), same
+// deterministic Ed25519 signature, same derived keys.
+function createReplayMessageSigner(owner: Address, signature: Uint8Array): MessagePartialSigner {
+  return {
+    address: owner,
+    async signMessages(messages) {
+      return messages.map(() => ({ [owner]: signature }) as SignatureDictionary)
     },
   }
 }
@@ -113,10 +134,33 @@ channel.on('deriveKeys', async (params) => {
   const { owner } = params as DeriveKeysParams
   await wasmInit
   const ownerAddress = address(owner)
-  const keys = await deriveWalletConfidentialKeys(createHostMessageSigner(ownerAddress))
+  let signature: Uint8Array | undefined
+  const keys = await deriveWalletConfidentialKeys(
+    createHostMessageSigner(ownerAddress, (sig) => {
+      signature = sig
+    }),
+  )
+  if (!signature) throw new Error('deriveKeys: no derivation signature captured')
   sessionKeys.set(owner, keys)
   const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
-  return { elgamalPubkeyBase58 } satisfies DeriveKeysResult
+  return { elgamalPubkeyBase58, signatureBase64: bytesToBase64(signature) } satisfies DeriveKeysResult
+})
+
+channel.on('restoreKeys', async (params) => {
+  const { owner, signatureBase64 } = params as RestoreKeysParams
+  await wasmInit
+  const ownerAddress = address(owner)
+  const signature = base64ToBytes(signatureBase64)
+  const keys = await deriveWalletConfidentialKeys(createReplayMessageSigner(ownerAddress, signature))
+  sessionKeys.set(owner, keys)
+  const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
+  return { elgamalPubkeyBase58 } satisfies RestoreKeysResult
+})
+
+channel.on('lockKeys', async (_params) => {
+  void (_params as LockKeysParams)
+  sessionKeys.clear()
+  return { ok: true } satisfies LockKeysResult
 })
 
 channel.on('buildTransferPlan', async (params) => {

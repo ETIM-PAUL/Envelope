@@ -25,9 +25,26 @@ export type PingResult = { ok: true; wasmReady: boolean }
 
 // Derives the wallet's confidential ElGamal + AES keys (one MWA `signMessage` round-trip via the
 // `signMessage` host method) and keeps them in the bridge's memory for the rest of the session —
-// only the public ElGamal key ever crosses back over the bridge.
+// only the public ElGamal key and the derivation signature ever cross back over the bridge, never
+// the derived secret keys themselves. `signatureBase64` is the raw Ed25519 signature over the
+// fixed `solana-conf-bal/v1` derivation message (see @solana-program/token-2022's
+// `deriveConfidentialKeys`) — Phase 8 persists it (biometric-gated) so `restoreKeys` can
+// reconstruct the same keys later without another MWA prompt: signing the same fixed message with
+// the same wallet key is deterministic (RFC 8032), so replaying this signature is equivalent to
+// signing again.
 export type DeriveKeysParams = { owner: string }
-export type DeriveKeysResult = { elgamalPubkeyBase58: string }
+export type DeriveKeysResult = { elgamalPubkeyBase58: string; signatureBase64: string }
+
+// Reconstructs the same session keys `deriveKeys` would, from a previously captured derivation
+// signature — no `signMessage` host round-trip, so no MWA prompt.
+export type RestoreKeysParams = { owner: string; signatureBase64: string }
+export type RestoreKeysResult = { elgamalPubkeyBase58: string }
+
+// Wipes every owner's session keys from the bridge's memory ("Lock" button). Stored derivation
+// signatures (secure-store, RN side) are untouched — locking only clears in-memory WebView state,
+// not the ability to unlock again.
+export type LockKeysParams = Record<string, never>
+export type LockKeysResult = { ok: true }
 
 // Builds and fully signs a confidential transfer — `owner` must have called `deriveKeys` first.
 // `owner` also pays its own fees in this single-signer spike (no relayer yet — see Phase 12).
@@ -48,6 +65,8 @@ export type DecryptAvailableResult = { availableBalance: string; pendingBalance:
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
   deriveKeys: { params: DeriveKeysParams; result: DeriveKeysResult }
+  restoreKeys: { params: RestoreKeysParams; result: RestoreKeysResult }
+  lockKeys: { params: LockKeysParams; result: LockKeysResult }
   buildTransferPlan: { params: BuildTransferPlanParams; result: BuildTransferPlanResult }
   decryptAvailable: { params: DecryptAvailableParams; result: DecryptAvailableResult }
 }

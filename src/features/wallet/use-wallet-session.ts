@@ -6,6 +6,7 @@
 // types.
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import { useEffect, useState } from 'react'
+import { clearDerivationSignature } from '../keys/secure-store'
 import { useAppStore } from '../../store/app-store'
 import { formatError } from '../../utils/format-error'
 
@@ -41,6 +42,12 @@ export function useWalletSession() {
     connect: () => run(connect),
     disconnect: () =>
       run(async () => {
+        // Disconnecting means "done with this wallet on this device" — drop the biometric-gated
+        // derivation signature along with it, not just the in-memory store. "Lock" (Phase 8's
+        // key-management screen) is the softer action that keeps this around.
+        if (account) {
+          await clearDerivationSignature(account.address.toString())
+        }
         await disconnect()
         resetStore()
       }),

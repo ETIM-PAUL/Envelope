@@ -1,17 +1,36 @@
 import { useRouter } from 'expo-router'
+import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AppAddressLink } from '../components/app-address-link'
+import { useConfidentialKeys } from '../features/keys/use-confidential-keys'
 import { useWalletSession } from '../features/wallet/use-wallet-session'
+import { formatError } from '../utils/format-error'
 
 export default function Settings() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const { account, isBusy, error, disconnect } = useWalletSession()
+  const { keysUnlocked, lock } = useConfidentialKeys()
+  const [lockBusy, setLockBusy] = useState(false)
+  const [lockError, setLockError] = useState<string | null>(null)
 
   async function handleDisconnect() {
     await disconnect()
     router.replace('/')
+  }
+
+  async function handleLock() {
+    if (lockBusy) return
+    setLockBusy(true)
+    setLockError(null)
+    try {
+      await lock()
+    } catch (e) {
+      setLockError(formatError(e))
+    } finally {
+      setLockBusy(false)
+    }
   }
 
   return (
@@ -22,6 +41,19 @@ export default function Settings() {
         <View className="mb-8">
           <AppAddressLink address={account.address.toString()} label="Wallet" />
         </View>
+      ) : null}
+
+      {keysUnlocked ? (
+        <>
+          <Pressable
+            disabled={lockBusy}
+            onPress={() => void handleLock()}
+            className={`bg-paper-200 rounded-lg py-4 items-center active:bg-paper-200 mb-4 ${lockBusy ? 'opacity-50' : ''}`}
+          >
+            <Text className="text-ink-900 font-bold text-base">{lockBusy ? 'Locking…' : 'Lock private balance'}</Text>
+          </Pressable>
+          {lockError ? <Text className="text-seal-600 mb-4 text-center">{lockError}</Text> : null}
+        </>
       ) : null}
 
       <Pressable

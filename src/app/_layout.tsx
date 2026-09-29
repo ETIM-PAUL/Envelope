@@ -6,6 +6,7 @@ import { AppIdentity, createSolanaDevnet, MobileWalletProvider } from '@wallet-u
 import { CBridgeHost } from '@envelope/rn-confidential'
 import { DevnetBadge } from '../components/devnet-badge'
 import { DEVNET_RPC_URL } from '../config/rpc'
+import { AutoUnlockOnOpen } from '../features/keys/auto-unlock'
 import { NetworkProvider } from '../features/network/network-provider'
 import { useBridgeSigners } from '../features/wallet/bridge-signers'
 import { useWalletSession } from '../features/wallet/use-wallet-session'
@@ -39,6 +40,7 @@ function AppShell() {
 
   return (
     <CBridgeHost onSignMessage={onSignMessage} onSignTransaction={onSignTransaction}>
+      <AutoUnlockOnOpen />
       <Slot />
       <DevnetBadge />
     </CBridgeHost>
