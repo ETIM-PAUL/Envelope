@@ -55,6 +55,7 @@
   "main": "./index.js",
   "version": "1.0.0",
   "dependencies": {
+    "@envelope/rn-confidential": "*",
     "@expo/metro-runtime": "~57.0.5",
     "@solana/kit": "^8.3.0",
     "@tanstack/react-query": "^5.90.7",
@@ -75,8 +76,10 @@
     "react-native-quick-crypto": "^1.1.6",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.2",
+    "react-native-webview": "^14.0.1",
     "tailwindcss": "~4.1.16",
-    "uniwind": "~1.0.0"
+    "uniwind": "~1.0.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@codama/cli": "^1.6.0",

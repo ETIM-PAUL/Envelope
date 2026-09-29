@@ -29,7 +29,11 @@ describe('envelope_stake', () => {
   }
 
   async function userSkrAddress(user: KeyPairSigner) {
-    const [ata] = await findAssociatedTokenPda({ owner: user.address, mint: skrMint, tokenProgram: TOKEN_PROGRAM_ADDRESS })
+    const [ata] = await findAssociatedTokenPda({
+      owner: user.address,
+      mint: skrMint,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
     return ata
   }
 
@@ -84,68 +88,62 @@ describe('envelope_stake', () => {
     await expect(sendInstructions({ instructions: instruction, payer: user, rpc, sendAndConfirm })).rejects.toThrow()
   })
 
-  it(
-    'request_unstake starts the cooldown; withdraw_unstaked enforces it',
-    async () => {
-      const amount = 3_000_000_000n
-      const user = await stakeAsFreshUser(amount)
-      const [stakePositionAddress] = await envelopeStake.findStakePositionPda({ user: user.address })
-      const userSkr = await userSkrAddress(user)
+  it('request_unstake starts the cooldown; withdraw_unstaked enforces it', async () => {
+    const amount = 3_000_000_000n
+    const user = await stakeAsFreshUser(amount)
+    const [stakePositionAddress] = await envelopeStake.findStakePositionPda({ user: user.address })
+    const userSkr = await userSkrAddress(user)
 
-      // Cooldown not started yet: withdraw must fail.
-      const earlyWithdraw = await envelopeStake.getWithdrawUnstakedInstructionAsync({
-        user,
-        vaultSkr: await vaultSkrAddress(),
-        userSkr,
-      })
-      await expect(
-        sendInstructions({ instructions: earlyWithdraw, payer: user, rpc, sendAndConfirm }),
-      ).rejects.toThrow()
+    // Cooldown not started yet: withdraw must fail.
+    const earlyWithdraw = await envelopeStake.getWithdrawUnstakedInstructionAsync({
+      user,
+      vaultSkr: await vaultSkrAddress(),
+      userSkr,
+    })
+    await expect(sendInstructions({ instructions: earlyWithdraw, payer: user, rpc, sendAndConfirm })).rejects.toThrow()
 
-      const requestInstruction = await envelopeStake.getRequestUnstakeInstructionAsync({ user })
-      await sendInstructions({ instructions: requestInstruction, payer: user, rpc, sendAndConfirm })
+    const requestInstruction = await envelopeStake.getRequestUnstakeInstructionAsync({ user })
+    await sendInstructions({ instructions: requestInstruction, payer: user, rpc, sendAndConfirm })
 
-      const afterRequest = await envelopeStake.fetchStakePosition(rpc, stakePositionAddress)
-      expect(afterRequest.data.unlockRequestedAt).not.toEqual(0n)
+    const afterRequest = await envelopeStake.fetchStakePosition(rpc, stakePositionAddress)
+    expect(afterRequest.data.unlockRequestedAt).not.toEqual(0n)
 
-      // Cooldown started but not elapsed yet: withdraw must still fail.
-      const tooSoon = await envelopeStake.getWithdrawUnstakedInstructionAsync({
-        user,
-        vaultSkr: await vaultSkrAddress(),
-        userSkr,
-      })
-      await expect(sendInstructions({ instructions: tooSoon, payer: user, rpc, sendAndConfirm })).rejects.toThrow()
+    // Cooldown started but not elapsed yet: withdraw must still fail.
+    const tooSoon = await envelopeStake.getWithdrawUnstakedInstructionAsync({
+      user,
+      vaultSkr: await vaultSkrAddress(),
+      userSkr,
+    })
+    await expect(sendInstructions({ instructions: tooSoon, payer: user, rpc, sendAndConfirm })).rejects.toThrow()
 
-      // A second request_unstake while one is already pending must fail.
-      await expect(
-        sendInstructions({ instructions: requestInstruction, payer: user, rpc, sendAndConfirm }),
-      ).rejects.toThrow()
+    // A second request_unstake while one is already pending must fail.
+    await expect(
+      sendInstructions({ instructions: requestInstruction, payer: user, rpc, sendAndConfirm }),
+    ).rejects.toThrow()
 
-      // Staking more while an unstake is pending must fail.
-      await mintTo(clients, admin, skrMint, user.address, 1_000_000n)
-      const stakeWhilePending = await envelopeStake.getStakeInstructionAsync({
-        user,
-        userSkr,
-        vaultSkr: await vaultSkrAddress(),
-        amount: 1_000_000n,
-      })
-      await expect(
-        sendInstructions({ instructions: stakeWhilePending, payer: user, rpc, sendAndConfirm }),
-      ).rejects.toThrow()
+    // Staking more while an unstake is pending must fail.
+    await mintTo(clients, admin, skrMint, user.address, 1_000_000n)
+    const stakeWhilePending = await envelopeStake.getStakeInstructionAsync({
+      user,
+      userSkr,
+      vaultSkr: await vaultSkrAddress(),
+      amount: 1_000_000n,
+    })
+    await expect(
+      sendInstructions({ instructions: stakeWhilePending, payer: user, rpc, sendAndConfirm }),
+    ).rejects.toThrow()
 
-      await new Promise((resolve) => setTimeout(resolve, (Number(COOLDOWN_SECS) + 2) * 1000))
+    await new Promise((resolve) => setTimeout(resolve, (Number(COOLDOWN_SECS) + 2) * 1000))
 
-      const withdraw = await envelopeStake.getWithdrawUnstakedInstructionAsync({
-        user,
-        vaultSkr: await vaultSkrAddress(),
-        userSkr,
-      })
-      await sendInstructions({ instructions: withdraw, payer: user, rpc, sendAndConfirm })
+    const withdraw = await envelopeStake.getWithdrawUnstakedInstructionAsync({
+      user,
+      vaultSkr: await vaultSkrAddress(),
+      userSkr,
+    })
+    await sendInstructions({ instructions: withdraw, payer: user, rpc, sendAndConfirm })
 
-      const afterWithdraw = await envelopeStake.fetchStakePosition(rpc, stakePositionAddress)
-      expect(afterWithdraw.data.amount).toEqual(0n)
-      expect(afterWithdraw.data.unlockRequestedAt).toEqual(0n)
-    },
-    30_000,
-  )
+    const afterWithdraw = await envelopeStake.fetchStakePosition(rpc, stakePositionAddress)
+    expect(afterWithdraw.data.amount).toEqual(0n)
+    expect(afterWithdraw.data.unlockRequestedAt).toEqual(0n)
+  }, 30_000)
 })

@@ -14,20 +14,20 @@ function clientConfig(idl, generatedFolder) {
         args: ['anchor/src/client/js', { generatedFolder, kitImportStrategy: 'rootOnly', syncPackageJson: false }],
       },
     },
-  };
+  }
 }
 
 const configs = {
   envelopeStake: clientConfig('target/idl/envelope_stake.json', 'generated/envelopeStake'),
   envelopeVault: clientConfig('target/idl/envelope_vault.json', 'generated/envelopeVault'),
   helloWorld: clientConfig('target/idl/hello_world.json', 'generated/helloWorld'),
-};
+}
 
-const program = process.env.CODAMA_PROGRAM;
+const program = process.env.CODAMA_PROGRAM
 if (!program || !(program in configs)) {
   throw new Error(
     `Set CODAMA_PROGRAM to one of: ${Object.keys(configs).join(', ')} (see package.json's "codama:js" script).`,
-  );
+  )
 }
 
-export default configs[program];
+export default configs[program]

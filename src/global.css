@@ -1,2 +1,22 @@
 @import 'tailwindcss';
 @import 'uniwind';
+
+/* Phase 7 design tokens — kept in sync with src/design/tokens.ts by hand (Tailwind v4's
+   `@theme` can't import a JS/TS module). The envelope/seal motif: warm paper background, a
+   wax-seal red for primary actions, ink navy for text. */
+@theme {
+  --color-paper-50: #fffdf8;
+  --color-paper-100: #fbf4e4;
+  --color-paper-200: #f3e6c9;
+
+  --color-ink-600: #5c5344;
+  --color-ink-700: #3d362b;
+  --color-ink-900: #221d15;
+
+  --color-seal-500: #b8442f;
+  --color-seal-600: #9c3623;
+  --color-seal-700: #7c2a1b;
+
+  --color-gold-400: #d9a441;
+  --color-gold-500: #c08a2e;
+}

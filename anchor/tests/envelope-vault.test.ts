@@ -85,12 +85,20 @@ describe('envelope_vault', () => {
   })
 
   async function userUsdcAddress(user: KeyPairSigner) {
-    const [ata] = await findAssociatedTokenPda({ owner: user.address, mint: usdcMint.address, tokenProgram: TOKEN_PROGRAM_ADDRESS })
+    const [ata] = await findAssociatedTokenPda({
+      owner: user.address,
+      mint: usdcMint.address,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
     return ata
   }
 
   async function userCusdcAddress(owner: Address) {
-    const [ata] = await findAssociatedTokenPda({ owner, mint: cusdcMint.address, tokenProgram: TOKEN_2022_PROGRAM_ADDRESS })
+    const [ata] = await findAssociatedTokenPda({
+      owner,
+      mint: cusdcMint.address,
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+    })
     return ata
   }
 
@@ -154,10 +162,19 @@ describe('envelope_vault', () => {
     await mintTo(clients, admin, usdcMint.address, user.address, bigAmount)
 
     await mintTo(clients, admin, skrMint, user.address, BUSINESS_THRESHOLD)
-    const [userSkr] = await findAssociatedTokenPda({ owner: user.address, mint: skrMint, tokenProgram: TOKEN_PROGRAM_ADDRESS })
+    const [userSkr] = await findAssociatedTokenPda({
+      owner: user.address,
+      mint: skrMint,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
     const pool = await envelopeStake.fetchPool(rpc, (await envelopeStake.findPoolPda())[0])
     await sendInstructions({
-      instructions: await envelopeStake.getStakeInstructionAsync({ user, userSkr, vaultSkr: pool.data.vaultSkr, amount: BUSINESS_THRESHOLD }),
+      instructions: await envelopeStake.getStakeInstructionAsync({
+        user,
+        userSkr,
+        vaultSkr: pool.data.vaultSkr,
+        amount: BUSINESS_THRESHOLD,
+      }),
       payer: user,
       rpc,
       sendAndConfirm,
@@ -327,7 +344,11 @@ describe('envelope_vault', () => {
 
     // Stake enough SKR to qualify for Member tier.
     await mintTo(clients, admin, skrMint, user.address, MEMBER_THRESHOLD)
-    const [userSkr] = await findAssociatedTokenPda({ owner: user.address, mint: skrMint, tokenProgram: TOKEN_PROGRAM_ADDRESS })
+    const [userSkr] = await findAssociatedTokenPda({
+      owner: user.address,
+      mint: skrMint,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
     const pool = await envelopeStake.fetchPool(rpc, (await envelopeStake.findPoolPda())[0])
     const stakeInstruction = await envelopeStake.getStakeInstructionAsync({
       user,
@@ -339,7 +360,12 @@ describe('envelope_vault', () => {
 
     // As a Member, a wrap above the Free limit (but within the Member limit) should succeed.
     const aboveFreeLimit = FREE_LIMIT + 1_000_000n
-    await sendInstructions({ instructions: await wrapInstruction(user, aboveFreeLimit), payer: user, rpc, sendAndConfirm })
+    await sendInstructions({
+      instructions: await wrapInstruction(user, aboveFreeLimit),
+      payer: user,
+      rpc,
+      sendAndConfirm,
+    })
 
     // Request unstake: tier drops to Free immediately, before the cooldown even elapses.
     const requestUnstake = await envelopeStake.getRequestUnstakeInstructionAsync({ user })
@@ -353,24 +379,19 @@ describe('envelope_vault', () => {
     ).rejects.toThrow()
   })
 
-
   // `Config.secondsPerDay` was set above (see `SECONDS_PER_DAY`), so real time still has to pass
   // but not a real 86,400s day. See Anchor.toml for why `--hookTimeout`/`--testTimeout` are raised
   // suite-wide.
-  it(
-    "resets the daily limit on the next day",
-    async () => {
-      const user = await freshFreeUser(FREE_LIMIT + 10_000_000n)
-      await sendInstructions({ instructions: await wrapInstruction(user, FREE_LIMIT), payer: user, rpc, sendAndConfirm })
-      await expect(
-        sendInstructions({ instructions: await wrapInstruction(user, 1n), payer: user, rpc, sendAndConfirm }),
-      ).rejects.toThrow()
+  it('resets the daily limit on the next day', async () => {
+    const user = await freshFreeUser(FREE_LIMIT + 10_000_000n)
+    await sendInstructions({ instructions: await wrapInstruction(user, FREE_LIMIT), payer: user, rpc, sendAndConfirm })
+    await expect(
+      sendInstructions({ instructions: await wrapInstruction(user, 1n), payer: user, rpc, sendAndConfirm }),
+    ).rejects.toThrow()
 
-      await new Promise((resolve) => setTimeout(resolve, Number(SECONDS_PER_DAY) * 1000 + 2_000))
+    await new Promise((resolve) => setTimeout(resolve, Number(SECONDS_PER_DAY) * 1000 + 2_000))
 
-      // A new day: the same user can wrap up to the limit again.
-      await sendInstructions({ instructions: await wrapInstruction(user, 1_000_000n), payer: user, rpc, sendAndConfirm })
-    },
-    40_000,
-  )
+    // A new day: the same user can wrap up to the limit again.
+    await sendInstructions({ instructions: await wrapInstruction(user, 1_000_000n), payer: user, rpc, sendAndConfirm })
+  }, 40_000)
 })

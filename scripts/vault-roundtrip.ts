@@ -2,7 +2,11 @@
 // when" check from the build plan ("a devnet wrap and unwrap succeed from a script"). Idempotent:
 // safe to re-run — `envelope_stake`'s Pool and `envelope_vault`'s Config are only initialized if
 // they don't already exist on-chain.
-import { findAssociatedTokenPda, getCreateAssociatedTokenIdempotentInstructionAsync as getCreateClassicAtaInstructionAsync, TOKEN_PROGRAM_ADDRESS } from '@solana-program/token'
+import {
+  findAssociatedTokenPda,
+  getCreateAssociatedTokenIdempotentInstructionAsync as getCreateClassicAtaInstructionAsync,
+  TOKEN_PROGRAM_ADDRESS,
+} from '@solana-program/token'
 import {
   AuthorityType,
   getApproveInstruction,
@@ -81,7 +85,11 @@ async function main() {
       { owned: cusdcMint, owner: admin, authorityType: AuthorityType.MintTokens, newAuthority: vaultAuthority },
       { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
     )
-    await sendInstructionPlan(nonDivisibleSequentialInstructionPlan([initInstruction, setAuthorityInstruction]), admin, clients)
+    await sendInstructionPlan(
+      nonDivisibleSequentialInstructionPlan([initInstruction, setAuthorityInstruction]),
+      admin,
+      clients,
+    )
     console.log(`  Config: ${configAddress}`)
     console.log(`  cUSDC mint authority -> VaultAuth PDA (${vaultAuthority})`)
   } else {
@@ -98,12 +106,23 @@ async function main() {
     await sendInstructionPlan(singleInstructionPlan(transfer), admin, clients)
   }
 
-  const [aliceUsdcAta] = await findAssociatedTokenPda({ owner: alice.address, mint: usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS })
-  const [aliceCusdcAta] = await findAssociatedTokenPda({ owner: alice.address, mint: cusdcMint, tokenProgram: TOKEN_2022_PROGRAM_ADDRESS })
+  const [aliceUsdcAta] = await findAssociatedTokenPda({
+    owner: alice.address,
+    mint: usdcMint,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  })
+  const [aliceCusdcAta] = await findAssociatedTokenPda({
+    owner: alice.address,
+    mint: cusdcMint,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
 
   // Alice needs devnet USDC to wrap. We don't control Circle's real devnet USDC mint, so this
   // can't be scripted — claim some at https://faucet.circle.com for alice's address first.
-  const aliceUsdcAccount = await rpc.getTokenAccountBalance(aliceUsdcAta).send().catch(() => null)
+  const aliceUsdcAccount = await rpc
+    .getTokenAccountBalance(aliceUsdcAta)
+    .send()
+    .catch(() => null)
   const aliceUsdcBalance = aliceUsdcAccount ? BigInt(aliceUsdcAccount.value.amount) : 0n
   if (aliceUsdcBalance < WRAP_AMOUNT) {
     throw new Error(
@@ -145,7 +164,11 @@ async function main() {
     userUsdc: aliceUsdcAta,
     amount: UNWRAP_AMOUNT,
   })
-  await sendInstructionPlan(nonDivisibleSequentialInstructionPlan([approveInstruction, unwrapInstruction]), alice, clients)
+  await sendInstructionPlan(
+    nonDivisibleSequentialInstructionPlan([approveInstruction, unwrapInstruction]),
+    alice,
+    clients,
+  )
   const usdcAfterUnwrap = await rpc.getTokenAccountBalance(aliceUsdcAta).send()
   const cusdcAfterUnwrap = await rpc.getTokenAccountBalance(aliceCusdcAta).send()
   console.log(`  alice USDC balance: ${usdcAfterUnwrap.value.amount}`)

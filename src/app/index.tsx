@@ -1,92 +1,36 @@
+import { Redirect } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { useEffect, useState } from 'react'
-import { Text, View, Pressable } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useMobileWallet } from '@wallet-ui/react-native-kit'
-import { helloWorld } from '@project/anchor'
-import { AppAddressLink } from '../components/app-address-link'
-import { CounterFeature } from '../features/counter/counter-feature'
-import { NetworkUiSelect } from '../features/network/network-ui-select'
-import { formatError } from '../utils/format-error'
+import { useWalletSession } from '../features/wallet/use-wallet-session'
 
-export default function App() {
+// Phase 7: the app's entry gate. No wallet connected -> connect UI; connected -> straight into
+// the tab navigator. Onboarding (Phase 8's key-derivation flow) is reached from Home, not here —
+// this screen's only job is the MWA connection itself.
+export default function Gate() {
   const insets = useSafeAreaInsets()
-  const { account, connect, disconnect } = useMobileWallet()
-  const [error, setError] = useState<string | null>(null)
-  const [isBusy, setIsBusy] = useState(false)
+  const { isConnected, isBusy, error, connect } = useWalletSession()
 
-  useEffect(() => {
-    if (account) {
-      console.log('Connected account:', account.address)
-    }
-  }, [account])
-
-  // Wallet actions can be declined or fail. Run them here so a rejection never
-  // escapes as an unhandled promise and the reason ends up on screen.
-  async function run(action: () => Promise<unknown>) {
-    if (isBusy) {
-      return
-    }
-    setIsBusy(true)
-    setError(null)
-    try {
-      await action()
-    } catch (e) {
-      setError(formatError(e))
-    } finally {
-      setIsBusy(false)
-    }
+  if (isConnected) {
+    return <Redirect href="/(tabs)/home" />
   }
 
   return (
-    // Anchor the content to the top so the layout stays put when content changes.
     <View
-      className="flex-1 bg-white dark:bg-black items-center px-8"
-      style={{ paddingBottom: insets.bottom, paddingTop: insets.top + 64 }}
+      className="flex-1 bg-paper-50 items-center justify-center px-8"
+      style={{ paddingBottom: insets.bottom, paddingTop: insets.top }}
     >
-      {/* Heading */}
-      <Text className="text-4xl font-extrabold text-gray-800 dark:text-white mb-3 tracking-tight">Myapp</Text>
+      <Text className="text-ink-900 text-4xl font-extrabold mb-3 tracking-tight">Envelope</Text>
+      <Text className="text-ink-600 text-base mb-10 text-center max-w-sm">Private payments on Solana.</Text>
 
-      {/* Subheading */}
-      <Text className="text-base text-gray-600 dark:text-gray-400 mb-8 text-center max-w-sm">
-        Start customizing your app by editing{' '}
-        <Text className="font-semibold text-gray-800 dark:text-white">src/app/index.tsx</Text>
-      </Text>
-
-      <View className="mb-4">
-        <AppAddressLink address={helloWorld.HELLO_WORLD_PROGRAM_ADDRESS} label="Program" />
-      </View>
-
-      <View className="mb-8 items-center">
-        {account ? (
-          <View className="items-center">
-            <View className="mb-2">
-              <AppAddressLink address={account.address.toString()} label="Wallet" />
-            </View>
-            <Pressable
-              disabled={isBusy}
-              onPress={() => void run(disconnect)}
-              className={`bg-red-500 px-6 py-3 rounded-xl active:bg-red-600 ${isBusy ? 'opacity-50' : ''}`}
-            >
-              <Text className="text-white font-bold">{isBusy ? 'Working...' : 'Disconnect Wallet'}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            disabled={isBusy}
-            onPress={() => void run(connect)}
-            className={`bg-blue-600 px-6 py-3 rounded-xl active:bg-blue-700 ${isBusy ? 'opacity-50' : ''}`}
-          >
-            <Text className="text-white font-bold text-lg">{isBusy ? 'Working...' : 'Connect Wallet'}</Text>
-          </Pressable>
-        )}
-        {error ? <Text className="text-red-500 mt-3 text-center max-w-sm">{error}</Text> : null}
-        <View className="mt-4">
-          <NetworkUiSelect />
-        </View>
-      </View>
-
-      {account ? <CounterFeature /> : null}
+      <Pressable
+        disabled={isBusy}
+        onPress={() => void connect()}
+        className={`bg-seal-600 px-8 py-4 rounded-xl active:bg-seal-700 ${isBusy ? 'opacity-50' : ''}`}
+      >
+        <Text className="text-paper-50 font-bold text-lg">{isBusy ? 'Connecting…' : 'Connect wallet'}</Text>
+      </Pressable>
+      {error ? <Text className="text-seal-600 mt-4 text-center max-w-sm">{error}</Text> : null}
 
       <StatusBar style="auto" />
     </View>

@@ -2,6 +2,11 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // The `packages/*` workspaces (cbridge, rn-confidential) export raw `.ts`/`.tsx` sources
+    // with explicit extensions in their own imports — needed once anything under src/ imports
+    // them directly (Phase 7's <CBridgeHost> mount), even though `packages` stays excluded below
+    // from this program's own root files (each has its own tsconfig + `npm run typecheck`).
+    "allowImportingTsExtensions": true,
     "paths": {
       "@project/anchor": ["./anchor/src"]
     }
