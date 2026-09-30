@@ -1,15 +1,18 @@
+// Subpath import, not the `@expo/vector-icons` barrel: the barrel re-exports every icon set
+// (Ionicons, MaterialCommunityIcons, ...), and Metro bundles each set's whole font file for
+// anything imported from it — ~3MB of unused icon fonts for one 56KB set otherwise.
+import Feather from '@expo/vector-icons/Feather'
 import { Redirect, Tabs } from 'expo-router'
-import { Text } from 'react-native'
 import { colors } from '../../design/tokens'
 import { useAppStore } from '../../store/app-store'
 
-const TAB_ICONS: Record<string, string> = {
-  home: '✉️',
-  send: '↗️',
-  receive: '↙️',
-  pots: '🫙',
-  stake: '🪙',
-}
+const TAB_ICONS = {
+  home: 'mail',
+  send: 'arrow-up-right',
+  receive: 'arrow-down-left',
+  pots: 'archive',
+  stake: 'trending-up',
+} as const
 
 export default function TabsLayout() {
   // The gate at app/index.tsx is the only way in — if this group is reached without a connected
@@ -23,16 +26,29 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.seal[600],
-        tabBarInactiveTintColor: colors.ink[600],
-        tabBarStyle: { backgroundColor: colors.paper[50] },
+        tabBarActiveTintColor: colors.seal[500],
+        tabBarInactiveTintColor: colors.mute[600],
+        tabBarShowLabel: false,
+        tabBarStyle: {
+          backgroundColor: colors.ink[900],
+          borderTopColor: colors.ink[800],
+          borderTopWidth: 1,
+          height: 64,
+          paddingTop: 10,
+        },
       }}
     >
-      <Tabs.Screen name="home" options={{ title: 'Home', tabBarIcon: () => <Text>{TAB_ICONS.home}</Text> }} />
-      <Tabs.Screen name="send" options={{ title: 'Send', tabBarIcon: () => <Text>{TAB_ICONS.send}</Text> }} />
-      <Tabs.Screen name="receive" options={{ title: 'Receive', tabBarIcon: () => <Text>{TAB_ICONS.receive}</Text> }} />
-      <Tabs.Screen name="pots" options={{ title: 'Pots', tabBarIcon: () => <Text>{TAB_ICONS.pots}</Text> }} />
-      <Tabs.Screen name="stake" options={{ title: 'Stake', tabBarIcon: () => <Text>{TAB_ICONS.stake}</Text> }} />
+      {(Object.keys(TAB_ICONS) as (keyof typeof TAB_ICONS)[]).map((name) => (
+        <Tabs.Screen
+          key={name}
+          name={name}
+          options={{
+            tabBarIcon: ({ color, focused }) => (
+              <Feather name={TAB_ICONS[name]} size={22} color={color} style={{ opacity: focused ? 1 : 0.8 }} />
+            ),
+          }}
+        />
+      ))}
     </Tabs>
   )
 }

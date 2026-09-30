@@ -1,30 +1,38 @@
-// Phase 7 design tokens — the envelope/seal motif: warm paper background, a wax-seal red for
-// primary actions, ink navy for text. Mirrored into `global.css`'s `@theme` block so uniwind
-// utility classes (`bg-seal-600`, `text-ink-900`, ...) stay in sync with these values; import
-// from here instead when React Native needs a raw value (StatusBar color, SVG fill, etc.) rather
-// than a className.
+// Design tokens — "sealed letter" system: a private balance is a letter only its owner can open.
+// Dark ink page, warm paper-colored ink for text (the cream tone becomes the *writing*, not the
+// background), and exactly one reserved accent — sealing wax — kept rare so it still reads as a
+// seal, not wallpaper. `colors` is mirrored by hand into `global.css`'s Tailwind `@theme` block
+// (Tailwind can't import a TS module) — keep the two in sync when editing either. `fontFamily` is
+// NOT mirrored there: each weight of an Expo Google Font is its own distinct native font-family
+// name (e.g. "Manrope_600SemiBold"), so it's applied directly via `style={{ fontFamily }}` rather
+// than a Tailwind class, which would depend on uniwind supporting a custom `--font-*` theme
+// namespace the same way real Tailwind CSS does — not worth the risk on a target with no browser
+// devtools to verify against.
 export const colors = {
-  paper: {
-    50: '#FFFDF8',
-    100: '#FBF4E4',
-    200: '#F3E6C9',
-  },
   ink: {
-    600: '#5C5344',
-    700: '#3D362B',
-    900: '#221D15',
+    950: '#0F1116', // app background
+    900: '#171A21', // elevated surface (cards, sheets, tab bar)
+    800: '#232733', // hairline borders / dividers on dark surfaces
+    700: '#2E3341', // pressed / hover surface
+  },
+  paper: {
+    500: '#F6F1E7', // primary text — warm off-white, the "ink" written on the dark page
+    400: '#DCD6C8', // slightly muted paper, for secondary display text
+  },
+  mute: {
+    500: '#8C93A6', // secondary text, cool low-saturation grey-blue
+    600: '#6B7185', // tertiary / placeholder text
   },
   seal: {
-    500: '#B8442F',
-    600: '#9C3623',
-    700: '#7C2A1B',
+    500: '#C4432E', // the one reserved accent: primary actions, the wax-seal mark
+    600: '#A6371F', // pressed state
+    400: '#D6604C', // on-dark tints (borders, subtle backgrounds)
   },
   gold: {
-    400: '#D9A441',
-    500: '#C08A2E',
+    500: '#C9A227', // antique gold — reserved for "unlocked / verified", never on buttons
   },
-  success: '#3F7A4E',
-  danger: '#B8442F',
+  success: '#4E9A6B',
+  danger: '#C4432E',
 } as const
 
 export const spacing = {
@@ -38,14 +46,28 @@ export const spacing = {
 
 export const radii = {
   sm: 8,
-  md: 12,
-  lg: 20,
+  md: 14,
+  lg: 24,
   pill: 999,
 } as const
 
+// Two families, clearly distinct jobs: Fraunces (a warm, soft-terminal serif) carries the brand
+// and money — the wordmark and the one large balance figure, like an amount written by hand on a
+// letter. Manrope carries everything you scan or tap: labels, buttons, body, navigation.
+export const fontFamily = {
+  display: 'Fraunces_600SemiBold',
+  displayMedium: 'Fraunces_500Medium',
+  ui: 'Manrope_500Medium',
+  uiRegular: 'Manrope_400Regular',
+  uiSemibold: 'Manrope_600SemiBold',
+  uiBold: 'Manrope_700Bold',
+} as const
+
 export const typography = {
-  display: { fontSize: 32, fontWeight: '800' as const },
-  title: { fontSize: 22, fontWeight: '700' as const },
-  body: { fontSize: 16, fontWeight: '400' as const },
-  caption: { fontSize: 13, fontWeight: '500' as const },
+  wordmark: { fontFamily: fontFamily.display, fontSize: 22 },
+  balance: { fontFamily: fontFamily.display, fontSize: 44, letterSpacing: -0.5 },
+  title: { fontFamily: fontFamily.uiSemibold, fontSize: 20 },
+  body: { fontFamily: fontFamily.ui, fontSize: 16 },
+  label: { fontFamily: fontFamily.uiSemibold, fontSize: 13 },
+  caption: { fontFamily: fontFamily.ui, fontSize: 13 },
 }

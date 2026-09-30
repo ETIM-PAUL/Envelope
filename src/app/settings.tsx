@@ -1,14 +1,16 @@
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Text, View } from 'react-native'
 import { AppAddressLink } from '../components/app-address-link'
+import { BackButton } from '../components/back-button'
+import { Button } from '../components/button'
+import { Screen } from '../components/screen'
+import { fontFamily } from '../design/tokens'
 import { useConfidentialKeys } from '../features/keys/use-confidential-keys'
 import { useWalletSession } from '../features/wallet/use-wallet-session'
 import { formatError } from '../utils/format-error'
 
 export default function Settings() {
-  const insets = useSafeAreaInsets()
   const router = useRouter()
   const { account, isBusy, error, disconnect } = useWalletSession()
   const { keysUnlocked, lock } = useConfidentialKeys()
@@ -34,8 +36,11 @@ export default function Settings() {
   }
 
   return (
-    <View className="flex-1 bg-paper-50 px-6" style={{ paddingTop: insets.top + 24 }}>
-      <Text className="text-ink-900 text-2xl font-extrabold mb-8">Settings</Text>
+    <Screen>
+      <BackButton />
+      <Text className="text-paper-500 text-2xl mb-8 mt-10" style={{ fontFamily: fontFamily.display }}>
+        Settings
+      </Text>
 
       {account ? (
         <View className="mb-8">
@@ -45,25 +50,22 @@ export default function Settings() {
 
       {keysUnlocked ? (
         <>
-          <Pressable
-            disabled={lockBusy}
-            onPress={() => void handleLock()}
-            className={`bg-paper-200 rounded-lg py-4 items-center active:bg-paper-200 mb-4 ${lockBusy ? 'opacity-50' : ''}`}
-          >
-            <Text className="text-ink-900 font-bold text-base">{lockBusy ? 'Locking…' : 'Lock private balance'}</Text>
-          </Pressable>
-          {lockError ? <Text className="text-seal-600 mb-4 text-center">{lockError}</Text> : null}
+          <Button label="Lock private balance" onPress={() => void handleLock()} busy={lockBusy} variant="secondary" />
+          {lockError ? (
+            <Text className="text-seal-500 mt-3 text-center" style={{ fontFamily: fontFamily.ui }}>
+              {lockError}
+            </Text>
+          ) : null}
+          <View className="h-4" />
         </>
       ) : null}
 
-      <Pressable
-        disabled={isBusy}
-        onPress={() => void handleDisconnect()}
-        className={`bg-seal-600 rounded-lg py-4 items-center active:bg-seal-700 ${isBusy ? 'opacity-50' : ''}`}
-      >
-        <Text className="text-paper-50 font-bold text-base">{isBusy ? 'Working…' : 'Disconnect wallet'}</Text>
-      </Pressable>
-      {error ? <Text className="text-seal-600 mt-3 text-center">{error}</Text> : null}
-    </View>
+      <Button label="Disconnect wallet" onPress={() => void handleDisconnect()} busy={isBusy} />
+      {error ? (
+        <Text className="text-seal-500 mt-3 text-center" style={{ fontFamily: fontFamily.ui }}>
+          {error}
+        </Text>
+      ) : null}
+    </Screen>
   )
 }

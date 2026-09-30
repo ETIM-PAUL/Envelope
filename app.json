@@ -1,15 +1,22 @@
 {
   "expo": {
     "scheme": "myapp",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0F1116",
     "orientation": "default",
     "web": {
       "output": "static"
     },
-    "name": "myapp",
+    "name": "Envelope",
     "slug": "myapp",
+    "icon": "./assets/images/icon.png",
     "android": {
-      "package": "com.anonymous.myapp"
+      "package": "com.anonymous.myapp",
+      "backgroundColor": "#0F1116",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#0F1116"
+      }
     },
     "plugins": [
       [
@@ -20,7 +27,17 @@
         }
       ],
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon.png",
+          "backgroundColor": "#0F1116",
+          "resizeMode": "contain",
+          "imageWidth": 220
+        }
+      ]
     ]
   }
 }

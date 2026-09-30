@@ -4,12 +4,25 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Slot } from 'expo-router'
 import { AppIdentity, createSolanaDevnet, MobileWalletProvider } from '@wallet-ui/react-native-kit'
 import { CBridgeHost } from '@envelope/rn-confidential'
+import { Fraunces_500Medium, Fraunces_600SemiBold } from '@expo-google-fonts/fraunces'
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  useFonts,
+} from '@expo-google-fonts/manrope'
+import * as SplashScreen from 'expo-splash-screen'
+import { useEffect } from 'react'
+import { View } from 'react-native'
 import { DevnetBadge } from '../components/devnet-badge'
 import { DEVNET_RPC_URL } from '../config/rpc'
 import { AutoUnlockOnOpen } from '../features/keys/auto-unlock'
 import { NetworkProvider } from '../features/network/network-provider'
 import { useBridgeSigners } from '../features/wallet/bridge-signers'
 import { useWalletSession } from '../features/wallet/use-wallet-session'
+
+SplashScreen.preventAutoHideAsync()
 
 // Devnet-only for this build (see <DevnetBadge>, src/config/rpc.ts) — Helius's URL if configured
 // (.env.example), else the public devnet RPC.
@@ -18,17 +31,36 @@ const identity: AppIdentity = { name: 'Envelope' }
 const queryClient = new QueryClient()
 
 export default function Layout() {
+  const [fontsLoaded] = useFonts({
+    Fraunces_500Medium,
+    Fraunces_600SemiBold,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+  })
+
+  useEffect(() => {
+    if (fontsLoaded) void SplashScreen.hideAsync()
+  }, [fontsLoaded])
+
+  // The splash screen stays up (native side) until this flips true, so rendering nothing here in
+  // the meantime is invisible to the user — never a blank flash of unstyled text underneath.
+  if (!fontsLoaded) return null
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <NetworkProvider
-        networks={networks}
-        render={({ selectedNetwork }) => (
-          <MobileWalletProvider cluster={selectedNetwork} identity={identity}>
-            <AppShell />
-          </MobileWalletProvider>
-        )}
-      />
-    </QueryClientProvider>
+    <View className="flex-1 bg-ink-950">
+      <QueryClientProvider client={queryClient}>
+        <NetworkProvider
+          networks={networks}
+          render={({ selectedNetwork }) => (
+            <MobileWalletProvider cluster={selectedNetwork} identity={identity}>
+              <AppShell />
+            </MobileWalletProvider>
+          )}
+        />
+      </QueryClientProvider>
+    </View>
   )
 }
 

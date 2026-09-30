@@ -1,22 +1,27 @@
 @import 'tailwindcss';
 @import 'uniwind';
 
-/* Phase 7 design tokens — kept in sync with src/design/tokens.ts by hand (Tailwind v4's
-   `@theme` can't import a JS/TS module). The envelope/seal motif: warm paper background, a
-   wax-seal red for primary actions, ink navy for text. */
+/* "Sealed letter" design tokens — kept in sync with src/design/tokens.ts by hand (Tailwind v4's
+   `@theme` can't import a JS/TS module). Dark ink page, warm paper-colored ink for text, one
+   reserved wax-seal accent. See tokens.ts for the reasoning behind each choice. */
 @theme {
-  --color-paper-50: #fffdf8;
-  --color-paper-100: #fbf4e4;
-  --color-paper-200: #f3e6c9;
+  --color-ink-950: #0f1116;
+  --color-ink-900: #171a21;
+  --color-ink-800: #232733;
+  --color-ink-700: #2e3341;
 
-  --color-ink-600: #5c5344;
-  --color-ink-700: #3d362b;
-  --color-ink-900: #221d15;
+  --color-paper-500: #f6f1e7;
+  --color-paper-400: #dcd6c8;
 
-  --color-seal-500: #b8442f;
-  --color-seal-600: #9c3623;
-  --color-seal-700: #7c2a1b;
+  --color-mute-500: #8c93a6;
+  --color-mute-600: #6b7185;
 
-  --color-gold-400: #d9a441;
-  --color-gold-500: #c08a2e;
+  --color-seal-400: #d6604c;
+  --color-seal-500: #c4432e;
+  --color-seal-600: #a6371f;
+
+  --color-gold-500: #c9a227;
+
+  --color-success: #4e9a6b;
+  --color-danger: #c4432e;
 }

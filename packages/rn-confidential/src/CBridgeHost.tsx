@@ -58,23 +58,35 @@ const bytesToBase64 = (bytes: Uint8Array): string => fromByteArray(bytes)
 export function CBridgeHost({ children, onSignMessage, onSignTransaction, onReady }: CBridgeHostProps) {
   const webviewRef = useRef<WebView>(null)
   const [ready, setReady] = useState(false)
+
+  // The channel's identity must stay stable for the life of the WebView (recreating it would
+  // drop in-flight calls), but `onSignMessage`/`onSignTransaction` change identity on every
+  // render where the connected account changes (see useBridgeSigners). Refs, updated every
+  // render, let the channel's handlers always call whichever version is current instead of the
+  // one captured when the channel was first created — otherwise every call after the first
+  // reconnect/account-change closes over a stale `account` and wrongly rejects a real signer.
+  const onSignMessageRef = useRef(onSignMessage)
+  const onSignTransactionRef = useRef(onSignTransaction)
+  onSignMessageRef.current = onSignMessage
+  onSignTransactionRef.current = onSignTransaction
+
   const channel = useMemo(() => {
     const rpcChannel = new RpcChannel((text) => webviewRef.current?.postMessage(text), 'host')
 
     rpcChannel.on('signMessage', async (params) => {
       const { address, messageBase64 } = params as SignMessageParams
-      const signature = await onSignMessage(address, base64ToBytes(messageBase64))
+      const signature = await onSignMessageRef.current(address, base64ToBytes(messageBase64))
       return { signatureBase64: bytesToBase64(signature) } satisfies SignMessageResult
     })
 
     rpcChannel.on('signTransaction', async (params) => {
       const { address, messageBase64 } = params as SignTransactionParams
-      const signature = await onSignTransaction(address, base64ToBytes(messageBase64))
+      const signature = await onSignTransactionRef.current(address, base64ToBytes(messageBase64))
       return { signatureBase64: bytesToBase64(signature) } satisfies SignTransactionResult
     })
 
     return rpcChannel
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- channel identity must stay stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- channel identity must stay stable; the refs above keep its handlers current
   }, [])
 
   const handleMessage = useCallback(
