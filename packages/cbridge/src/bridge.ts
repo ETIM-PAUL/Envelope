@@ -28,6 +28,7 @@ import {
   TOKEN_2022_PROGRAM_ADDRESS,
 } from '@solana-program/token-2022'
 import {
+  decryptConfidentialTransferBalance,
   fetchConfidentialTransferBalance,
   getConfidentialTransferInstructionPlan,
   getCreateConfidentialTransferAccountInstructionPlan,
@@ -53,6 +54,8 @@ import type {
   LockKeysResult,
   PingParams,
   PingResult,
+  PrepareApplyPendingBalanceParams,
+  PrepareApplyPendingBalanceResult,
   RestoreKeysParams,
   RestoreKeysResult,
   SignMessageResult,
@@ -339,4 +342,37 @@ channel.on('isAccountReady', async (params) => {
   const ready =
     existing.exists && hasExtension(unwrapOption(existing.data.extensions) ?? undefined, 'ConfidentialTransferAccount')
   return { ready } satisfies IsAccountReadyResult
+})
+
+channel.on('prepareApplyPendingBalance', async (params) => {
+  const { rpcUrl, mint, owner, amount } = params as PrepareApplyPendingBalanceParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before prepareApplyPendingBalance`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const [token] = await findAssociatedTokenPda({
+    owner: address(owner),
+    mint: address(mint),
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const tokenAccount = await fetchToken(rpc, token)
+  const current = decryptConfidentialTransferBalance({
+    tokenAccount: tokenAccount.data,
+    elgamalSecretKey: keys.elgamalKeypair.secret(),
+    aesKey: keys.aesKey,
+  })
+
+  // Both terms account for what will have already happened on-chain by the time this
+  // instruction runs (Deposit, earlier in the same transaction): the deposited amount is about
+  // to land in pending, and applying sweeps *all* pending (any the account already had, plus
+  // this deposit) into available — not just this deposit's amount alone.
+  const newAvailable = current.availableBalance + current.pendingBalance + BigInt(amount)
+  const newDecryptableAvailableBalance = keys.aesKey.encrypt(newAvailable).toBytes()
+  const expectedPendingBalanceCreditCounter = current.pendingBalanceCreditCounter + 1n
+
+  return {
+    newDecryptableAvailableBalanceBase64: bytesToBase64(newDecryptableAvailableBalance),
+    expectedPendingBalanceCreditCounter: expectedPendingBalanceCreditCounter.toString(),
+  } satisfies PrepareApplyPendingBalanceResult
 })

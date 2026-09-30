@@ -6,12 +6,17 @@ import { AppAddressLink } from '../../components/app-address-link'
 import { Screen } from '../../components/screen'
 import { SealMark } from '../../components/seal-mark'
 import { colors, fontFamily } from '../../design/tokens'
+import { usePrivateBalance } from '../../features/account/use-private-balance'
 import { useConfidentialKeys } from '../../features/keys/use-confidential-keys'
 import { useAppStore } from '../../store/app-store'
+import { formatBaseUnits } from '../../utils/format-amount'
+
+const CUSDC_DECIMALS = 6
 
 export default function Home() {
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { keysUnlocked } = useConfidentialKeys()
+  const { availableBalance, isLoading: balanceLoading } = usePrivateBalance()
 
   return (
     <Screen>
@@ -42,15 +47,31 @@ export default function Home() {
           Private balance
         </Text>
         <Text className="text-paper-500" style={{ fontFamily: fontFamily.display, fontSize: 44, letterSpacing: -0.5 }}>
-          — cUSDC
+          {keysUnlocked && availableBalance !== null
+            ? `$${formatBaseUnits(availableBalance, CUSDC_DECIMALS)}`
+            : '— cUSDC'}
         </Text>
         <View className="flex-row items-center gap-1.5 mt-3">
           {keysUnlocked ? <View className="w-1.5 h-1.5 rounded-full bg-gold-500" /> : null}
           <Text className="text-mute-600 text-xs" style={{ fontFamily: fontFamily.ui }}>
-            {keysUnlocked ? 'Sealed. Balance decryption is coming soon.' : 'Enable a private balance to see it here'}
+            {!keysUnlocked
+              ? 'Enable a private balance to see it here'
+              : balanceLoading
+                ? 'Decrypting…'
+                : 'Sealed — only visible on this device'}
           </Text>
         </View>
       </View>
+
+      {keysUnlocked ? (
+        <Link href="/add-funds" asChild>
+          <Pressable className="bg-seal-500 rounded-2xl py-4 items-center mt-6 active:bg-seal-600">
+            <Text className="text-paper-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 16 }}>
+              Add to private balance
+            </Text>
+          </Pressable>
+        </Link>
+      ) : null}
 
       <View className="flex-row gap-3 mt-6">
         <Link href="/send" asChild>

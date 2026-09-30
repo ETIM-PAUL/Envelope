@@ -79,6 +79,22 @@ export type EnsureAccountReadyResult = { alreadyReady: boolean; signedTransactio
 export type IsAccountReadyParams = { rpcUrl: string; mint: string; owner: string }
 export type IsAccountReadyResult = { ready: boolean }
 
+// Phase 10: the one piece of "add to private balance" that needs a session key. `wrap` (mints
+// public cUSDC) and `Deposit` (public -> pending) are plain, deterministic instructions the host
+// builds itself (no secret material involved); only `ApplyPendingBalance`'s
+// `newDecryptableAvailableBalance` argument needs the AES key to compute — this returns exactly
+// that (plus the matching `expectedPendingBalanceCreditCounter`) as raw values, not a built
+// instruction, so the host assembles all three instructions into one transaction and gets a
+// single MWA signature for the whole "Add $50" action. `amount` is the deposit about to happen
+// (same transaction, later instruction) — the bridge fetches the account's *pre*-deposit on-chain
+// state itself and accounts for the deposit's own effect (available + pending + amount, credit
+// counter + 1) since there's no way to re-fetch mid-transaction.
+export type PrepareApplyPendingBalanceParams = { rpcUrl: string; mint: string; owner: string; amount: string }
+export type PrepareApplyPendingBalanceResult = {
+  newDecryptableAvailableBalanceBase64: string
+  expectedPendingBalanceCreditCounter: string // stringified bigint
+}
+
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
   deriveKeys: { params: DeriveKeysParams; result: DeriveKeysResult }
@@ -88,6 +104,7 @@ export type BridgeMethodMap = {
   decryptAvailable: { params: DecryptAvailableParams; result: DecryptAvailableResult }
   ensureAccountReady: { params: EnsureAccountReadyParams; result: EnsureAccountReadyResult }
   isAccountReady: { params: IsAccountReadyParams; result: IsAccountReadyResult }
+  prepareApplyPendingBalance: { params: PrepareApplyPendingBalanceParams; result: PrepareApplyPendingBalanceResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap

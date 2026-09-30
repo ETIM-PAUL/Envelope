@@ -203,6 +203,24 @@ Gets a wallet's cUSDC account from nothing to "ready to send and receive private
 
 **Done when:** a fresh wallet goes from nothing to a configured account in one guided step — the guided step (onboarding) is wired to do exactly that; on-chain confirmation is pending the same device session verifying Phase 8.
 
+### Phase 10 — Add to private balance
+
+USDC → private cUSDC in one user action: `wrap(amount)` (envelope_vault mints public cUSDC), `Deposit(amount)` (public → pending confidential), `ApplyPendingBalance` (pending → available) — three instructions, one transaction, one MWA signature.
+
+**Where each instruction gets built settled the real design question this phase turned on.** `wrap` and `Deposit` are plain and deterministic — no secret material, so `src/features/account/use-add-to-private-balance.ts` builds them directly on the RN side (`wrap` via `@project/anchor`'s generated `envelopeVault` client, `Deposit` via `@solana-program/token-2022`). Only `ApplyPendingBalance`'s `newDecryptableAvailableBalance` argument needs the bridge — it's the AES-encrypted claim of what the new available balance will be, and the AES key never leaves the bridge's memory. Rather than have the bridge build that whole instruction (and hand back a signed transaction fragment to splice in, which is awkward), a new bridge method — `prepareApplyPendingBalance({ rpcUrl, mint, owner, amount })` — returns just the two raw values (`newDecryptableAvailableBalanceBase64`, `expectedPendingBalanceCreditCounter`) the RN side needs to construct the instruction itself with the library's own low-level builder. This keeps the "only secrets touch the bridge" boundary exact, and means all three instructions end up in one transaction signed once, instead of the two-signature flow every other bridge-touching action needs.
+
+**The one genuinely tricky piece: computing the two values without being able to re-fetch mid-transaction.** `prepareApplyPendingBalance` fetches the account's _pre_-deposit on-chain state and has to account for what its own Deposit instruction (later in the same transaction) is about to do: `newAvailable = currentAvailable + currentPending + depositAmount` (not just `+ depositAmount` — any pre-existing unapplied pending balance gets swept in too, since that's what `ApplyPendingBalance` actually does on-chain), and `expectedPendingBalanceCreditCounter = currentCounter + 1` (accounting for the deposit's own credit).
+
+**One signer, reused everywhere.** `wallet-ui`'s convenience `sendTransactions(instructions)` creates its own internal signer instance — mixing that with a separately-instantiated signer used to build the instructions themselves risked a subtle identity mismatch, so `use-add-to-private-balance.ts` instead calls `useMobileWallet()`'s lower-level `getTransactionSigner` once and threads that same signer through all three instruction builders and the transaction's fee payer, mirroring exactly what `sendTransactions` does internally.
+
+**UI:** Home now shows the real decrypted balance (`usePrivateBalance`, wrapping the `decryptAvailable` bridge method that's existed since Phase 2/3, via `@tanstack/react-query`) instead of a placeholder dash, and gained an "Add to private balance" button once keys are unlocked. `src/app/add-funds.tsx` is a dollars-and-cents amount entry that calls the new hook and routes back to Home on success.
+
+**Not implemented: automatic transaction splitting.** The plan allows for "if too large for one tx, split into 2." Three lightweight instructions (no ZK proof payloads — those only apply to Transfer/Withdraw, not Deposit/ApplyPendingBalance) comfortably fit one transaction's size limit in practice, so no splitting logic was built; if that assumption ever breaks it'll surface as a clear size-limit error, not a silent failure.
+
+**Verified:** `cbridge:typecheck`/`rn-confidential:typecheck` pass, the cbridge bundle rebuilds with the new method, root `tsc --noEmit`/`expo lint`/`prettier --check` are all clean, and a full Metro export bundles cleanly (2,074 modules). **Not yet exercised on-device:** the combined transaction's actual MWA signing prompt and on-chain execution.
+
+**Done when:** "Add $50" → fingerprint → home shows $50 private; explorer shows public cUSDC = 0 — the flow is wired end to end and typechecks/bundles clean; on-device confirmation is pending, same as Phase 9.
+
 ## Get started
 
 1. Install dependencies
