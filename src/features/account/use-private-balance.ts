@@ -1,6 +1,7 @@
-// Decrypts the connected wallet's available cUSDC balance via the bridge's already-derived AES
-// key (`decryptAvailable`, built in Phase 2/3). Only needs `keysUnlocked` — no wrap/deposit logic
-// here, just reading and showing what's already on-chain.
+// Decrypts the connected wallet's cUSDC balance via the bridge's already-derived keys
+// (`decryptAvailable`, built in Phase 2/3): available (AES, fast) and pending (ElGamal, slower —
+// see protocol.ts). Only needs `keysUnlocked`; both come back from the same bridge call, so
+// there's one loading state for the pair, not a separate spinner per Phase 11's plan wording.
 import { useCBridge } from '@envelope/rn-confidential'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { requireMints } from '../../config/devnet-config'
@@ -22,17 +23,22 @@ export function usePrivateBalance() {
     enabled: Boolean(walletAddress && keysUnlocked && bridge.ready),
     queryFn: async () => {
       const { cusdc } = requireMints()
-      const { availableBalance } = await bridge.call('decryptAvailable', {
+      const { availableBalance, pendingBalance } = await bridge.call('decryptAvailable', {
         rpcUrl: DEVNET_RPC_URL,
         mint: cusdc,
         owner: walletAddress!,
       })
-      return BigInt(availableBalance)
+      return { availableBalance: BigInt(availableBalance), pendingBalance: BigInt(pendingBalance) }
     },
   })
 
   const queryClient = useQueryClient()
   const refetchBalance = () => queryClient.invalidateQueries({ queryKey: balanceQueryKey(walletAddress) })
 
-  return { availableBalance: query.data ?? null, isLoading: query.isLoading, refetchBalance }
+  return {
+    availableBalance: query.data?.availableBalance ?? null,
+    pendingBalance: query.data?.pendingBalance ?? null,
+    isLoading: query.isLoading,
+    refetchBalance,
+  }
 }

@@ -33,7 +33,7 @@ import {
   getConfidentialTransferInstructionPlan,
   getCreateConfidentialTransferAccountInstructionPlan,
 } from '@solana-program/token-2022/confidential'
-import zkInit from '@solana/zk-sdk/web'
+import zkInit, { BatchedGroupedCiphertext3HandlesValidityProofData, ElGamalCiphertext } from '@solana/zk-sdk/web'
 import type { AeKey, ElGamalKeypair } from '@solana/zk-sdk/web'
 import { ZK_SDK_WASM_BASE64 } from './generated/wasmBase64.ts'
 import { deriveWalletConfidentialKeys } from './confidentialKeys.ts'
@@ -54,6 +54,8 @@ import type {
   LockKeysResult,
   PingParams,
   PingResult,
+  DecryptActivityParams,
+  DecryptActivityResult,
   PrepareApplyPendingBalanceParams,
   PrepareApplyPendingBalanceResult,
   RestoreKeysParams,
@@ -376,3 +378,167 @@ channel.on('prepareApplyPendingBalance', async (params) => {
     expectedPendingBalanceCreditCounter: expectedPendingBalanceCreditCounter.toString(),
   } satisfies PrepareApplyPendingBalanceResult
 })
+
+// --- Phase 11: activity decryption ---
+// Verified against a real devnet transfer with a known amount (see git history for the one-off
+// research script that confirmed this) — none of these constants are documented in
+// @solana/zk-sdk's public TS bindings, which expose the proof context as opaque toBytes()/
+// fromBytes() only, no field accessors.
+const ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS = 'ZkE1Gama1Proof11111111111111111111111111111'
+const VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR = 12
+const CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR = 27 // Token-2022's top-level instruction byte
+const CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR = 7 // the extension's own "Transfer" sub-instruction
+const TRANSFER_AMOUNT_LO_BIT_LENGTH = 16n
+// context = 3x32-byte pubkeys (first/second/third, matching the proof's constructor order) +
+// grouped_ciphertext_lo (128 bytes) + grouped_ciphertext_hi (128 bytes).
+const PROOF_CONTEXT_PUBKEYS_SIZE = 96
+const GROUPED_CIPHERTEXT_SIZE = 128 // 32-byte commitment + 3x32-byte handles
+// Handle order within a grouped ciphertext, fixed by how transfers are built
+// (buildConfidentialTransferProofData: sourcePubkey, destinationPubkey, auditorPubkey).
+const SOURCE_HANDLE_INDEX = 0
+const DESTINATION_HANDLE_INDEX = 1
+
+function combineAmounts(lo: bigint, hi: bigint, bitLength: bigint): bigint {
+  return (hi << bitLength) + lo
+}
+
+// Not exported by @solana-program/token-2022's public API (only leaks into its dist/types, never
+// re-exported from "." or "./confidential") despite being used internally — reimplemented from
+// its own doc comment: "32-byte commitment followed by N 32-byte handles. The returned 64-byte
+// array is [commitment, handle]."
+function extractCiphertextFromGroupedBytes(grouped: Uint8Array, handleIndex: number): Uint8Array {
+  const result = new Uint8Array(64)
+  result.set(grouped.slice(0, 32), 0)
+  result.set(grouped.slice(32 + handleIndex * 32, 32 + (handleIndex + 1) * 32), 32)
+  return result
+}
+
+// Decrypts one handle (source or destination) of a ciphertext-validity proof instruction's amount,
+// given that instruction's raw data (including its 1-byte discriminator prefix).
+function decryptProofInstructionAmount(
+  instructionData: Uint8Array,
+  secretKey: ElGamalSecretKeyLike,
+  handleIndex: number,
+): bigint {
+  const proofDataBytes = instructionData.slice(1) // strip the 1-byte VerifyProof discriminator
+  const proofData = BatchedGroupedCiphertext3HandlesValidityProofData.fromBytes(proofDataBytes)
+  const contextBytes = proofData.context().toBytes()
+  const loBytes = contextBytes.slice(PROOF_CONTEXT_PUBKEYS_SIZE, PROOF_CONTEXT_PUBKEYS_SIZE + GROUPED_CIPHERTEXT_SIZE)
+  const hiBytes = contextBytes.slice(
+    PROOF_CONTEXT_PUBKEYS_SIZE + GROUPED_CIPHERTEXT_SIZE,
+    PROOF_CONTEXT_PUBKEYS_SIZE + 2 * GROUPED_CIPHERTEXT_SIZE,
+  )
+  const handleLo = extractCiphertextFromGroupedBytes(loBytes, handleIndex)
+  const handleHi = extractCiphertextFromGroupedBytes(hiBytes, handleIndex)
+  const ciphertextLo = ElGamalCiphertext.fromBytes(handleLo)
+  const ciphertextHi = ElGamalCiphertext.fromBytes(handleHi)
+  if (!ciphertextLo || !ciphertextHi) throw new Error('invalid ciphertext bytes in proof instruction')
+  const amountLo = secretKey.decrypt(ciphertextLo)
+  const amountHi = secretKey.decrypt(ciphertextHi)
+  return combineAmounts(amountLo, amountHi, TRANSFER_AMOUNT_LO_BIT_LENGTH)
+}
+
+type ElGamalSecretKeyLike = { decrypt(ciphertext: ElGamalCiphertext): bigint }
+
+channel.on('decryptActivity', async (params) => {
+  const { rpcUrl, mint, owner, limit } = params as DecryptActivityParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before decryptActivity`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const ownerAddress = address(owner)
+  const [token] = await findAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: address(mint),
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+
+  const signatures = await rpc.getSignaturesForAddress(token, { limit: limit ?? 20 }).send()
+  const entries: DecryptActivityResult['entries'] = []
+
+  for (const { signature, err } of signatures) {
+    if (err) continue // failed transactions never landed a real transfer
+    const tx = await rpc
+      .getTransaction(signature, { commitment: 'confirmed', encoding: 'json', maxSupportedTransactionVersion: 0 })
+      .send()
+    if (!tx) continue
+
+    const accountKeys = tx.transaction.message.accountKeys as unknown as string[]
+    const instructions = tx.transaction.message.instructions as unknown as {
+      programIdIndex: number
+      accounts: number[]
+      data: string
+    }[]
+
+    // Find this transaction's ConfidentialTransfer instruction (if any) to learn the direction —
+    // source/destination token accounts are its first and third accounts (see
+    // ConfidentialTransferInstruction's account list in the generated instruction).
+    let direction: 'incoming' | 'outgoing' | null = null
+    for (const ix of instructions) {
+      const programId = accountKeys[ix.programIdIndex]
+      if (programId !== TOKEN_2022_PROGRAM_ADDRESS) continue
+      const data = base58ToBytes(ix.data)
+      if (
+        data[0] !== CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR ||
+        data[1] !== CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR
+      )
+        continue
+      const sourceToken = accountKeys[ix.accounts[0]!]
+      const destinationToken = accountKeys[ix.accounts[2]!]
+      if (sourceToken === token) direction = 'outgoing'
+      else if (destinationToken === token) direction = 'incoming'
+      break
+    }
+    if (!direction) continue
+
+    // Find the paired ciphertext-validity proof instruction in the same transaction and decrypt
+    // the handle matching our direction (our own ElGamal key never decrypts the other party's
+    // handle — that's the whole point of ElGamal's per-recipient handles).
+    for (const ix of instructions) {
+      const programId = accountKeys[ix.programIdIndex]
+      if (programId !== ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS) continue
+      const raw = base58ToBytes(ix.data)
+      if (raw[0] !== VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR) continue
+      try {
+        const handleIndex = direction === 'outgoing' ? SOURCE_HANDLE_INDEX : DESTINATION_HANDLE_INDEX
+        const secretKey = keys.elgamalKeypair.secret()
+        const amount = decryptProofInstructionAmount(raw, secretKey, handleIndex)
+        entries.push({
+          signature,
+          direction,
+          amount: amount.toString(),
+          blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
+        })
+      } catch {
+        // A proof instruction that doesn't decrypt cleanly with our key isn't ours to show —
+        // skip rather than surface a broken entry.
+      }
+      break
+    }
+  }
+
+  return { entries } satisfies DecryptActivityResult
+})
+
+function base58ToBytes(base58: string): Uint8Array {
+  // json-encoded instruction data from getTransaction is base58, not base64 — reuse the same
+  // small decode table @solana/kit's base58 codec uses, inlined to avoid a new dependency here.
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+  let value = 0n
+  for (const char of base58) {
+    const index = ALPHABET.indexOf(char)
+    if (index === -1) throw new Error(`invalid base58 character: ${char}`)
+    value = value * 58n + BigInt(index)
+  }
+  const bytes: number[] = []
+  while (value > 0n) {
+    bytes.unshift(Number(value % 256n))
+    value /= 256n
+  }
+  for (const char of base58) {
+    if (char !== '1') break
+    bytes.unshift(0)
+  }
+  return new Uint8Array(bytes)
+}

@@ -16,7 +16,7 @@ const CUSDC_DECIMALS = 6
 export default function Home() {
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { keysUnlocked } = useConfidentialKeys()
-  const { availableBalance, isLoading: balanceLoading } = usePrivateBalance()
+  const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePrivateBalance()
 
   return (
     <Screen>
@@ -27,11 +27,18 @@ export default function Home() {
             Envelope
           </Text>
         </View>
-        <Link href="/settings" asChild>
-          <Pressable hitSlop={8}>
-            <Feather name="settings" size={20} color={colors.mute[500]} />
-          </Pressable>
-        </Link>
+        <View className="flex-row items-center gap-4">
+          <Link href="/activity" asChild>
+            <Pressable hitSlop={8}>
+              <Feather name="clock" size={20} color={colors.mute[500]} />
+            </Pressable>
+          </Link>
+          <Link href="/settings" asChild>
+            <Pressable hitSlop={8}>
+              <Feather name="settings" size={20} color={colors.mute[500]} />
+            </Pressable>
+          </Link>
+        </View>
       </View>
 
       <View className="h-px bg-ink-800 mb-6" />
@@ -61,6 +68,11 @@ export default function Home() {
                 : 'Sealed — only visible on this device'}
           </Text>
         </View>
+        {keysUnlocked && pendingBalance !== null && pendingBalance > 0n ? (
+          <Text className="text-gold-500 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
+            +${formatBaseUnits(pendingBalance, CUSDC_DECIMALS)} pending
+          </Text>
+        ) : null}
       </View>
 
       {keysUnlocked ? (

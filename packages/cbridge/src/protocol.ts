@@ -95,6 +95,26 @@ export type PrepareApplyPendingBalanceResult = {
   expectedPendingBalanceCreditCounter: string // stringified bigint
 }
 
+// Phase 11: decrypts recent confidential-transfer activity for `owner`'s cUSDC account —
+// incoming and outgoing amounts, each recovered from that transfer's own historical transaction
+// data (not live account state, which only reflects the *current* balance). Each confidential
+// `Transfer` instruction's amount is encrypted three ways (source, destination, auditor handles)
+// inside its paired ZK "ciphertext validity" proof instruction in the same transaction; `owner`
+// decrypts whichever handle applies to them with their own ElGamal secret key — never the other
+// party's. This exact recipe (proof discriminator, context byte layout, handle index per
+// direction) was verified against a real devnet transfer with a known amount before being built
+// here; none of it is documented in @solana/zk-sdk's public API. `owner` must have called
+// `deriveKeys`/`restoreKeys` first.
+export type ActivityDirection = 'incoming' | 'outgoing'
+export type ActivityEntry = {
+  signature: string
+  direction: ActivityDirection
+  amount: string // stringified bigint, base units
+  blockTime: number | null
+}
+export type DecryptActivityParams = { rpcUrl: string; mint: string; owner: string; limit?: number }
+export type DecryptActivityResult = { entries: ActivityEntry[] }
+
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
   deriveKeys: { params: DeriveKeysParams; result: DeriveKeysResult }
@@ -105,6 +125,7 @@ export type BridgeMethodMap = {
   ensureAccountReady: { params: EnsureAccountReadyParams; result: EnsureAccountReadyResult }
   isAccountReady: { params: IsAccountReadyParams; result: IsAccountReadyResult }
   prepareApplyPendingBalance: { params: PrepareApplyPendingBalanceParams; result: PrepareApplyPendingBalanceResult }
+  decryptActivity: { params: DecryptActivityParams; result: DecryptActivityResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap
