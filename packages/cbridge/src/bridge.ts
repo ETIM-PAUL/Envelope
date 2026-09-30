@@ -8,16 +8,29 @@ import {
   address,
   createSolanaRpc,
   getBase58Decoder,
+  sequentialInstructionPlan,
+  unwrapOption,
   type Address,
+  type Instruction,
+  type InstructionPlan,
   type MessagePartialSigner,
   type ReadonlyUint8Array,
   type SignatureDictionary,
   type TransactionPartialSigner,
 } from '@solana/kit'
-import { fetchToken, findAssociatedTokenPda, TOKEN_2022_PROGRAM_ADDRESS } from '@solana-program/token-2022'
+import {
+  ExtensionType,
+  fetchMaybeToken,
+  fetchToken,
+  findAssociatedTokenPda,
+  getEnableCpiGuardInstruction,
+  getReallocateInstruction,
+  TOKEN_2022_PROGRAM_ADDRESS,
+} from '@solana-program/token-2022'
 import {
   fetchConfidentialTransferBalance,
   getConfidentialTransferInstructionPlan,
+  getCreateConfidentialTransferAccountInstructionPlan,
 } from '@solana-program/token-2022/confidential'
 import zkInit from '@solana/zk-sdk/web'
 import type { AeKey, ElGamalKeypair } from '@solana/zk-sdk/web'
@@ -32,6 +45,10 @@ import type {
   DecryptAvailableResult,
   DeriveKeysParams,
   DeriveKeysResult,
+  EnsureAccountReadyParams,
+  EnsureAccountReadyResult,
+  IsAccountReadyParams,
+  IsAccountReadyResult,
   LockKeysParams,
   LockKeysResult,
   PingParams,
@@ -41,6 +58,11 @@ import type {
   SignMessageResult,
   SignTransactionResult,
 } from './protocol.ts'
+
+// Matches roundtrip.ts's MAX_PENDING_BALANCE_CREDIT_COUNTER — how many unapplied confidential
+// deposits/transfers an account can queue before `applyPendingBalance` must run before another
+// lands. 65,536 is the standard default across the ecosystem's confidential-transfer tooling.
+const MAX_PENDING_BALANCE_CREDIT_COUNTER = 65_536n
 
 declare global {
   interface Window {
@@ -235,4 +257,86 @@ channel.on('decryptAvailable', async (params) => {
     availableBalance: balance.availableBalance.toString(),
     pendingBalance: balance.pendingBalance.toString(),
   } satisfies DecryptAvailableResult
+})
+
+function hasExtension(extensions: { __kind: string }[] | undefined, kind: string): boolean {
+  return extensions?.some((extension) => extension.__kind === kind) ?? false
+}
+
+function hasCpiGuardEnabled(extensions: { __kind: string; lockCpi?: boolean }[] | undefined): boolean {
+  return extensions?.some((extension) => extension.__kind === 'CpiGuard' && extension.lockCpi === true) ?? false
+}
+
+channel.on('ensureAccountReady', async (params) => {
+  const { rpcUrl, mint, owner } = params as EnsureAccountReadyParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before ensureAccountReady`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const ownerAddress = address(owner)
+  const signer = createHostTransactionSigner(ownerAddress)
+
+  const [token] = await findAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const existing = await fetchMaybeToken(rpc, token)
+  const extensions = existing.exists ? (unwrapOption(existing.data.extensions) ?? undefined) : undefined
+
+  const steps: (Instruction | InstructionPlan)[] = []
+
+  if (!hasExtension(extensions, 'ConfidentialTransferAccount')) {
+    steps.push(
+      await getCreateConfidentialTransferAccountInstructionPlan({
+        payer: signer,
+        owner: signer,
+        mint: mintAddress,
+        rpc,
+        elgamalKeypair: keys.elgamalKeypair,
+        aesKey: keys.aesKey,
+        maximumPendingBalanceCreditCounter: MAX_PENDING_BALANCE_CREDIT_COUNTER,
+      }),
+    )
+  }
+
+  if (!hasCpiGuardEnabled(extensions)) {
+    // Reallocating an extension the account already has space for is rejected on-chain, so only
+    // include it when the TLV entry genuinely isn't there yet (as opposed to present but
+    // `lockCpi: false`, which just needs EnableCpiGuard).
+    if (!hasExtension(extensions, 'CpiGuard')) {
+      steps.push(
+        getReallocateInstruction({
+          token,
+          payer: signer,
+          owner: signer,
+          newExtensionTypes: [ExtensionType.CpiGuard],
+        }),
+      )
+    }
+    steps.push(getEnableCpiGuardInstruction({ token, owner: signer }))
+  }
+
+  if (steps.length === 0) {
+    return { alreadyReady: true, signedTransactions: [] } satisfies EnsureAccountReadyResult
+  }
+
+  const signedTransactions = await signInstructionPlan(sequentialInstructionPlan(steps), signer, rpc)
+  return { alreadyReady: false, signedTransactions } satisfies EnsureAccountReadyResult
+})
+
+channel.on('isAccountReady', async (params) => {
+  const { rpcUrl, mint, owner } = params as IsAccountReadyParams
+  const rpc = createSolanaRpc(rpcUrl)
+  const [token] = await findAssociatedTokenPda({
+    owner: address(owner),
+    mint: address(mint),
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const existing = await fetchMaybeToken(rpc, token)
+  const ready =
+    existing.exists && hasExtension(unwrapOption(existing.data.extensions) ?? undefined, 'ConfidentialTransferAccount')
+  return { ready } satisfies IsAccountReadyResult
 })

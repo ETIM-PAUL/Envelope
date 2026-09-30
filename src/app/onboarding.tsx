@@ -7,30 +7,39 @@ import { Button } from '../components/button'
 import { Screen } from '../components/screen'
 import { SealMark } from '../components/seal-mark'
 import { fontFamily } from '../design/tokens'
+import { useConfidentialAccount } from '../features/account/use-confidential-account'
 import { useConfidentialKeys } from '../features/keys/use-confidential-keys'
 import { formatError } from '../utils/format-error'
 
-// "Enable private balance" — one MWA signature derives the confidential ElGamal/AES keys in the
-// bridge; the derivation signature (not the keys) is then persisted behind biometric auth so
-// reopening the app doesn't need another MWA prompt (see useConfidentialKeys, secure-store.ts).
+type Step = 'idle' | 'deriving' | 'configuring'
+
+// "Enable private balance": one MWA signature derives the confidential ElGamal/AES keys in the
+// bridge (the derivation signature, not the keys, is then persisted behind biometric auth so
+// reopening the app doesn't need another MWA prompt — see useConfidentialKeys, secure-store.ts),
+// then the account itself is created/configured on-chain so it's ready to send and receive
+// (useConfidentialAccount) — a fresh wallet goes from nothing to ready in this one guided step.
 export default function Onboarding() {
   const router = useRouter()
   const bridge = useCBridge()
   const { keysUnlocked, enablePrivateBalance } = useConfidentialKeys()
-  const [isBusy, setIsBusy] = useState(false)
+  const { ensureAccountReady } = useConfidentialAccount()
+  const [step, setStep] = useState<Step>('idle')
   const [error, setError] = useState<string | null>(null)
+  const isBusy = step !== 'idle'
 
   async function handleEnable() {
     if (isBusy) return
-    setIsBusy(true)
     setError(null)
     try {
+      setStep('deriving')
       await enablePrivateBalance()
+      setStep('configuring')
+      await ensureAccountReady()
       router.replace('/(tabs)/home')
     } catch (e) {
       setError(formatError(e))
     } finally {
-      setIsBusy(false)
+      setStep('idle')
     }
   }
 
@@ -43,7 +52,8 @@ export default function Onboarding() {
         Enable private balance
       </Text>
       <Text className="text-mute-500 text-base mb-10 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
-        One signature derives keys that only ever live on this device. Approve it in your wallet to continue.
+        Derives keys that only ever live on this device, then sets up your account to send and receive privately.
+        Approve the prompts in your wallet to continue.
       </Text>
 
       {keysUnlocked ? (
@@ -53,7 +63,15 @@ export default function Onboarding() {
       ) : (
         <View className="w-full max-w-xs">
           <Button
-            label={!bridge.ready ? 'Preparing…' : isBusy ? 'Waiting for signature…' : 'Enable private balance'}
+            label={
+              !bridge.ready
+                ? 'Preparing…'
+                : step === 'deriving'
+                  ? 'Waiting for signature…'
+                  : step === 'configuring'
+                    ? 'Setting up your account…'
+                    : 'Enable private balance'
+            }
             onPress={() => void handleEnable()}
             disabled={!bridge.ready}
             busy={isBusy}

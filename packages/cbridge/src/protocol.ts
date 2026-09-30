@@ -62,6 +62,23 @@ export type BuildTransferPlanResult = { signedTransactions: string[] }
 export type DecryptAvailableParams = { rpcUrl: string; mint: string; owner: string }
 export type DecryptAvailableResult = { availableBalance: string; pendingBalance: string }
 
+// Phase 9: gets `owner`'s cUSDC account from nothing to "ready to send and receive privately" in
+// one call — creates the ATA if needed, reallocates + configures the `ConfidentialTransferAccount`
+// extension (verifying the ZK pubkey-validity proof against the already-derived session keys —
+// `owner` must have called `deriveKeys`/`restoreKeys` first), and reallocates + enables
+// `CpiGuard`. Idempotent: only the steps the account is actually missing are included, so a
+// second call on an already-ready account returns `alreadyReady: true` with nothing to sign.
+// Like `buildTransferPlan`, this only builds and signs — the host submits `signedTransactions`.
+export type EnsureAccountReadyParams = { rpcUrl: string; mint: string; owner: string }
+export type EnsureAccountReadyResult = { alreadyReady: boolean; signedTransactions: string[] }
+
+// Read-only "is this address ready to receive?" check — no session keys needed (it's not
+// `owner`'s own account), just on-chain state: the ATA exists and its `ConfidentialTransferAccount`
+// extension is configured. Deliberately doesn't check `CpiGuard`: that protects the account's own
+// owner from malicious CPI, not something a sender needs before transferring to them.
+export type IsAccountReadyParams = { rpcUrl: string; mint: string; owner: string }
+export type IsAccountReadyResult = { ready: boolean }
+
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
   deriveKeys: { params: DeriveKeysParams; result: DeriveKeysResult }
@@ -69,6 +86,8 @@ export type BridgeMethodMap = {
   lockKeys: { params: LockKeysParams; result: LockKeysResult }
   buildTransferPlan: { params: BuildTransferPlanParams; result: BuildTransferPlanResult }
   decryptAvailable: { params: DecryptAvailableParams; result: DecryptAvailableResult }
+  ensureAccountReady: { params: EnsureAccountReadyParams; result: EnsureAccountReadyResult }
+  isAccountReady: { params: IsAccountReadyParams; result: IsAccountReadyResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap
