@@ -8,20 +8,7 @@ import { colors, fontFamily } from '../design/tokens'
 import { useAddToPrivateBalance } from '../features/account/use-add-to-private-balance'
 import { usePrivateBalance } from '../features/account/use-private-balance'
 import { formatError } from '../utils/format-error'
-
-const CUSDC_DECIMALS = 6
-
-// Dollars-and-cents input -> base units (cUSDC has 6 decimals, like USDC). Rejects anything that
-// isn't a plain non-negative number with at most 2 decimal places, rather than trying to guess
-// what a malformed amount "should" mean.
-function parseDollarsToBaseUnits(input: string): bigint | null {
-  if (!/^\d+(\.\d{1,2})?$/.test(input.trim())) return null
-  const [whole, cents = ''] = input.trim().split('.')
-  const paddedCents = cents.padEnd(2, '0')
-  const baseUnits =
-    BigInt(whole) * 10n ** BigInt(CUSDC_DECIMALS) + BigInt(paddedCents) * 10n ** BigInt(CUSDC_DECIMALS - 2)
-  return baseUnits > 0n ? baseUnits : null
-}
+import { parseDollarsToBaseUnits } from '../utils/parse-amount'
 
 export default function AddFunds() {
   const router = useRouter()

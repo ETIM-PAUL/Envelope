@@ -23,7 +23,6 @@ import { COMPUTE_BUDGET_PROGRAM_ADDRESS, SET_COMPUTE_UNIT_PRICE_DISCRIMINATOR } 
 import { getSetComputeUnitPriceInstructionDataDecoder } from '@solana-program/compute-budget'
 import { ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS } from '@solana-program/zk-elgamal-proof'
 import { mints, policyConfig, programs, relayerAddress } from './config.ts'
-import type { Tier } from './tier.ts'
 
 // Every program the relayer will ever co-sign for. Anything else in the instruction list is an
 // automatic rejection, no further inspection needed.
@@ -40,12 +39,24 @@ const ALLOWED_PROGRAM_IDS = new Set<string>([
 
 // ZK ElGamal Proof program's `CloseContextState` — discriminator 0 (see @solana-program/
 // zk-elgamal-proof's ZkElGamalProofInstruction enum). The relayer may be the writable
-// `destination` here (reclaiming rent it originally paid for the context account), even though
-// it's the only non-fee-payer writable role it's ever allowed to hold.
+// `destination` here (reclaiming rent it originally paid for the context account).
 const CLOSE_CONTEXT_STATE_DISCRIMINATOR = 0
 
+// The three VerifyProof discriminators @solana-program/token-2022's getConfidentialTransferInstructionPlan
+// uses (confirmed by reading confidentialTransferHelpers.ts, not guessed): VerifyCiphertextCommitmentEquality
+// (equality proof), VerifyBatchedGroupedCiphertext3HandlesValidity (ciphertext validity proof, 12 — matches
+// the same constant the cbridge decrypts activity with), VerifyBatchedRangeProofU128 (range proof). These
+// instructions list the context-state `authority` account (the relayer, since buildTransferPlan's
+// `contextStateAuthority` defaults to `payer`) — Solana's compiled-message format has exactly one role per
+// address across a whole transaction, so once the relayer is writable anywhere in the tx (it always is, as
+// fee payer), every appearance of its address decompiles as writable too, including this one. That's a
+// property of the wire format, not of what this instruction does with the account: VerifyProof only writes
+// proof data into the context-state account it already rents: it has no path to move the relayer's own
+// lamports or tokens, unlike a Token Transfer or System instruction naming the relayer as source.
+const CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS = new Set([3, 12, 7])
+
 export type PolicyViolation = { ok: false; reason: string }
-export type PolicyResult = { ok: true } | PolicyViolation
+export type PolicyResult = { ok: true; sawFreeTierFeeInstruction: boolean } | PolicyViolation
 
 function violation(reason: string): PolicyViolation {
   return { ok: false, reason }
@@ -70,10 +81,18 @@ function isCreateAccountInstruction(data: Uint8Array): boolean {
 function isSafeWritableInstruction(programAddress: string, data: Uint8Array): boolean {
   if (programAddress === SYSTEM_PROGRAM_ADDRESS && isCreateAccountInstruction(data)) return true
   if (programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS && data[0] === CLOSE_CONTEXT_STATE_DISCRIMINATOR) return true
+  if (programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS && CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS.has(data[0]))
+    return true
   return false
 }
 
-export async function validateTransaction(transaction: Transaction, tier: Tier): Promise<PolicyResult> {
+// Checks one transaction's instructions against the allow-list/writable-role/compute-price rules
+// and reports whether it carried the free-tier SKR fee instruction — it does NOT enforce the tier
+// requirement itself. A confidential transfer spans several transactions (proof-context creation,
+// the transfer, context close), and only one of them needs to carry the fee; index.ts's /relay
+// handler validates every transaction in a batch first, then enforces "free tier needs the fee
+// instruction somewhere in the batch" once, across all of them — not once per transaction.
+export async function validateTransaction(transaction: Transaction): Promise<PolicyResult> {
   const compiledMessage = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes)
   if (compiledMessage.version !== 'legacy' && compiledMessage.version !== 0) {
     return violation(`unsupported transaction version: ${String(compiledMessage.version)}`)
@@ -155,9 +174,5 @@ export async function validateTransaction(transaction: Transaction, tier: Tier):
     }
   }
 
-  if (tier === 'free' && !sawFreeTierFeeInstruction) {
-    return violation('free-tier transactions must include the SKR fee instruction to the relayer')
-  }
-
-  return { ok: true }
+  return { ok: true, sawFreeTierFeeInstruction }
 }

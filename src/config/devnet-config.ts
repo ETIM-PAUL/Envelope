@@ -29,3 +29,11 @@ export function requirePrograms(): NonNullable<DevnetConfig['programs']> {
   }
   return programs
 }
+
+export function requireRelayerAddress(): string {
+  const { wallets } = getDevnetConfig()
+  if (!wallets.relayer) {
+    throw new Error('config/devnet.json has no `wallets.relayer` — run `npm run devnet:keys` first')
+  }
+  return wallets.relayer
+}

@@ -4,13 +4,15 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import {
+  address,
   getBase64EncodedWireTransaction,
   getSignatureFromTransaction,
   getTransactionDecoder,
   partiallySignTransaction,
   type Transaction,
 } from '@solana/kit'
-import { port, relayerAddress, relayerCryptoKeyPair, rpc, heliusWebhookSecret } from './config.ts'
+import { mints, policyConfig, port, relayerAddress, relayerCryptoKeyPair, rpc, heliusWebhookSecret } from './config.ts'
+import { confirmSignature } from './confirm.ts'
 import { validateTransaction } from './policy.ts'
 import { checkRateLimit } from './rate-limit.ts'
 import { getTierForWallet } from './tier.ts'
@@ -20,6 +22,27 @@ import { sendPushNotification } from './expo-push.ts'
 const app = new Hono()
 
 app.get('/', (c) => c.json({ ok: true, relayer: relayerAddress }))
+
+// GET /tier/:wallet — read-only, no auth: lets a client (the phone app) show an accurate fee line
+// before building a transfer, and know whether to include the free-tier SKR fee instruction at
+// all, without duplicating tier.ts's on-chain stake lookup in a second runtime. Exposes the exact
+// numbers /relay's own policy check enforces (freeTierFeeAmount, mints.skr, relayerAddress) so the
+// client never has to hardcode them separately and risk drifting out of sync.
+app.get('/tier/:wallet', async (c) => {
+  const wallet = c.req.param('wallet')
+  let tier: Awaited<ReturnType<typeof getTierForWallet>>
+  try {
+    tier = await getTierForWallet(rpc, address(wallet))
+  } catch {
+    return c.json({ error: 'malformed wallet address' }, 400)
+  }
+  return c.json({
+    tier,
+    relayerAddress,
+    skrMint: mints.skr,
+    freeTierFeeAmount: policyConfig.freeTierFeeAmount.toString(),
+  })
+})
 
 // POST /relay — body: { owner: string, transactions: string[] } (base64 wire transactions,
 // already signed by `owner` for every signature role except the relayer's own fee-payer slot).
@@ -38,7 +61,12 @@ app.post('/relay', async (c) => {
 
   const tier = await getTierForWallet(rpc, body.owner as Parameters<typeof getTierForWallet>[1])
 
-  const signatures: string[] = []
+  // Validate every transaction in the batch before co-signing or submitting any of them — a
+  // confidential transfer spans several transactions (proof-context creation, the transfer,
+  // context close), so the free-tier fee only needs to appear once across the whole batch, not
+  // once per transaction (see policy.ts's validateTransaction doc comment).
+  const transactions: Transaction[] = []
+  let sawFreeTierFeeInstruction = false
   for (const wireBase64 of body.transactions) {
     let transaction: Transaction
     try {
@@ -47,15 +75,35 @@ app.post('/relay', async (c) => {
       return c.json({ error: 'malformed transaction' }, 400)
     }
 
-    const policyResult = await validateTransaction(transaction, tier)
+    const policyResult = await validateTransaction(transaction)
     if (!policyResult.ok) {
       return c.json({ error: `rejected: ${policyResult.reason}` }, 400)
     }
+    if (policyResult.sawFreeTierFeeInstruction) sawFreeTierFeeInstruction = true
+    transactions.push(transaction)
+  }
 
+  if (tier === 'free' && !sawFreeTierFeeInstruction) {
+    return c.json(
+      { error: 'rejected: free-tier transactions must include the SKR fee instruction to the relayer' },
+      400,
+    )
+  }
+
+  // Submitted — and CONFIRMED — one at a time, in order: a multi-transaction plan (e.g. a
+  // confidential transfer's proof-context creation followed by the verify instruction that
+  // references it) can have later transactions that depend on earlier ones having already landed.
+  // Firing them all without waiting caused a real "Invalid account owner" failure in practice —
+  // the range-proof verify transaction was submitted (and preflight-simulated) before its
+  // context-account creation transaction had confirmed.
+  const signatures: string[] = []
+  for (const transaction of transactions) {
     const cosigned = await partiallySignTransaction([relayerCryptoKeyPair], transaction)
     const wireTransaction = getBase64EncodedWireTransaction(cosigned)
+    const signature = getSignatureFromTransaction(cosigned)
     try {
       await rpc.sendTransaction(wireTransaction, { encoding: 'base64' }).send()
+      await confirmSignature(signature)
     } catch (err) {
       // Logged in full server-side (SolanaError's `context` often carries bigints, which
       // JSON.stringify — and therefore c.json() — throws on) but only a plain message goes to
@@ -63,7 +111,7 @@ app.post('/relay', async (c) => {
       console.error('submission failed:', err)
       return c.json({ error: `submission failed: ${err instanceof Error ? err.message : String(err)}` }, 502)
     }
-    signatures.push(getSignatureFromTransaction(cosigned))
+    signatures.push(signature)
   }
 
   return c.json({ signatures })
@@ -71,17 +119,27 @@ app.post('/relay', async (c) => {
 
 app.get('/status/:sig', async (c) => {
   const sig = c.req.param('sig')
+  let result: Awaited<ReturnType<ReturnType<typeof rpc.getSignatureStatuses>['send']>>
   try {
-    const { value } = await rpc.getSignatureStatuses([sig as Parameters<typeof rpc.getSignatureStatuses>[0][0]]).send()
-    const status = value[0]
-    if (!status) return c.json({ status: 'unknown' })
-    return c.json({
-      status: status.confirmationStatus ?? 'processed',
-      err: status.err,
-    })
-  } catch {
-    return c.json({ error: 'malformed signature' }, 400)
+    result = await rpc.getSignatureStatuses([sig as Parameters<typeof rpc.getSignatureStatuses>[0][0]]).send()
+  } catch (err) {
+    // A malformed signature and a transient RPC failure (e.g. the public devnet RPC's rate
+    // limiting) look the same from here (both throw) but aren't the same problem — only the
+    // former is the client's fault, so only that gets a 400.
+    const message = err instanceof Error ? err.message : String(err)
+    if (/invalid|malformed|base58/i.test(message)) {
+      return c.json({ error: 'malformed signature' }, 400)
+    }
+    console.error('status lookup failed:', err)
+    return c.json({ error: `status lookup failed: ${message}` }, 502)
   }
+  const { value } = result
+  const status = value[0]
+  if (!status) return c.json({ status: 'unknown' })
+  return c.json({
+    status: status.confirmationStatus ?? 'processed',
+    err: status.err,
+  })
 })
 
 app.post('/push/register', async (c) => {

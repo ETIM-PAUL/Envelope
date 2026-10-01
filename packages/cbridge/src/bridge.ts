@@ -6,9 +6,11 @@
 // which live in memory for this WebView session only (cleared on reload / the app's "Lock" action).
 import {
   address,
+  createNoopSigner,
   createSolanaRpc,
   getBase58Decoder,
   sequentialInstructionPlan,
+  singleInstructionPlan,
   unwrapOption,
   type Address,
   type Instruction,
@@ -27,6 +29,11 @@ import {
   getReallocateInstruction,
   TOKEN_2022_PROGRAM_ADDRESS,
 } from '@solana-program/token-2022'
+import {
+  findAssociatedTokenPda as findClassicAssociatedTokenPda,
+  getTransferInstruction as getClassicTransferInstruction,
+  TOKEN_PROGRAM_ADDRESS,
+} from '@solana-program/token'
 import {
   decryptConfidentialTransferBalance,
   fetchConfidentialTransferBalance,
@@ -191,7 +198,7 @@ channel.on('lockKeys', async (_params) => {
 })
 
 channel.on('buildTransferPlan', async (params) => {
-  const { rpcUrl, mint, owner, destinationOwner, amount } = params as BuildTransferPlanParams
+  const { rpcUrl, mint, owner, destinationOwner, amount, feePayer, feeInstruction } = params as BuildTransferPlanParams
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before buildTransferPlan`)
@@ -200,6 +207,7 @@ channel.on('buildTransferPlan', async (params) => {
   const mintAddress = address(mint)
   const ownerAddress = address(owner)
   const destinationAddress = address(destinationOwner)
+  const relayerAddress = address(feePayer)
 
   const [sourceToken] = await findAssociatedTokenPda({
     owner: ownerAddress,
@@ -217,8 +225,11 @@ channel.on('buildTransferPlan', async (params) => {
     fetchToken(rpc, destinationToken),
   ])
 
-  // Single-signer spike: owner pays their own fees (no relayer yet — see Phase 12).
+  // owner signs as transfer authority (real MWA round-trip); the relayer pays fees + proof-context
+  // rent, but never signs here — a noop signer leaves its slot empty for /relay to co-sign (see
+  // protocol.ts's BuildTransferPlanParams doc comment).
   const signer = createHostTransactionSigner(ownerAddress)
+  const relayerSigner = createNoopSigner(relayerAddress)
 
   const plan = await getConfidentialTransferInstructionPlan({
     sourceToken,
@@ -230,12 +241,39 @@ channel.on('buildTransferPlan', async (params) => {
     amount: BigInt(amount),
     sourceElgamalKeypair: keys.elgamalKeypair,
     aesKey: keys.aesKey,
-    payer: signer,
+    payer: relayerSigner,
     rpc,
   })
 
-  const signedTransactions = await signInstructionPlan(plan, signer, rpc)
-  return { signedTransactions } satisfies BuildTransferPlanResult
+  const transferTransactions = await signInstructionPlan(plan, relayerSigner, rpc)
+
+  // Free-tier senders (owner asked the relayer's GET /tier/:wallet) prepend a small, separate SKR
+  // fee transaction — same owner-signs/relayer-noop-payer pattern, built and signed here (not in
+  // React Native) so it reuses the exact same MWA round-trip and never needs its own Solana
+  // instruction-building code on the native side.
+  let feeTransactions: string[] = []
+  if (feeInstruction) {
+    const skrMintAddress = address(feeInstruction.skrMint)
+    const [ownerSkrAta] = await findClassicAssociatedTokenPda({
+      owner: ownerAddress,
+      mint: skrMintAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
+    const [relayerSkrAta] = await findClassicAssociatedTokenPda({
+      owner: relayerAddress,
+      mint: skrMintAddress,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
+    const feeIx = getClassicTransferInstruction({
+      source: ownerSkrAta,
+      destination: relayerSkrAta,
+      authority: signer,
+      amount: BigInt(feeInstruction.amount),
+    })
+    feeTransactions = await signInstructionPlan(singleInstructionPlan(feeIx), relayerSigner, rpc)
+  }
+
+  return { signedTransactions: [...feeTransactions, ...transferTransactions] } satisfies BuildTransferPlanResult
 })
 
 channel.on('decryptAvailable', async (params) => {

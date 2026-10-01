@@ -46,16 +46,25 @@ export type RestoreKeysResult = { elgamalPubkeyBase58: string }
 export type LockKeysParams = Record<string, never>
 export type LockKeysResult = { ok: true }
 
-// Builds and fully signs a confidential transfer — `owner` must have called `deriveKeys` first.
-// `owner` also pays its own fees in this single-signer spike (no relayer yet — see Phase 12).
-// Every required signature is obtained via the `signTransaction` host method (MWA); the bridge
-// never sees a MWA-controlled private key. Returns base64 wire transactions ready to send as-is.
+// Builds a confidential transfer with `feePayer` (the relayer) as fee payer and rent payer for
+// the proof context accounts — `owner` must have called `deriveKeys` first. `owner`'s signature
+// (authority over the transfer, via the `signTransaction` host method / MWA) is obtained and
+// attached; the relayer's own fee-payer signature slot is deliberately left empty (`createNoopSigner`
+// — see @solana/signers, documented for exactly this "server will countersign and submit" case).
+// The bridge never sees a MWA-controlled private key, and never sees the relayer's key either.
+// Returns base64 wire transactions *partially* signed (owner's signature present, relayer's slot
+// empty) — ready to POST to the relayer's `/relay` endpoint, not to submit directly.
 export type BuildTransferPlanParams = {
   rpcUrl: string
   mint: string
   owner: string
   destinationOwner: string
   amount: string // stringified bigint, base units
+  feePayer: string // the relayer's address — fee payer + proof-context rent payer
+  // Present for free-tier senders (ask the relayer's GET /tier/:wallet) — a classic-Token SKR
+  // transfer from `owner` to `feePayer`, prepended as its own small transaction ahead of the
+  // transfer plan's own transactions. Omit entirely for Member/Business tiers, which are exempt.
+  feeInstruction?: { skrMint: string; amount: string }
 }
 export type BuildTransferPlanResult = { signedTransactions: string[] }
 
