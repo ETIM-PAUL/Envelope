@@ -6,7 +6,9 @@
 // which live in memory for this WebView session only (cleared on reload / the app's "Lock" action).
 import {
   address,
+  createKeyPairSignerFromPrivateKeyBytes,
   createNoopSigner,
+  createSignableMessage,
   createSolanaRpc,
   getBase58Decoder,
   sequentialInstructionPlan,
@@ -15,6 +17,7 @@ import {
   type Address,
   type Instruction,
   type InstructionPlan,
+  type KeyPairSigner,
   type MessagePartialSigner,
   type ReadonlyUint8Array,
   type SignatureDictionary,
@@ -43,6 +46,9 @@ import {
 } from '@solana-program/token-2022/confidential'
 import zkInit, { BatchedGroupedCiphertext3HandlesValidityProofData, ElGamalCiphertext } from '@solana/zk-sdk/web'
 import type { AeKey, ElGamalKeypair } from '@solana/zk-sdk/web'
+// Cross-workspace relative import (same pattern relayer/src/tier.ts already uses for the same
+// generated client) — esbuild (this package's bundler) resolves it fine, unlike Metro.
+import { envelopeVault } from '../../../anchor/src/index.ts'
 import { ZK_SDK_WASM_BASE64 } from './generated/wasmBase64.ts'
 import { deriveWalletConfidentialKeys } from './confidentialKeys.ts'
 import { RpcChannel } from './rpcChannel.ts'
@@ -52,10 +58,18 @@ import type {
   ApplyPendingBalanceResult,
   BuildTransferPlanParams,
   BuildTransferPlanResult,
+  ClosePotParams,
+  ClosePotResult,
+  CreatePotParams,
+  CreatePotResult,
   DecryptAvailableParams,
   DecryptAvailableResult,
+  DecryptPotActivityParams,
+  DecryptPotActivityResult,
   DeriveKeysParams,
   DeriveKeysResult,
+  DerivePotKeysParams,
+  DerivePotKeysResult,
   EnsureAccountReadyParams,
   EnsureAccountReadyResult,
   IsAccountReadyParams,
@@ -68,8 +82,11 @@ import type {
   DecryptActivityResult,
   PrepareApplyPendingBalanceParams,
   PrepareApplyPendingBalanceResult,
+  PotContribution,
   RestoreKeysParams,
   RestoreKeysResult,
+  RestorePotKeysParams,
+  RestorePotKeysResult,
   SignMessageResult,
   SignTransactionResult,
 } from './protocol.ts'
@@ -110,6 +127,27 @@ document.addEventListener('message', (event) => channel.receive(String((event as
 
 const sessionKeys = new Map<string, { elgamalKeypair: ElGamalKeypair; aesKey: AeKey }>()
 
+// Phase 15: a pot's own Ed25519 signing identity, kept separately from `sessionKeys` (which only
+// ever holds confidential-balance encryption keys, never a signing key — the wallet's own signing
+// always stays in MWA). A pot's signer DOES live here, since it's derived entirely in-bridge and
+// MWA has no way to sign for an address it doesn't control. `createHostTransactionSigner`/
+// `createHostMessageSigner` check this map first before assuming an address needs an MWA round trip.
+const potSigners = new Map<string, KeyPairSigner>()
+
+// One fixed MWA signature over this per-pot message is the only secret a pot's whole identity
+// (signing key + confidential-balance keys) is derived from — SHA-256 of the signature gives a
+// deterministic 32-byte Ed25519 seed. Never the wallet's own derivation message
+// (`solana-conf-bal/v1`): that's wallet-scoped and would collide across every pot a host creates.
+function potDerivationMessage(potId: string): Uint8Array {
+  return new TextEncoder().encode(`envelope-pot:${potId}`)
+}
+
+async function derivePotSignerFromSignature(signature: Uint8Array): Promise<KeyPairSigner> {
+  const signatureCopy = Uint8Array.from(signature)
+  const seed = new Uint8Array(await crypto.subtle.digest('SHA-256', signatureCopy))
+  return createKeyPairSignerFromPrivateKeyBytes(seed)
+}
+
 // `onSignature` lets deriveKeys capture the raw signature bytes for persistence (Phase 8) without
 // this signer needing to know anything about that — it's just a side channel on top of the normal
 // MWA round trip.
@@ -145,6 +183,9 @@ function createReplayMessageSigner(owner: Address, signature: Uint8Array): Messa
 }
 
 function createHostTransactionSigner(owner: Address): TransactionPartialSigner {
+  const potSigner = potSigners.get(owner)
+  if (potSigner) return potSigner
+
   return {
     address: owner,
     async signTransactions(transactions) {
@@ -192,6 +233,44 @@ channel.on('restoreKeys', async (params) => {
   sessionKeys.set(owner, keys)
   const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
   return { elgamalPubkeyBase58 } satisfies RestoreKeysResult
+})
+
+channel.on('derivePotKeys', async (params) => {
+  const { owner, potId } = params as DerivePotKeysParams
+  await wasmInit
+  const hostAddress = address(owner)
+  let signature: Uint8Array | undefined
+  const hostSigner = createHostMessageSigner(hostAddress, (sig) => {
+    signature = sig
+  })
+  await hostSigner.signMessages([createSignableMessage(potDerivationMessage(potId))])
+  if (!signature) throw new Error('derivePotKeys: no derivation signature captured')
+
+  const potSigner = await derivePotSignerFromSignature(signature)
+  potSigners.set(potSigner.address, potSigner)
+  const keys = await deriveWalletConfidentialKeys(potSigner)
+  sessionKeys.set(potSigner.address, keys)
+
+  const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
+  return {
+    potOwnerAddress: potSigner.address,
+    elgamalPubkeyBase58,
+    signatureBase64: bytesToBase64(signature),
+  } satisfies DerivePotKeysResult
+})
+
+channel.on('restorePotKeys', async (params) => {
+  const { signatureBase64 } = params as RestorePotKeysParams
+  await wasmInit
+  const signature = base64ToBytes(signatureBase64)
+
+  const potSigner = await derivePotSignerFromSignature(signature)
+  potSigners.set(potSigner.address, potSigner)
+  const keys = await deriveWalletConfidentialKeys(potSigner)
+  sessionKeys.set(potSigner.address, keys)
+
+  const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
+  return { potOwnerAddress: potSigner.address, elgamalPubkeyBase58 } satisfies RestorePotKeysResult
 })
 
 channel.on('lockKeys', async (_params) => {
@@ -306,7 +385,7 @@ channel.on('decryptAvailable', async (params) => {
 })
 
 channel.on('applyPendingBalance', async (params) => {
-  const { rpcUrl, mint, owner } = params as ApplyPendingBalanceParams
+  const { rpcUrl, mint, owner, payer } = params as ApplyPendingBalanceParams
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before applyPendingBalance`)
@@ -315,6 +394,7 @@ channel.on('applyPendingBalance', async (params) => {
   const mintAddress = address(mint)
   const ownerAddress = address(owner)
   const signer = createHostTransactionSigner(ownerAddress)
+  const payerSigner = payer ? createHostTransactionSigner(address(payer)) : signer
 
   const [token] = await findAssociatedTokenPda({
     owner: ownerAddress,
@@ -340,7 +420,7 @@ channel.on('applyPendingBalance', async (params) => {
     elgamalSecretKey: keys.elgamalKeypair.secret(),
     aesKey: keys.aesKey,
   })
-  const signedTransactions = await signInstructionPlan(singleInstructionPlan(instruction), signer, rpc)
+  const signedTransactions = await signInstructionPlan(singleInstructionPlan(instruction), payerSigner, rpc)
   return { signedTransactions } satisfies ApplyPendingBalanceResult
 })
 
@@ -352,19 +432,18 @@ function hasCpiGuardEnabled(extensions: { __kind: string; lockCpi?: boolean }[] 
   return extensions?.some((extension) => extension.__kind === 'CpiGuard' && extension.lockCpi === true) ?? false
 }
 
-channel.on('ensureAccountReady', async (params) => {
-  const { rpcUrl, mint, owner } = params as EnsureAccountReadyParams
-  await wasmInit
-  const keys = sessionKeys.get(owner)
-  if (!keys) throw new Error(`call deriveKeys("${owner}") before ensureAccountReady`)
-
-  const rpc = createSolanaRpc(rpcUrl)
-  const mintAddress = address(mint)
-  const ownerAddress = address(owner)
-  const signer = createHostTransactionSigner(ownerAddress)
-
+// Shared by ensureAccountReady and createPot's pot-account setup — `owner` is the account's
+// confidential-transfer authority (signs every step), `payer` covers rent/fees (defaults to the
+// same signer; a pot passes its host instead, since the pot itself never holds SOL).
+async function buildEnsureAccountReadySteps(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  mintAddress: Address,
+  owner: TransactionPartialSigner,
+  payer: TransactionPartialSigner,
+  keys: { elgamalKeypair: ElGamalKeypair; aesKey: AeKey },
+): Promise<{ token: Address; steps: (Instruction | InstructionPlan)[] }> {
   const [token] = await findAssociatedTokenPda({
-    owner: ownerAddress,
+    owner: owner.address,
     mint: mintAddress,
     tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
   })
@@ -376,8 +455,8 @@ channel.on('ensureAccountReady', async (params) => {
   if (!hasExtension(extensions, 'ConfidentialTransferAccount')) {
     steps.push(
       await getCreateConfidentialTransferAccountInstructionPlan({
-        payer: signer,
-        owner: signer,
+        payer,
+        owner,
         mint: mintAddress,
         rpc,
         elgamalKeypair: keys.elgamalKeypair,
@@ -395,20 +474,37 @@ channel.on('ensureAccountReady', async (params) => {
       steps.push(
         getReallocateInstruction({
           token,
-          payer: signer,
-          owner: signer,
+          payer,
+          owner,
           newExtensionTypes: [ExtensionType.CpiGuard],
         }),
       )
     }
-    steps.push(getEnableCpiGuardInstruction({ token, owner: signer }))
+    steps.push(getEnableCpiGuardInstruction({ token, owner }))
   }
+
+  return { token, steps }
+}
+
+channel.on('ensureAccountReady', async (params) => {
+  const { rpcUrl, mint, owner, payer } = params as EnsureAccountReadyParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before ensureAccountReady`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const ownerAddress = address(owner)
+  const signer = createHostTransactionSigner(ownerAddress)
+  const payerSigner = payer ? createHostTransactionSigner(address(payer)) : signer
+
+  const { steps } = await buildEnsureAccountReadySteps(rpc, mintAddress, signer, payerSigner, keys)
 
   if (steps.length === 0) {
     return { alreadyReady: true, signedTransactions: [] } satisfies EnsureAccountReadyResult
   }
 
-  const signedTransactions = await signInstructionPlan(sequentialInstructionPlan(steps), signer, rpc)
+  const signedTransactions = await signInstructionPlan(sequentialInstructionPlan(steps), payerSigner, rpc)
   return { alreadyReady: false, signedTransactions } satisfies EnsureAccountReadyResult
 })
 
@@ -622,3 +718,202 @@ function base58ToBytes(base58: string): Uint8Array {
   }
   return new Uint8Array(bytes)
 }
+
+// Rust's `name: [u8; 32]`, UTF-8, zero-padded — truncates rather than throwing on an over-long
+// name (the create-pot screen should keep users under this anyway; this is the last line of
+// defense, not the primary validation).
+function encodePotName(name: string): Uint8Array {
+  const encoded = new TextEncoder().encode(name)
+  const padded = new Uint8Array(32)
+  padded.set(encoded.subarray(0, 32))
+  return padded
+}
+
+channel.on('createPot', async (params) => {
+  const { rpcUrl, mint, host, potOwner, potId, name, closeTs } = params as CreatePotParams
+  await wasmInit
+  const keys = sessionKeys.get(potOwner)
+  if (!keys) throw new Error(`call derivePotKeys/restorePotKeys for "${potOwner}" before createPot`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const hostAddress = address(host)
+  const potOwnerAddress = address(potOwner)
+  const hostSigner = createHostTransactionSigner(hostAddress)
+  const potSigner = createHostTransactionSigner(potOwnerAddress)
+
+  const [potTokenAccount] = await findAssociatedTokenPda({
+    owner: potOwnerAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+
+  // Token-account setup first, create_pot last — matches the plan's own ordering ("derive pot key
+  // → create + configure pot account → create_pot"), though the two are independent on-chain
+  // (create_pot just records `potTokenAccount` as a Pubkey field, it doesn't verify the account
+  // exists yet).
+  const { steps } = await buildEnsureAccountReadySteps(rpc, mintAddress, potSigner, hostSigner, keys)
+
+  const createPotInstruction = await envelopeVault.getCreatePotInstructionAsync({
+    host: hostSigner,
+    potId: BigInt(potId),
+    name: encodePotName(name),
+    closeTs: BigInt(closeTs),
+    potOwner: potOwnerAddress,
+    potTokenAccount,
+  })
+
+  const signedTransactions = await signInstructionPlan(
+    sequentialInstructionPlan([...steps, createPotInstruction]),
+    hostSigner,
+    rpc,
+  )
+  return { signedTransactions } satisfies CreatePotResult
+})
+
+// Contract: call applyPendingBalance({ owner: potOwner, payer: host }) first if the pot has any
+// pending balance, and let it land, before calling this — the sweep transfer below reads the
+// pot's *available* balance from current on-chain state to build its proofs, which only reflects
+// contributions that have already been applied. Bundling "apply" and "sweep" into one client call
+// would build the sweep's proofs against stale (pre-apply) on-chain state, since apply itself
+// hasn't landed yet when the sweep is built — the same multi-transaction landing-order problem
+// Phase 13's relayer fix addressed, avoided here by keeping the two as separate calls instead.
+channel.on('closePot', async (params) => {
+  const { rpcUrl, mint, host, potOwner, potId } = params as ClosePotParams
+  await wasmInit
+  const keys = sessionKeys.get(potOwner)
+  if (!keys) throw new Error(`call derivePotKeys/restorePotKeys for "${potOwner}" before closePot`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const hostAddress = address(host)
+  const potOwnerAddress = address(potOwner)
+  const hostSigner = createHostTransactionSigner(hostAddress)
+  const potSigner = createHostTransactionSigner(potOwnerAddress)
+
+  const closePotInstruction = await envelopeVault.getClosePotInstructionAsync({
+    host: hostSigner,
+    potId: BigInt(potId),
+  })
+
+  const [potToken] = await findAssociatedTokenPda({
+    owner: potOwnerAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const [hostToken] = await findAssociatedTokenPda({
+    owner: hostAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+
+  const balance = await fetchConfidentialTransferBalance({
+    token: potToken,
+    rpc,
+    elgamalSecretKey: keys.elgamalKeypair.secret(),
+    aesKey: keys.aesKey,
+  })
+
+  const plan: (Instruction | InstructionPlan)[] = [closePotInstruction]
+
+  if (balance.availableBalance > 0n) {
+    const [potAccount, hostAccount] = await Promise.all([fetchToken(rpc, potToken), fetchToken(rpc, hostToken)])
+    const sweepPlan = await getConfidentialTransferInstructionPlan({
+      sourceToken: potToken,
+      destinationToken: hostToken,
+      mint: mintAddress,
+      sourceTokenAccount: potAccount.data,
+      destinationTokenAccount: hostAccount.data,
+      authority: potSigner,
+      amount: balance.availableBalance,
+      sourceElgamalKeypair: keys.elgamalKeypair,
+      aesKey: keys.aesKey,
+      payer: hostSigner,
+      rpc,
+    })
+    plan.push(sweepPlan)
+  }
+
+  const signedTransactions = await signInstructionPlan(sequentialInstructionPlan(plan), hostSigner, rpc)
+  return { signedTransactions } satisfies ClosePotResult
+})
+
+channel.on('decryptPotActivity', async (params) => {
+  const { rpcUrl, mint, potOwner, limit } = params as DecryptPotActivityParams
+  await wasmInit
+  const keys = sessionKeys.get(potOwner)
+  if (!keys) throw new Error(`call derivePotKeys/restorePotKeys for "${potOwner}" before decryptPotActivity`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const [potToken] = await findAssociatedTokenPda({
+    owner: address(potOwner),
+    mint: address(mint),
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+
+  const signatures = await rpc.getSignaturesForAddress(potToken, { limit: limit ?? 50 }).send()
+  const contributions: PotContribution[] = []
+
+  for (const { signature, err } of signatures) {
+    if (err) continue
+    const tx = await rpc
+      .getTransaction(signature, { commitment: 'confirmed', encoding: 'json', maxSupportedTransactionVersion: 0 })
+      .send()
+    if (!tx) continue
+
+    const accountKeys = tx.transaction.message.accountKeys as unknown as string[]
+    const instructions = tx.transaction.message.instructions as unknown as {
+      programIdIndex: number
+      accounts: number[]
+      data: string
+    }[]
+
+    // A pot only ever receives contributions (never sends, until the host-signed close-time
+    // sweep, which this same loop would otherwise misattribute as a self-contribution) — find an
+    // incoming ConfidentialTransfer naming our own token account as the destination.
+    let sourceToken: string | null = null
+    for (const ix of instructions) {
+      const programId = accountKeys[ix.programIdIndex]
+      if (programId !== TOKEN_2022_PROGRAM_ADDRESS) continue
+      const data = base58ToBytes(ix.data)
+      if (
+        data[0] !== CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR ||
+        data[1] !== CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR
+      )
+        continue
+      const destinationToken = accountKeys[ix.accounts[2]!]
+      if (destinationToken !== potToken) continue
+      sourceToken = accountKeys[ix.accounts[0]!] ?? null
+      break
+    }
+    if (!sourceToken) continue
+    if (sourceToken === potToken) continue // the close-time sweep is pot -> host, not a contribution
+
+    let amount: bigint | null = null
+    for (const ix of instructions) {
+      const programId = accountKeys[ix.programIdIndex]
+      if (programId !== ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS) continue
+      const raw = base58ToBytes(ix.data)
+      if (raw[0] !== VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR) continue
+      try {
+        amount = decryptProofInstructionAmount(raw, keys.elgamalKeypair.secret(), DESTINATION_HANDLE_INDEX)
+      } catch {
+        // Not decryptable with our key — not actually ours, skip.
+      }
+      break
+    }
+    if (amount === null) continue
+
+    const contributorAccount = await fetchMaybeToken(rpc, address(sourceToken))
+    if (!contributorAccount.exists) continue
+
+    contributions.push({
+      signature,
+      contributor: contributorAccount.data.owner,
+      amount: amount.toString(),
+      blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
+    })
+  }
+
+  return { contributions } satisfies DecryptPotActivityResult
+})

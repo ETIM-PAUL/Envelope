@@ -77,8 +77,9 @@ export type DecryptAvailableResult = { availableBalance: string; pendingBalance:
 // here (single signer, no relayer involvement) — same as ensureAccountReady, matching the existing
 // precedent that account-maintenance operations are owner-pays while only Send is relayer-sponsored.
 // A no-op (empty `signedTransactions`) when there's nothing pending, so callers can invoke this
-// unconditionally on app open without an extra round trip to check first.
-export type ApplyPendingBalanceParams = { rpcUrl: string; mint: string; owner: string }
+// unconditionally on app open without an extra round trip to check first. `payer` (Phase 15):
+// same override as EnsureAccountReadyParams, for applying a pot's pending contributions.
+export type ApplyPendingBalanceParams = { rpcUrl: string; mint: string; owner: string; payer?: string }
 export type ApplyPendingBalanceResult = { signedTransactions: string[] }
 
 // Phase 9: gets `owner`'s cUSDC account from nothing to "ready to send and receive privately" in
@@ -88,7 +89,9 @@ export type ApplyPendingBalanceResult = { signedTransactions: string[] }
 // `CpiGuard`. Idempotent: only the steps the account is actually missing are included, so a
 // second call on an already-ready account returns `alreadyReady: true` with nothing to sign.
 // Like `buildTransferPlan`, this only builds and signs — the host submits `signedTransactions`.
-export type EnsureAccountReadyParams = { rpcUrl: string; mint: string; owner: string }
+// `payer` (Phase 15): defaults to `owner` — set it to a different address (the pot's host) when
+// `owner` is a pot's derived identity, which never holds any SOL of its own to pay rent with.
+export type EnsureAccountReadyParams = { rpcUrl: string; mint: string; owner: string; payer?: string }
 export type EnsureAccountReadyResult = { alreadyReady: boolean; signedTransactions: string[] }
 
 // Read-only "is this address ready to receive?" check — no session keys needed (it's not
@@ -134,6 +137,60 @@ export type ActivityEntry = {
 export type DecryptActivityParams = { rpcUrl: string; mint: string; owner: string; limit?: number }
 export type DecryptActivityResult = { entries: ActivityEntry[] }
 
+// Phase 15: a pot's own signing + confidential-balance identity, derived entirely from one MWA
+// signature the host makes over `envelope-pot:<potId>` — never stored raw, recoverable any time by
+// re-signing the same fixed message. The signature hashes (SHA-256) to a 32-byte seed for a real
+// Ed25519 keypair (`@solana/keys`' `createKeyPairFromPrivateKeyBytes`); that keypair then signs
+// its own `deriveWalletConfidentialKeys` derivation message locally (no second MWA round trip) to
+// get its ElGamal/AES confidential-balance keys, exactly like a normal wallet would for itself.
+// The pot's signing keypair is kept in-memory (alongside session keys) so the bridge can sign
+// pot-authority instructions (`createPot`, `closePot`) itself — MWA only ever signs for the host's
+// own connected wallet, never for the pot's derived address.
+export type DerivePotKeysParams = { owner: string; potId: string }
+export type DerivePotKeysResult = { potOwnerAddress: string; elgamalPubkeyBase58: string; signatureBase64: string }
+
+// Reconstructs a pot's identity from a previously captured derivation signature — no MWA prompt,
+// same recipe as `restoreKeys`.
+export type RestorePotKeysParams = { owner: string; potId: string; signatureBase64: string }
+export type RestorePotKeysResult = { potOwnerAddress: string; elgamalPubkeyBase58: string }
+
+// Builds everything needed to stand up a new pot in one call: the on-chain `create_pot` instruction
+// (envelope_vault) plus the pot's own Token-2022 account (ATA + ConfidentialTransferAccount +
+// CpiGuard, same steps `ensureAccountReady` does for a wallet). `host` pays every fee — the pot
+// itself never holds SOL. `potOwner` must have already been derived via `derivePotKeys`/
+// `restorePotKeys` in this session. `potId` is a stringified u64; `closeTs` a stringified i64
+// (unix seconds); `name` is sent as plain text and padded/truncated to the on-chain 32-byte field.
+export type CreatePotParams = {
+  rpcUrl: string
+  mint: string
+  host: string
+  potOwner: string
+  potId: string
+  name: string
+  closeTs: string
+}
+export type CreatePotResult = { signedTransactions: string[] }
+
+// Builds the on-chain `close_pot` instruction plus (if the pot has a balance) applying its pending
+// contributions and sweeping the full available balance to `host` — all one call, `host`-paid,
+// `potOwner`-authorized (signed locally, no MWA). Safe to call on a pot with zero balance: the
+// sweep step is simply omitted.
+export type ClosePotParams = { rpcUrl: string; mint: string; host: string; potOwner: string; potId: string }
+export type ClosePotResult = { signedTransactions: string[] }
+
+// The host's pot dashboard: every contribution decrypted with the pot's own ElGamal key, each
+// tagged with its contributor's wallet address — resolved from the confidential Transfer
+// instruction's source token account, not guessed. A pot only ever receives (contributions) until
+// it's closed, so unlike `decryptActivity` this never needs an `outgoing` direction.
+export type PotContribution = {
+  signature: string
+  contributor: string
+  amount: string // stringified bigint, base units
+  blockTime: number | null
+}
+export type DecryptPotActivityParams = { rpcUrl: string; mint: string; potOwner: string; limit?: number }
+export type DecryptPotActivityResult = { contributions: PotContribution[] }
+
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
   deriveKeys: { params: DeriveKeysParams; result: DeriveKeysResult }
@@ -146,6 +203,11 @@ export type BridgeMethodMap = {
   prepareApplyPendingBalance: { params: PrepareApplyPendingBalanceParams; result: PrepareApplyPendingBalanceResult }
   applyPendingBalance: { params: ApplyPendingBalanceParams; result: ApplyPendingBalanceResult }
   decryptActivity: { params: DecryptActivityParams; result: DecryptActivityResult }
+  derivePotKeys: { params: DerivePotKeysParams; result: DerivePotKeysResult }
+  restorePotKeys: { params: RestorePotKeysParams; result: RestorePotKeysResult }
+  createPot: { params: CreatePotParams; result: CreatePotResult }
+  closePot: { params: ClosePotParams; result: ClosePotResult }
+  decryptPotActivity: { params: DecryptPotActivityParams; result: DecryptPotActivityResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap
