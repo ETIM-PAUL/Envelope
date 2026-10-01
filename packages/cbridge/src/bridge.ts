@@ -42,6 +42,7 @@ import {
   fetchConfidentialTransferBalance,
   getApplyConfidentialPendingBalanceInstructionFromToken,
   getConfidentialTransferInstructionPlan,
+  getConfidentialWithdrawInstructionPlan,
   getCreateConfidentialTransferAccountInstructionPlan,
 } from '@solana-program/token-2022/confidential'
 import zkInit, { BatchedGroupedCiphertext3HandlesValidityProofData, ElGamalCiphertext } from '@solana/zk-sdk/web'
@@ -58,6 +59,8 @@ import type {
   ApplyPendingBalanceResult,
   BuildTransferPlanParams,
   BuildTransferPlanResult,
+  BuildWithdrawPlanParams,
+  BuildWithdrawPlanResult,
   ClosePotParams,
   ClosePotResult,
   CreatePotParams,
@@ -95,6 +98,11 @@ import type {
 // deposits/transfers an account can queue before `applyPendingBalance` must run before another
 // lands. 65,536 is the standard default across the ecosystem's confidential-transfer tooling.
 const MAX_PENDING_BALANCE_CREDIT_COUNTER = 65_536n
+
+// cUSDC's decimals (Phase 1's setup-mints.ts) — only needed by the two methods that bridge
+// between the confidential and public balances (buildWithdrawPlan here; wrap/Deposit are built
+// in RN directly, with their own copy of this same constant).
+const CUSDC_DECIMALS = 6
 
 declare global {
   interface Window {
@@ -422,6 +430,40 @@ channel.on('applyPendingBalance', async (params) => {
   })
   const signedTransactions = await signInstructionPlan(singleInstructionPlan(instruction), payerSigner, rpc)
   return { signedTransactions } satisfies ApplyPendingBalanceResult
+})
+
+channel.on('buildWithdrawPlan', async (params) => {
+  const { rpcUrl, mint, owner, amount } = params as BuildWithdrawPlanParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before buildWithdrawPlan`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const ownerAddress = address(owner)
+  const signer = createHostTransactionSigner(ownerAddress)
+
+  const [token] = await findAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const tokenAccount = await fetchToken(rpc, token)
+
+  const plan = await getConfidentialWithdrawInstructionPlan({
+    token,
+    mint: mintAddress,
+    tokenAccount: tokenAccount.data,
+    authority: signer,
+    amount: BigInt(amount),
+    decimals: CUSDC_DECIMALS,
+    elgamalKeypair: keys.elgamalKeypair,
+    aesKey: keys.aesKey,
+    payer: signer,
+    rpc,
+  })
+  const signedTransactions = await signInstructionPlan(plan, signer, rpc)
+  return { signedTransactions } satisfies BuildWithdrawPlanResult
 })
 
 function hasExtension(extensions: { __kind: string }[] | undefined, kind: string): boolean {

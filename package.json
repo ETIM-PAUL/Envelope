@@ -38,6 +38,7 @@
     "devnet:vault-roundtrip": "tsx scripts/vault-roundtrip.ts",
     "devnet:pot-roundtrip": "tsx scripts/pot-roundtrip.ts",
     "devnet:stake-roundtrip": "tsx scripts/stake-roundtrip.ts",
+    "devnet:withdraw-roundtrip": "tsx scripts/withdraw-roundtrip.ts",
     "cbridge:build": "npm run build -w packages/cbridge",
     "cbridge:typecheck": "npm run typecheck -w packages/cbridge",
     "rn-confidential:typecheck": "npm run typecheck -w packages/rn-confidential",

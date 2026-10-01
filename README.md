@@ -342,6 +342,18 @@ A real bug caught while wiring this up, not just typechecked: `useSendPrivately`
 
 **Done when:** Free user pays fee and hits limit; after staking 500 mock SKR, fee disappears and limit rises — live ✅ for the tier transition itself (staking 1,000 SKR on devnet immediately flips the on-chain tier to Member, visible once the relayer's cache catches up, verified end to end via `scripts/stake-roundtrip.ts`); the fee-waiver and limit-rise are direct, typechecked consequences of that same tier read (the relayer's `/relay` fee check and the vault's `wrap` limit both branch on identical tier logic, already verified independently in Phases 12 and pre-existing Phase 6 respectively) rather than re-demonstrated together in one live run here.
 
+**Update, once real devnet USDC was available:** the daily-limit counter itself (not just its reads) was verified live — a real `wrap` moved `UserDaily.depositedToday` from 0 to exactly the wrapped amount, matching `use-daily-limit.ts`'s computed `remaining` figure precisely. Hitting the actual $100 cap still wasn't attempted (would need ~100 USDC across multiple faucet claims), but the counter mechanics the limit depends on are now real-verified, not just typechecked.
+
+## Phase 17 — Withdraw
+
+**Two strictly-ordered steps, not one bridge call:** `buildWithdrawPlan` (new bridge method) moves `amount` from the confidential available balance to the account's _public_ cUSDC balance — equality + range proofs, context accounts, the same machinery `buildTransferPlan`/`applyPendingBalance` already use, owner-paid like every other self-serve balance operation (only Send is relayer-sponsored). The host then builds `[Approve(vaultAuthority, amount), Unwrap(amount)]` itself afterward — plain instructions, no secret material, same precedent as `wrap` in `use-add-to-private-balance.ts`. These can't be one call: `Unwrap`'s balance check and the public-cUSDC amount it needs only exist once the confidential withdraw's own transaction has actually landed, not merely been built — the same landing-order reasoning `closePot`'s apply-then-sweep split already established in Phase 15. `use-withdraw.ts` reports which of the two steps is in flight via an `onStep` callback, same shape as Send's `SendStep`.
+
+**UI:** `src/app/withdraw.tsx` replaces the placeholder — amount entry against the real decrypted available balance, a two-phase busy label ("Unsealing…" / "Sending to your wallet…"), and a plain note that the result is no longer private.
+
+**Verified for real on devnet, including the full supply invariant:** `scripts/withdraw-roundtrip.ts` runs the exact two-step sequence `use-withdraw.ts` drives (confidential withdraw, then Approve+Unwrap), against a real confidential balance, and checks all three invariants the plan's "done when" calls for in one run: USDC gained == confidential balance lost == public cUSDC settled back to exactly 0. First attempt caught the public devnet RPC's rate limiting mid-flight (same recurring theme as every heavy-RPC phase this session) — rerunning picked up cleanly since the script re-reads on-chain state fresh each time rather than assuming anything from a prior attempt.
+
+**Done when:** withdraw $20 → wallet USDC +$20; private balance −$20; supply invariant intact ✅ — verified at a smaller real amount (100,000 base units, bounded by what was practical to fund on this run), with all three deltas matching exactly; the mechanism has no amount-dependent behavior, so this generalizes to any amount including $20.
+
 ## Get started
 
 1. Install dependencies

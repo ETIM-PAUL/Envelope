@@ -191,6 +191,20 @@ export type PotContribution = {
 export type DecryptPotActivityParams = { rpcUrl: string; mint: string; potOwner: string; limit?: number }
 export type DecryptPotActivityResult = { contributions: PotContribution[] }
 
+// Phase 17: the confidential half of "withdraw to USDC" — moves `amount` from `owner`'s
+// confidential available balance to their account's *public* cUSDC balance (equality + range
+// proofs, context accounts, same machinery buildTransferPlan/applyPendingBalance already use).
+// `owner` pays their own fee here, like every other self-serve balance operation
+// (ensureAccountReady, applyPendingBalance) — only Send is relayer-sponsored. This is
+// deliberately a separate call from the `[Approve, Unwrap]` step that follows it: that step
+// needs the public cUSDC this mints to have actually landed on-chain first (its proofs would
+// otherwise be built, and unwrap's balance check run, against stale pre-withdraw state) — same
+// landing-order reasoning as closePot's apply-then-sweep split. The host builds and signs
+// `[Approve(vaultAuthority, amount), unwrap(amount)]` itself afterward (plain instructions, no
+// secret material, same precedent as `wrap` in use-add-to-private-balance.ts).
+export type BuildWithdrawPlanParams = { rpcUrl: string; mint: string; owner: string; amount: string }
+export type BuildWithdrawPlanResult = { signedTransactions: string[] }
+
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
   deriveKeys: { params: DeriveKeysParams; result: DeriveKeysResult }
@@ -208,6 +222,7 @@ export type BridgeMethodMap = {
   createPot: { params: CreatePotParams; result: CreatePotResult }
   closePot: { params: ClosePotParams; result: ClosePotResult }
   decryptPotActivity: { params: DecryptPotActivityParams; result: DecryptPotActivityResult }
+  buildWithdrawPlan: { params: BuildWithdrawPlanParams; result: BuildWithdrawPlanResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap
