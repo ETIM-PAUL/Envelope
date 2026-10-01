@@ -20,12 +20,25 @@ export function tierForStake(
   return 'free'
 }
 
+// Phase 16: "relayer reads StakePosition (cache ~30s) -> waives fee" — every /relay and
+// /tier/:wallet call was hitting the RPC fresh, on top of everything else this relayer already
+// does per request. A wallet's tier only ever changes via stake/request_unstake/
+// withdraw_unstaked, so a short TTL is purely a request-volume optimization, not a staleness risk
+// anyone would notice (worst case: the fee waiver from a stake made seconds ago takes up to 30s
+// to apply, same direction of error as the plan's own "visibly changes the product" demo, which
+// waits for the on-chain transaction to confirm first anyway).
+const TIER_CACHE_TTL_MS = 30_000
+const tierCache = new Map<string, { tier: Tier; expiresAt: number }>()
+
 // Reads the wallet's on-chain StakePosition + the Pool singleton's thresholds and computes its
 // current tier. A wallet that has never staked (no StakePosition account yet) is Free.
 export async function getTierForWallet(
   rpc: Rpc<GetAccountInfoApi & GetMultipleAccountsApi>,
   owner: Address,
 ): Promise<Tier> {
+  const cached = tierCache.get(owner)
+  if (cached && cached.expiresAt > Date.now()) return cached.tier
+
   const [poolAddress] = await envelopeStake.findPoolPda()
   const [stakePositionAddress] = await envelopeStake.findStakePositionPda({ user: owner })
 
@@ -34,12 +47,15 @@ export async function getTierForWallet(
     envelopeStake.fetchMaybeStakePosition(rpc, stakePositionAddress),
   ])
 
-  if (!stakePosition.exists) return 'free'
+  const tier = stakePosition.exists
+    ? tierForStake(
+        stakePosition.data.amount,
+        stakePosition.data.unlockRequestedAt,
+        pool.data.memberThreshold,
+        pool.data.businessThreshold,
+      )
+    : 'free'
 
-  return tierForStake(
-    stakePosition.data.amount,
-    stakePosition.data.unlockRequestedAt,
-    pool.data.memberThreshold,
-    pool.data.businessThreshold,
-  )
+  tierCache.set(owner, { tier, expiresAt: Date.now() + TIER_CACHE_TTL_MS })
+  return tier
 }

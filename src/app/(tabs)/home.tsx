@@ -5,8 +5,10 @@ import { Pressable, Text, View } from 'react-native'
 import { AppAddressLink } from '../../components/app-address-link'
 import { Screen } from '../../components/screen'
 import { SealMark } from '../../components/seal-mark'
+import { TierBadge } from '../../components/tier-badge'
 import { colors, fontFamily } from '../../design/tokens'
 import { usePrivateBalance } from '../../features/account/use-private-balance'
+import { useTier } from '../../features/account/use-tier'
 import { useConfidentialKeys } from '../../features/keys/use-confidential-keys'
 import { useAppStore } from '../../store/app-store'
 import { formatBaseUnits } from '../../utils/format-amount'
@@ -15,6 +17,8 @@ const CUSDC_DECIMALS = 6
 
 export default function Home() {
   const walletAddress = useAppStore((s) => s.walletAddress)
+  const tier = useAppStore((s) => s.tier)
+  useTier(walletAddress)
   const { keysUnlocked } = useConfidentialKeys()
   const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePrivateBalance()
 
@@ -27,7 +31,8 @@ export default function Home() {
             Envelope
           </Text>
         </View>
-        <View className="flex-row items-center gap-4">
+        <View className="flex-row items-center gap-3">
+          <TierBadge tier={tier} />
           <Link href="/activity" asChild>
             <Pressable hitSlop={8}>
               <Feather name="clock" size={20} color={colors.mute[500]} />
