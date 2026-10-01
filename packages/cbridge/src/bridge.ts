@@ -37,6 +37,7 @@ import {
 import {
   decryptConfidentialTransferBalance,
   fetchConfidentialTransferBalance,
+  getApplyConfidentialPendingBalanceInstructionFromToken,
   getConfidentialTransferInstructionPlan,
   getCreateConfidentialTransferAccountInstructionPlan,
 } from '@solana-program/token-2022/confidential'
@@ -47,6 +48,8 @@ import { deriveWalletConfidentialKeys } from './confidentialKeys.ts'
 import { RpcChannel } from './rpcChannel.ts'
 import { signInstructionPlan } from './signPlan.ts'
 import type {
+  ApplyPendingBalanceParams,
+  ApplyPendingBalanceResult,
   BuildTransferPlanParams,
   BuildTransferPlanResult,
   DecryptAvailableParams,
@@ -300,6 +303,45 @@ channel.on('decryptAvailable', async (params) => {
     availableBalance: balance.availableBalance.toString(),
     pendingBalance: balance.pendingBalance.toString(),
   } satisfies DecryptAvailableResult
+})
+
+channel.on('applyPendingBalance', async (params) => {
+  const { rpcUrl, mint, owner } = params as ApplyPendingBalanceParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before applyPendingBalance`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const ownerAddress = address(owner)
+  const signer = createHostTransactionSigner(ownerAddress)
+
+  const [token] = await findAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const tokenAccount = await fetchToken(rpc, token)
+
+  const balance = await fetchConfidentialTransferBalance({
+    token,
+    rpc,
+    elgamalSecretKey: keys.elgamalKeypair.secret(),
+    aesKey: keys.aesKey,
+  })
+  if (balance.pendingBalance === 0n) {
+    return { signedTransactions: [] } satisfies ApplyPendingBalanceResult
+  }
+
+  const instruction = getApplyConfidentialPendingBalanceInstructionFromToken({
+    token,
+    tokenAccount: tokenAccount.data,
+    authority: signer,
+    elgamalSecretKey: keys.elgamalKeypair.secret(),
+    aesKey: keys.aesKey,
+  })
+  const signedTransactions = await signInstructionPlan(singleInstructionPlan(instruction), signer, rpc)
+  return { signedTransactions } satisfies ApplyPendingBalanceResult
 })
 
 function hasExtension(extensions: { __kind: string }[] | undefined, kind: string): boolean {

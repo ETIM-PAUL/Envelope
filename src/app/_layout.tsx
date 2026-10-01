@@ -12,17 +12,32 @@ import {
   Manrope_700Bold,
   useFonts,
 } from '@expo-google-fonts/manrope'
+import * as Notifications from 'expo-notifications'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect } from 'react'
 import { View } from 'react-native'
 import { DevnetBadge } from '../components/devnet-badge'
 import { DEVNET_RPC_URL } from '../config/rpc'
+import { AutoApplyOnOpen } from '../features/account/auto-apply'
+import { RegisterPushOnOpen } from '../features/account/register-push'
 import { AutoUnlockOnOpen } from '../features/keys/auto-unlock'
 import { NetworkProvider } from '../features/network/network-provider'
 import { useBridgeSigners } from '../features/wallet/bridge-signers'
 import { useWalletSession } from '../features/wallet/use-wallet-session'
 
 SplashScreen.preventAutoHideAsync()
+
+// The webhook push only ever says "you received a private payment", never an amount — the banner
+// can show in full even while the app is foregrounded, since it's not revealing anything the lock
+// screen notification itself doesn't already show.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+})
 
 // Devnet-only for this build (see <DevnetBadge>, src/config/rpc.ts) — Helius's URL if configured
 // (.env.example), else the public devnet RPC.
@@ -73,6 +88,8 @@ function AppShell() {
   return (
     <CBridgeHost onSignMessage={onSignMessage} onSignTransaction={onSignTransaction}>
       <AutoUnlockOnOpen />
+      <AutoApplyOnOpen />
+      <RegisterPushOnOpen />
       <Slot />
       <DevnetBadge />
     </CBridgeHost>

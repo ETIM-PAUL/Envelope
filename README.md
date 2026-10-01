@@ -285,6 +285,31 @@ A real bug caught while wiring this up, not just typechecked: `useSendPrivately`
 
 **Done when:** phone A → phone B transfer in under ~20s on devnet, explorer shows ciphertext only ✅ for the mechanics — every piece (relayer-sponsored fee payer, free-tier fee, multi-transaction confirmation ordering, policy allow-listing) is verified end-to-end on real devnet state via `scripts/test-relayer-confidential-transfer.ts`. The phone-to-phone timing itself hasn't been measured on physical devices in this session (see the on-device-testing notes above) — the UI and RN-to-relayer wiring are in place and ready for that pass.
 
+## Phase 14 — Receive, tip links, auto-apply, push
+
+**Scheme change:** `app.json`'s `scheme` was `"myapp"`, which doesn't match the plan's `envelope://pay/<owner>` deep-link format — changed to `"envelope"`. Checked first that nothing (MWA's `wallet-ui/react-native-kit`, `android.package`) hardcodes the old scheme; `android.package` (`com.anonymous.myapp`) is a separate, unrelated identifier and was left alone.
+
+**Receive + pay deep link:**
+
+- `(tabs)/receive.tsx`: shows this wallet's own `envelope://pay/<owner>` as a QR code (`react-native-qrcode-svg` + `react-native-svg`, newly added) and a "Share tip link" button for `https://<site>/tip/<owner>`. No in-app scanner was built for the other end — a phone's native camera app already recognizes a URL inside a QR code and offers to open it, so "scan to pay" needs no `expo-camera` dependency at all, unlike Send's own deferred scan-to-send.
+- `src/app/pay/[owner].tsx` (new dynamic route, the deep-link destination): validates the address, handles "not connected yet" by showing a connect button inline rather than losing the intended recipient, checks the recipient is ready, then hands off to `send-confirm` with `quickAmounts=1` — reusing Send's entire biometric-confirm/progress/relay flow rather than duplicating it for what the plan calls the "Tip screen."
+- `send-confirm.tsx` grew a `quickAmounts` param: when set, renders $2/$5/$10 chips above the amount field that fill it in on tap — this is the "Tip screen: $2/$5/$10/custom" task, built as a mode of the existing confirm screen instead of a separate one.
+- The `https://<site>/tip/<owner>` web page itself (a static page that deep-links with an app-install fallback) is **not part of this repo** — it needs its own hosting outside this codebase, so `src/config/site.ts`'s `TIP_SITE_URL` points at a placeholder domain until that's deployed. The QR code path doesn't depend on it (it encodes `envelope://` directly); only the shareable web link does.
+
+**Auto-apply:**
+
+- New bridge method `applyPendingBalance` (`packages/cbridge/src/bridge.ts`/`protocol.ts`): applies pending confidential balance to available, reusing `getApplyConfidentialPendingBalanceInstructionFromToken` (the same helper `roundtrip.ts` already used) rather than hand-building the instruction a second time. No-ops (`signedTransactions: []`) when nothing's pending, so it's safe to call unconditionally. Owner pays their own fee — same precedent as `ensureAccountReady`; only Send is relayer-sponsored.
+- `AutoApplyOnOpen` (mounted at the app root next to `AutoUnlockOnOpen`): applies once per connected wallet on open, and again whenever a push notification arrives while the app is foregrounded (`Notifications.addNotificationReceivedListener`) — covering both halves of the plan's "on app open and on push."
+
+**Push notifications:**
+
+- `expo-notifications` (new dependency) + `RegisterPushOnOpen`: requests permission and registers the device's Expo push token against the relayer's existing `POST /push/register` (built in Phase 12, previously never called from the app). `/webhook/helius` (also Phase 12) was already wired to fan incoming-activity events out to registered tokens — Phase 14 is what actually gets a token registered in the first place.
+- **Getting a real push token needs an EAS project id** (`Constants.expoConfig.extra.eas.projectId`), which this build doesn't have configured — no `eas init` has been run. `useRegisterPushToken` checks for it and no-ops with a console warning rather than throwing, so the app still works without it; enabling push for real is a one-time `eas init` plus registering the Helius webhook against devnet in Helius's own dashboard (pointed at the relayer's public `/webhook/helius` URL) — both are account/dashboard steps outside what code in this repo can do, not implementation gaps.
+
+**Known limitation, inherited from Phase 13, not new here:** both `(tabs)/send.tsx` and the new `pay/[owner].tsx` let a sender reach the confirm screen without checking they've enabled a private balance (derived session keys) first — `buildTransferPlan` will throw a bridge-level error for a wallet that never has. This was already true of Send before this phase; Phase 14 doesn't add a new gap, just a second entry point that inherits the existing one.
+
+**Done when:** scan tip QR on phone A → phone B buzzes → B opens app → amount shown and applied — the on-chain mechanics (auto-apply, the deep-link route, the quick-amount tip flow) are built and typecheck/lint/format clean; the actual "buzzes" half needs a real push token, which needs the one-time EAS/Helius dashboard setup above before it can be verified on physical devices.
+
 ## Get started
 
 1. Install dependencies

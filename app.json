@@ -1,6 +1,6 @@
 {
   "expo": {
-    "scheme": "myapp",
+    "scheme": "envelope",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0F1116",
     "orientation": "default",
@@ -33,6 +33,12 @@
         "expo-local-authentication",
         {
           "faceIDPermission": "Confirm this send with Face ID."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#C4432E"
         }
       ],
       [

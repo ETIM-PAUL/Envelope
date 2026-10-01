@@ -71,6 +71,16 @@ export type BuildTransferPlanResult = { signedTransactions: string[] }
 export type DecryptAvailableParams = { rpcUrl: string; mint: string; owner: string }
 export type DecryptAvailableResult = { availableBalance: string; pendingBalance: string }
 
+// Phase 14: applies `owner`'s pending confidential balance (from incoming transfers/deposits) to
+// their available balance — the standalone version of the third instruction
+// use-add-to-private-balance.ts's deposit flow already includes inline. `owner` pays their own fee
+// here (single signer, no relayer involvement) — same as ensureAccountReady, matching the existing
+// precedent that account-maintenance operations are owner-pays while only Send is relayer-sponsored.
+// A no-op (empty `signedTransactions`) when there's nothing pending, so callers can invoke this
+// unconditionally on app open without an extra round trip to check first.
+export type ApplyPendingBalanceParams = { rpcUrl: string; mint: string; owner: string }
+export type ApplyPendingBalanceResult = { signedTransactions: string[] }
+
 // Phase 9: gets `owner`'s cUSDC account from nothing to "ready to send and receive privately" in
 // one call — creates the ATA if needed, reallocates + configures the `ConfidentialTransferAccount`
 // extension (verifying the ZK pubkey-validity proof against the already-derived session keys —
@@ -134,6 +144,7 @@ export type BridgeMethodMap = {
   ensureAccountReady: { params: EnsureAccountReadyParams; result: EnsureAccountReadyResult }
   isAccountReady: { params: IsAccountReadyParams; result: IsAccountReadyResult }
   prepareApplyPendingBalance: { params: PrepareApplyPendingBalanceParams; result: PrepareApplyPendingBalanceResult }
+  applyPendingBalance: { params: ApplyPendingBalanceParams; result: ApplyPendingBalanceResult }
   decryptActivity: { params: DecryptActivityParams; result: DecryptActivityResult }
 }
 

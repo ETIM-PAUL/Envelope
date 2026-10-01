@@ -30,9 +30,11 @@ const STEP_LABEL: Record<SendStep, string> = {
   done: 'Done',
 }
 
+const QUICK_AMOUNTS = ['2', '5', '10']
+
 export default function SendConfirm() {
   const router = useRouter()
-  const { recipient } = useLocalSearchParams<{ recipient: string }>()
+  const { recipient, quickAmounts } = useLocalSearchParams<{ recipient: string; quickAmounts?: string }>()
   const { getExplorerUrl } = useNetwork()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { availableBalance } = usePrivateBalance()
@@ -128,6 +130,32 @@ export default function SendConfirm() {
           style={{ fontFamily: fontFamily.display }}
         />
       </View>
+
+      {quickAmounts ? (
+        <View className="flex-row gap-2 mb-6">
+          {QUICK_AMOUNTS.map((value) => (
+            <Pressable
+              key={value}
+              onPress={() => {
+                setAmountText(value)
+                setError(null)
+              }}
+              disabled={isBusy}
+              className={`rounded-full px-5 py-2.5 border ${amountText === value ? 'bg-seal-500 border-seal-500' : 'bg-ink-900 border-ink-800'}`}
+            >
+              <Text
+                style={{
+                  fontFamily: fontFamily.uiSemibold,
+                  color: amountText === value ? colors.paper[500] : colors.mute[500],
+                  fontSize: 14,
+                }}
+              >
+                ${value}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       <Text className="text-mute-600 text-xs mb-10" style={{ fontFamily: fontFamily.ui }}>
         {feeAmount > 0n
