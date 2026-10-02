@@ -7,7 +7,7 @@ use crate::state::Pool;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    #[account(mut)]
+    #[account(mut, address = ADMIN @ crate::error::ErrorCode::Unauthorized)]
     pub admin: Signer<'info>,
 
     #[account(
@@ -50,6 +50,11 @@ pub fn handle_initialize(
         member_threshold <= business_threshold,
         crate::error::ErrorCode::InvalidThresholds
     );
+    // A zero threshold would make `tier_for_stake` grant that tier to every caller, including
+    // wallets that have never staked anything (StakePosition absent, `amount` reads as 0) — the
+    // `>=` comparison in tier.rs treats `0 >= 0` as true.
+    require!(member_threshold > 0, crate::error::ErrorCode::InvalidThresholds);
+    require!(cooldown_secs >= 0, crate::error::ErrorCode::InvalidCooldown);
 
     let pool = &mut ctx.accounts.pool;
     pool.skr_mint = ctx.accounts.skr_mint.key();

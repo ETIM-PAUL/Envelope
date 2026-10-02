@@ -354,6 +354,25 @@ A real bug caught while wiring this up, not just typechecked: `useSendPrivately`
 
 **Done when:** withdraw $20 → wallet USDC +$20; private balance −$20; supply invariant intact ✅ — verified at a smaller real amount (100,000 base units, bounded by what was practical to fund on this run), with all three deltas matching exactly; the mechanism has no amount-dependent behavior, so this generalizes to any amount including $20.
 
+## Phase 18 — Hardening & self-audit
+
+A real self-audit, not a rubber stamp — see **[THREAT_MODEL.md](./THREAT_MODEL.md)** for the full privacy table, relayer-trust writeup, linkability/timing/key-storage sections, devnet-only status, and the CT mint authority note (**revoke before mainnet** — the single highest-priority pre-mainnet item in this repo). Summary of what the audit pass actually found and what happened to each:
+
+**Fixed — four real, concrete issues, not hypothetical ones:**
+
+1. **Unprotected `initialize` on both `envelope_stake` and `envelope_vault`** — `admin: Signer` had no check against any expected key, so whoever's `initialize` call landed first on the parameter-free singleton `Pool`/`Config` PDA would own it permanently, including the ability to zero out tier thresholds (silently granting every wallet Member/Business tier). Fixed with a hardcoded `ADMIN` constant + `address = ADMIN @ ErrorCode::Unauthorized` on both; also added `member_threshold > 0` / `cooldown_secs >= 0` validation the same audit pass surfaced as related gaps.
+2. **`envelope_vault::wrap`'s stake-position check used `lamports() == 0` instead of ownership** — a 1-lamport System transfer to any wallet's not-yet-created `StakePosition` PDA would permanently break that wallet's `wrap()` calls, cheaply and without their cooperation. Fixed by checking `owner != envelope_stake::ID` instead.
+3. **`relayer/src/policy.ts`'s `CreateAccount` allowance never checked the new account's owner field** — only the discriminator, so a malicious transaction could get the relayer to fund an account owned by anything, freely drainable by the attacker with no further relayer involvement.
+4. **`relayer/src/policy.ts` never checked _who_ a proof context's `authority` actually is** — "safely writable" wasn't the same as "the relayer is really in control"; an attacker could set the authority to their own key, let the relayer pay the context account's rent, then close it themselves later and keep the rent.
+
+Both programs were rebuilt and the devnet deployment upgraded in place (existing accounts untouched — Solana upgrades replace code, not data), then re-verified end to end against the upgraded program via `scripts/stake-roundtrip.ts`. Findings 3 and 4 were proven closed with real adversarial transactions, not just typechecked: `scripts/fuzz-relayer-policy.ts` builds both malicious instruction shapes and confirms the relayer now rejects each with the specific policy violation; `scripts/test-relayer-confidential-transfer.ts` confirms the legitimate path still succeeds against the tightened policy.
+
+**Documented, not fixed — real but lower-severity, or needing a product decision:** the same prefund-griefing class behind finding 2 generalizes to every other `init`/`init_if_needed` account in both programs (denial-of-service only, costs the attacker real money for no gain, not fund theft); `create_pot`'s caller-supplied `pot_owner`/`pot_token_account` fields aren't on-chain-validated (not exploitable within the program itself — the risk, if any, is in an off-chain client trusting them); `close_pot`'s `close_ts` is stored but unenforced (self-harm only). Full writeups and reasoning for each are in `THREAT_MODEL.md`'s "Findings & fixes" section.
+
+**App side:** audited every `console.log`/`console.warn`/`console.error` call across `packages/cbridge`, `packages/rn-confidential`, `src/`, and `relayer/src` — no key or signature is ever logged. The WebView was already locked down before this phase (`originWhitelist`, blocked navigation, no DOM storage/file access, inline HTML source — nothing to harden further). Error states for insufficient balance and recipient-not-ready were already handled per-screen with dedicated copy; `formatError` gained translations for the two states that weren't yet friendly — relayer/RPC unreachable and rate-limited — so a real network hiccup reads as "can't reach the relayer, try again" instead of a raw `TypeError: fetch failed`.
+
+**Done when:** self-audit checklist complete; no known critical issues ✅ — every item on the plan's checklist was either verified already-satisfied, fixed and re-verified live, or explicitly documented as an accepted devnet-only limitation with reasoning, not silently skipped.
+
 ## Get started
 
 1. Install dependencies

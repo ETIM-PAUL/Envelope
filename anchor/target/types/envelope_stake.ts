@@ -33,7 +33,8 @@ export type EnvelopeStake = {
         {
           "name": "admin",
           "writable": true,
-          "signer": true
+          "signer": true,
+          "address": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1"
         },
         {
           "name": "pool",
@@ -470,6 +471,16 @@ export type EnvelopeStake = {
       "code": 6007,
       "name": "invalidThresholds",
       "msg": "member_threshold must be <= business_threshold"
+    },
+    {
+      "code": 6008,
+      "name": "unauthorized",
+      "msg": "Only the designated admin may call this instruction"
+    },
+    {
+      "code": 6009,
+      "name": "invalidCooldown",
+      "msg": "cooldown_secs must be >= 0"
     }
   ],
   "types": [

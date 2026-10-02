@@ -12,4 +12,6 @@ pub enum ErrorCode {
     MissingDelegateApproval,
     #[msg("Pot is already closed")]
     PotAlreadyClosed,
+    #[msg("Only the designated admin may call this instruction")]
+    Unauthorized,
 }

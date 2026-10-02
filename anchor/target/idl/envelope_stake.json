@@ -27,7 +27,8 @@
         {
           "name": "admin",
           "writable": true,
-          "signer": true
+          "signer": true,
+          "address": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1"
         },
         {
           "name": "pool",
@@ -464,6 +465,16 @@
       "code": 6007,
       "name": "InvalidThresholds",
       "msg": "member_threshold must be <= business_threshold"
+    },
+    {
+      "code": 6008,
+      "name": "Unauthorized",
+      "msg": "Only the designated admin may call this instruction"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidCooldown",
+      "msg": "cooldown_secs must be >= 0"
     }
   ],
   "types": [

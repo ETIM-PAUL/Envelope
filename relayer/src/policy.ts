@@ -8,7 +8,11 @@ import {
   isWritableRole,
   type Transaction,
 } from '@solana/kit'
-import { SYSTEM_PROGRAM_ADDRESS, getCreateAccountDiscriminatorBytes } from '@solana-program/system'
+import {
+  SYSTEM_PROGRAM_ADDRESS,
+  getCreateAccountDiscriminatorBytes,
+  getCreateAccountInstructionDataDecoder,
+} from '@solana-program/system'
 import {
   TOKEN_PROGRAM_ADDRESS,
   ASSOCIATED_TOKEN_PROGRAM_ADDRESS,
@@ -72,17 +76,62 @@ function isCreateAccountInstruction(data: Uint8Array): boolean {
   return CREATE_ACCOUNT_DISCRIMINATOR_BYTES.every((byte, i) => data[i] === byte)
 }
 
+// Phase 18 self-audit found two real gaps here, both fixed below:
+//
+// 1. `isCreateAccountInstruction` only checked the discriminator, never the new account's
+//    `programAddress` field (the owner it's being created *for*). Without this, a malicious
+//    transaction could ask the relayer to fund a CreateAccount whose owner is anything at all —
+//    the System program itself, or an attacker's own program — producing a freely-controlled,
+//    relayer-funded account with no further relayer involvement needed to drain it. The only
+//    legitimate reason the relayer ever pays for CreateAccount is funding a ZK proof context
+//    account, so the new account's owner must be the ZK ElGamal Proof program, every time.
+//
+// 2. Being "safely writable" was necessary but not sufficient for the ZK proof program's verify/
+//    close instructions: this policy never checked *who* the context-state `authority` actually
+//    is. `contextStateAuthority` defaults to `payer` (the relayer) in every legitimate plan this
+//    app builds, but nothing stopped a malicious transaction from setting it to the attacker's
+//    own key instead — relayer pays the context account's rent via CreateAccount, attacker (as
+//    the real authority) later calls CloseContextState themselves, with no relayer involvement,
+//    and walks away with the rent the relayer funded. `authorityAccountIndex` below is the fixed
+//    position of that account in each instruction's account list (confirmed by decoding a real
+//    plan's compiled instructions, not guessed from docs): index 1 for the three inline-proof
+//    verify instructions (no separate proof-account slot when the proof is inline, not
+//    record-staged), index 2 for CloseContextState (`[contextState, destination, authority]`).
+function createAccountOwnerIsZkProofProgram(data: Uint8Array): boolean {
+  try {
+    return getCreateAccountInstructionDataDecoder().decode(data).programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS
+  } catch {
+    return false
+  }
+}
+
+function authorityAccountIndexFor(discriminator: number): number | null {
+  if (discriminator === CLOSE_CONTEXT_STATE_DISCRIMINATOR) return 2
+  if (CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS.has(discriminator)) return 1
+  return null
+}
+
 // The only (programAddress, instruction-discriminator) pairs where the relayer is allowed to
 // appear as a WRITABLE account, beyond being the transaction's fee payer: funding a new proof
-// context account (System CreateAccount, as payer) and reclaiming that account's rent (ZK
-// ElGamal Proof CloseContextState, as destination). Every other writable appearance of the
-// relayer's own address — a Token transfer naming it as source, a System transfer, anything —
-// is exactly the drain vector this exists to block.
-function isSafeWritableInstruction(programAddress: string, data: Uint8Array): boolean {
-  if (programAddress === SYSTEM_PROGRAM_ADDRESS && isCreateAccountInstruction(data)) return true
-  if (programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS && data[0] === CLOSE_CONTEXT_STATE_DISCRIMINATOR) return true
-  if (programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS && CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS.has(data[0]))
-    return true
+// context account (System CreateAccount, as payer, and only when it's actually funding a ZK
+// proof context — see above) and reclaiming that account's rent (ZK ElGamal Proof
+// CloseContextState, as destination, only when the relayer is also the account's real authority
+// — see above). Every other writable appearance of the relayer's own address — a Token transfer
+// naming it as source, a System transfer, anything — is exactly the drain vector this exists to
+// block.
+function isSafeWritableInstruction(
+  instruction: { programAddress: string; accounts?: readonly { address: string }[] },
+  data: Uint8Array,
+): boolean {
+  const { programAddress, accounts } = instruction
+  if (programAddress === SYSTEM_PROGRAM_ADDRESS) {
+    return isCreateAccountInstruction(data) && createAccountOwnerIsZkProofProgram(data)
+  }
+  if (programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS) {
+    const authorityIndex = authorityAccountIndexFor(data[0]!)
+    if (authorityIndex === null) return false
+    return accounts?.[authorityIndex]?.address === relayerAddress
+  }
   return false
 }
 
@@ -169,7 +218,7 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
     for (const account of instruction.accounts ?? []) {
       if (account.address !== relayerAddress) continue
       if (!isWritableRole(account.role)) continue
-      if (isSafeWritableInstruction(programAddress, data)) continue
+      if (isSafeWritableInstruction(instruction, data)) continue
       return violation(`relayer is writable in a ${programAddress} instruction outside its allowed roles`)
     }
   }

@@ -9,7 +9,7 @@ use crate::state::Config;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    #[account(mut)]
+    #[account(mut, address = ADMIN @ ErrorCode::Unauthorized)]
     pub admin: Signer<'info>,
 
     #[account(

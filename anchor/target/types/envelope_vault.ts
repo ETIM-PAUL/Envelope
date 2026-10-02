@@ -161,7 +161,8 @@ export type EnvelopeVault = {
         {
           "name": "admin",
           "writable": true,
-          "signer": true
+          "signer": true,
+          "address": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1"
         },
         {
           "name": "config",
@@ -697,6 +698,11 @@ export type EnvelopeVault = {
       "code": 6004,
       "name": "potAlreadyClosed",
       "msg": "Pot is already closed"
+    },
+    {
+      "code": 6005,
+      "name": "unauthorized",
+      "msg": "Only the designated admin may call this instruction"
     }
   ],
   "types": [

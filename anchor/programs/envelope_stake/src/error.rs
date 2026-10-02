@@ -18,4 +18,8 @@ pub enum ErrorCode {
     NothingStaked,
     #[msg("member_threshold must be <= business_threshold")]
     InvalidThresholds,
+    #[msg("Only the designated admin may call this instruction")]
+    Unauthorized,
+    #[msg("cooldown_secs must be >= 0")]
+    InvalidCooldown,
 }

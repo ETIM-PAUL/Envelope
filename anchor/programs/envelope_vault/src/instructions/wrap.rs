@@ -73,11 +73,15 @@ pub struct Wrap<'info> {
 #[inline(never)]
 fn read_stake_position(stake_position: &UncheckedAccount, user: &Pubkey) -> Result<(u64, i64)> {
     let info = stake_position.to_account_info();
-    if info.lamports() == 0 {
-        // Never staked — an ordinary Free-tier caller, not an error.
+    // Phase 18 self-audit: this used to branch on `lamports() == 0`, treating any funded account
+    // as "real". Anyone can send a plain System transfer of 1 lamport to this PDA before the
+    // owner ever calls `stake` — a lamport balance alone proves nothing about who created the
+    // account. Checking ownership instead is the actual "has envelope_stake initialized this
+    // account" test: a pre-funded-but-uninitialized PDA is still System-owned and correctly
+    // falls through to the same "never staked" path a griefing 1-lamport transfer used to break.
+    if *info.owner != envelope_stake::ID {
         return Ok((0, 0));
     }
-    require_keys_eq!(*info.owner, envelope_stake::ID, ErrorCode::InvalidStakePosition);
     let data = info.try_borrow_data()?;
     let stake_position = StakePosition::try_deserialize(&mut &data[..])?;
     require_keys_eq!(stake_position.user, *user, ErrorCode::InvalidStakePosition);
