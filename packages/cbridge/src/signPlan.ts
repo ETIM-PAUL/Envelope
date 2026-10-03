@@ -20,7 +20,7 @@ import {
   type TransactionModifyingSigner,
   type TransactionSigner,
 } from '@solana/kit'
-type PlannedMessage = TransactionMessage & TransactionMessageWithFeePayer
+export type PlannedMessage = TransactionMessage & TransactionMessageWithFeePayer
 
 // Signs every transaction in an InstructionPlan and returns each one's base64 wire encoding, in
 // plan order — but never sends: "the WebView builds instructions/transactions and proofs; React
@@ -43,11 +43,34 @@ type PlannedMessage = TransactionMessage & TransactionMessageWithFeePayer
 // An array of plans is planned separately and signed together, in order — so separate
 // transactions (e.g. a free-tier fee and the transfer it pays for) stay separate, but still share
 // one wallet approval.
+// The first request after the wallet hands control back can fail: Android blocks this app's network
+// while the wallet is in front and takes a moment to restore it. Nothing was sent, so retry briefly.
+async function afterWalletReturns<T>(request: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    try {
+      return await request()
+    } catch (error) {
+      if (Date.now() >= deadline) throw error
+      await new Promise((resolve) => setTimeout(resolve, 750))
+    }
+  }
+}
+
 export async function signInstructionPlan(
   instructionPlans: InstructionPlan | InstructionPlan[],
   payer: TransactionSigner,
   rpc: Rpc<SolanaRpcApi>,
 ): Promise<string[]> {
+  return signPlannedMessages(await planMessages(instructionPlans, payer), rpc)
+}
+
+// The two halves of signInstructionPlan, for flows that sign one plan in stages (withdraw: its
+// proof setup first, then — once that has landed — the transaction that depends on it).
+export async function planMessages(
+  instructionPlans: InstructionPlan | InstructionPlan[],
+  payer: TransactionSigner,
+): Promise<PlannedMessage[]> {
   const planner = createTransactionPlanner({
     createTransactionMessage: () =>
       pipe(createTransactionMessage({ version: 0 }), (m) => setTransactionMessageFeePayerSigner(payer, m)),
@@ -58,6 +81,12 @@ export async function signInstructionPlan(
       messages.push(planned.message as PlannedMessage)
     }
   }
+  return messages
+}
+
+// Signing a given message twice (a retry after expiry) is fine: each call fetches a fresh
+// blockhash and asks the wallet again.
+export async function signPlannedMessages(messages: PlannedMessage[], rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
   const signed = new Array<Transaction | undefined>(messages.length)
 
   const walletIndexes: number[] = []
@@ -98,7 +127,7 @@ export async function signInstructionPlan(
 
   const remaining = messages.map((_, index) => index).filter((index) => signed[index] === undefined)
   if (remaining.length > 0) {
-    const { value: blockhash } = await rpc.getLatestBlockhash().send()
+    const { value: blockhash } = await afterWalletReturns(() => rpc.getLatestBlockhash().send())
     for (const index of remaining) {
       // Not signTransactionMessageWithSigners: it asserts the result is *fully* signed, which
       // throws on a NoopSigner's still-empty slot (the relayer's, filled in later by /relay).

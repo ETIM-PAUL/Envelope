@@ -4,21 +4,26 @@
 // signature — round-trips to React Native (MWA) via the host methods in protocol.ts. This bridge
 // never receives or stores an MWA-controlled private key, only the derived confidential keys,
 // which live in memory for this WebView session only (cleared on reload / the app's "Lock" action).
+import './installEd25519.ts'
 import {
   address,
+  appendTransactionMessageInstructions,
   createKeyPairSignerFromPrivateKeyBytes,
   createNoopSigner,
   createSignableMessage,
   createSolanaRpc,
   getBase58Decoder,
   getBase64EncodedWireTransaction,
+  getCompiledTransactionMessageDecoder,
   getTransactionDecoder,
   isSolanaError,
   sequentialInstructionPlan,
+  setTransactionMessageFeePayerSigner,
   singleInstructionPlan,
   SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND,
   unwrapOption,
   type Address,
+  type Blockhash,
   type Instruction,
   type InstructionPlan,
   type KeyPairSigner,
@@ -36,6 +41,7 @@ import {
   fetchMaybeToken,
   fetchToken,
   findAssociatedTokenPda,
+  getApproveInstruction,
   getEnableCpiGuardInstruction,
   getReallocateInstruction,
   TOKEN_2022_PROGRAM_ADDRESS,
@@ -60,8 +66,9 @@ import type { AeKey, ElGamalKeypair } from '@solana/zk-sdk/web'
 import { envelopeVault } from '../../../anchor/src/index.ts'
 import { ZK_SDK_WASM_BASE64 } from './generated/wasmBase64.ts'
 import { deriveWalletConfidentialKeys } from './confidentialKeys.ts'
+import { getTransferSolInstruction } from '@solana-program/system'
 import { RpcChannel } from './rpcChannel.ts'
-import { signInstructionPlan } from './signPlan.ts'
+import { planMessages, signInstructionPlan, signPlannedMessages, type PlannedMessage } from './signPlan.ts'
 import type {
   ApplyPendingBalanceParams,
   ApplyPendingBalanceResult,
@@ -99,6 +106,10 @@ import type {
   RestorePotKeysParams,
   RestorePotKeysResult,
   SignMessageResult,
+  EnsureGasTankParams,
+  EnsureGasTankResult,
+  SignContinuationParams,
+  SignContinuationResult,
   SignTransactionsResult,
 } from './protocol.ts'
 
@@ -143,12 +154,40 @@ document.addEventListener('message', (event) => channel.receive(String((event as
 
 const sessionKeys = new Map<string, { elgamalKeypair: ElGamalKeypair; aesKey: AeKey }>()
 
+// Each wallet's "gas tank": a keypair the bridge controls, used to pay for and sign transactions
+// that don't need the wallet's own authority — the proof-context setup a withdraw needs before
+// the withdraw itself. Those can then be signed and sent instantly instead of waiting on a wallet
+// approval, which matters because a wallet approval (Solflare: ~6s to open, then the user's
+// review) can outlast a blockhash (~36s on devnet at times), and the setup is several transactions
+// that Solflare can't even simulate in advance. Derived from the same derivation signature as the
+// confidential keys (domain-separated), so it's recoverable on any device and never stored; it
+// only ever holds a small float of SOL the wallet tops up (see ensureGasTank).
+const gasTanks = new Map<string, KeyPairSigner>()
+
+async function deriveGasTank(derivationSignature: Uint8Array): Promise<KeyPairSigner> {
+  const domain = new TextEncoder().encode('envelope-gas-tank:')
+  const input = new Uint8Array(domain.length + derivationSignature.length)
+  input.set(domain)
+  input.set(derivationSignature, domain.length)
+  const seed = new Uint8Array(await crypto.subtle.digest('SHA-256', input))
+  return createKeyPairSignerFromPrivateKeyBytes(seed)
+}
+
+// Enough for one withdraw's proof contexts (rent, refunded when they close) plus its transaction
+// fees, with room to spare; topped up to the higher figure so it isn't needed every time.
+const GAS_TANK_MINIMUM_LAMPORTS = 10_000_000n // 0.01 SOL
+const GAS_TANK_TOP_UP_TO_LAMPORTS = 25_000_000n // 0.025 SOL
+
 // Phase 15: a pot's own Ed25519 signing identity, kept separately from `sessionKeys` (which only
 // ever holds confidential-balance encryption keys, never a signing key — the wallet's own signing
 // always stays in MWA). A pot's signer DOES live here, since it's derived entirely in-bridge and
 // MWA has no way to sign for an address it doesn't control. `createHostTransactionSigner`/
 // `createHostMessageSigner` check this map first before assuming an address needs an MWA round trip.
 const potSigners = new Map<string, KeyPairSigner>()
+
+// Second halves of staged plans (see BuildWithdrawPlanParams), kept until the host asks for them.
+// In-memory only, like the session keys: a reload simply means starting the withdraw over.
+const continuations = new Map<string, PlannedMessage[]>()
 
 // One fixed MWA signature over this per-pot message is the only secret a pot's whole identity
 // (signing key + confidential-balance keys) is derived from — SHA-256 of the signature gives a
@@ -222,11 +261,19 @@ function createHostTransactionSigner(owner: Address): TransactionSigner {
         if (!walletTransaction.signatures[owner]) {
           throw new Error('The wallet returned a transaction without signing it.')
         }
-        // Verified against Solflare: it keeps the lifetime (blockhash or nonce) and only appends
-        // instructions, so the original lifetime still describes the returned transaction.
+        // The host restamps each transaction with a blockhash fetched once the wallet session is
+        // open (src/features/wallet/use-wallet-signing.ts), so the returned blockhash is the one
+        // that counts. Its exact last-valid height isn't known here; nothing downstream uses it —
+        // the host just submits, and an expired submission is retried from scratch.
+        const original = (transactions[i] as Partial<TransactionWithLifetime>).lifetimeConstraint
+        const blockhash = getCompiledTransactionMessageDecoder().decode(walletTransaction.messageBytes)
+          .lifetimeToken as Blockhash
         return {
           ...walletTransaction,
-          lifetimeConstraint: (transactions[i] as Partial<TransactionWithLifetime>).lifetimeConstraint,
+          lifetimeConstraint: {
+            blockhash,
+            lastValidBlockHeight: original && 'lastValidBlockHeight' in original ? original.lastValidBlockHeight : 0n,
+          },
         } as Transaction & TransactionWithinSizeLimit & TransactionWithLifetime
       })
     },
@@ -252,6 +299,7 @@ channel.on('deriveKeys', async (params) => {
   )
   if (!signature) throw new Error('deriveKeys: no derivation signature captured')
   sessionKeys.set(owner, keys)
+  gasTanks.set(owner, await deriveGasTank(signature))
   const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
   return { elgamalPubkeyBase58, signatureBase64: bytesToBase64(signature) } satisfies DeriveKeysResult
 })
@@ -263,6 +311,7 @@ channel.on('restoreKeys', async (params) => {
   const signature = base64ToBytes(signatureBase64)
   const keys = await deriveWalletConfidentialKeys(createReplayMessageSigner(ownerAddress, signature))
   sessionKeys.set(owner, keys)
+  gasTanks.set(owner, await deriveGasTank(signature))
   const elgamalPubkeyBase58 = getBase58Decoder().decode(keys.elgamalKeypair.pubkey().toBytes())
   return { elgamalPubkeyBase58 } satisfies RestoreKeysResult
 })
@@ -475,11 +524,33 @@ channel.on('applyPendingBalance', async (params) => {
   return { signedTransactions } satisfies ApplyPendingBalanceResult
 })
 
+channel.on('ensureGasTank', async (params) => {
+  const { rpcUrl, owner } = params as EnsureGasTankParams
+  const gasTank = gasTanks.get(owner)
+  if (!gasTank) throw new Error(`call deriveKeys("${owner}") before ensureGasTank`)
+  const rpc = createSolanaRpc(rpcUrl)
+  const { value: balance } = await rpc.getBalance(gasTank.address).send()
+  if (balance >= GAS_TANK_MINIMUM_LAMPORTS) return { signedTransactions: [] } satisfies EnsureGasTankResult
+
+  const signer = createHostTransactionSigner(address(owner))
+  const topUp = getTransferSolInstruction({
+    source: signer,
+    destination: gasTank.address,
+    amount: GAS_TANK_TOP_UP_TO_LAMPORTS - balance,
+  })
+  return {
+    signedTransactions: await signInstructionPlan(singleInstructionPlan(topUp), signer, rpc),
+  } satisfies EnsureGasTankResult
+})
+
 channel.on('buildWithdrawPlan', async (params) => {
-  const { rpcUrl, mint, owner, amount } = params as BuildWithdrawPlanParams
+  const { rpcUrl, mint, usdcMint, owner, amount } = params as BuildWithdrawPlanParams
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before buildWithdrawPlan`)
+
+  const gasTank = gasTanks.get(owner)
+  if (!gasTank) throw new Error(`call deriveKeys("${owner}") before buildWithdrawPlan`)
 
   const rpc = createSolanaRpc(rpcUrl)
   const mintAddress = address(mint)
@@ -493,6 +564,8 @@ channel.on('buildWithdrawPlan', async (params) => {
   })
   const tokenAccount = await fetchToken(rpc, token)
 
+  // The gas tank pays for — and, as context-state authority, later closes — the proof contexts;
+  // the wallet is only the withdraw's authority (and the final transaction's fee payer, below).
   const plan = await getConfidentialWithdrawInstructionPlan({
     token,
     mint: mintAddress,
@@ -502,11 +575,65 @@ channel.on('buildWithdrawPlan', async (params) => {
     decimals: CUSDC_DECIMALS,
     elgamalKeypair: keys.elgamalKeypair,
     aesKey: keys.aesKey,
-    payer: signer,
+    payer: gasTank,
     rpc,
   })
-  const signedTransactions = await signInstructionPlan(plan, signer, rpc)
-  return { signedTransactions } satisfies BuildWithdrawPlanResult
+  const messages = await planMessages(plan, gasTank)
+
+  // Everything up to the transaction carrying the ConfidentialWithdraw instruction is proof setup
+  // (create + verify the equality and range proof contexts); that one transaction and anything
+  // after it depends on the setup having landed (see BuildWithdrawPlanParams).
+  const withdrawIndex = messages.findIndex((message) =>
+    message.instructions.some(
+      (instruction) =>
+        instruction.programAddress === TOKEN_2022_PROGRAM_ADDRESS &&
+        instruction.data?.[0] === CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR &&
+        instruction.data?.[1] === CONFIDENTIAL_WITHDRAW_SUB_DISCRIMINATOR,
+    ),
+  )
+  if (withdrawIndex <= 0) throw new Error('unexpected withdraw plan shape')
+
+  const [configAddress] = await envelopeVault.findConfigPda()
+  const [vaultAuthority] = await envelopeVault.findVaultAuthorityPda()
+  const vaultConfig = await envelopeVault.fetchConfig(rpc, configAddress)
+  const [userUsdc] = await findClassicAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: address(usdcMint),
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  })
+  const unwrapInstructions = [
+    getApproveInstruction(
+      { source: token, delegate: vaultAuthority, owner: signer, amount: BigInt(amount) },
+      { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
+    ),
+    await envelopeVault.getUnwrapInstructionAsync({
+      user: signer,
+      cusdcMint: mintAddress,
+      userCusdc: token,
+      vaultUsdc: vaultConfig.data.vaultUsdc,
+      userUsdc,
+      amount: BigInt(amount),
+    }),
+  ]
+  // The final transaction is the one the wallet approves, so the wallet pays for it like any
+  // other transaction it signs (the gas tank still signs it too, to close the proof contexts).
+  const finalMessages = messages
+    .slice(withdrawIndex)
+    .map((message) => setTransactionMessageFeePayerSigner(signer, message))
+  finalMessages[0] = appendTransactionMessageInstructions(unwrapInstructions, finalMessages[0]!)
+
+  const continuationId = `withdraw-${owner}-${Date.now()}`
+  continuations.set(continuationId, finalMessages)
+  const signedTransactions = await signPlannedMessages(messages.slice(0, withdrawIndex), rpc)
+  return { signedTransactions, continuationId } satisfies BuildWithdrawPlanResult
+})
+
+channel.on('signContinuation', async (params) => {
+  const { rpcUrl, continuationId } = params as SignContinuationParams
+  const messages = continuations.get(continuationId)
+  if (!messages) throw new Error('nothing to continue — start the withdraw again')
+  const signedTransactions = await signPlannedMessages(messages, createSolanaRpc(rpcUrl))
+  return { signedTransactions } satisfies SignContinuationResult
 })
 
 function hasExtension(extensions: { __kind: string }[] | undefined, kind: string): boolean {
@@ -657,6 +784,7 @@ const ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS = 'ZkE1Gama1Proof111111111111111111111111
 const VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR = 12
 const CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR = 27 // Token-2022's top-level instruction byte
 const CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR = 7 // the extension's own "Transfer" sub-instruction
+const CONFIDENTIAL_WITHDRAW_SUB_DISCRIMINATOR = 6 // ...and its "Withdraw" sub-instruction
 const TRANSFER_AMOUNT_LO_BIT_LENGTH = 16n
 // context = 3x32-byte pubkeys (first/second/third, matching the proof's constructor order) +
 // grouped_ciphertext_lo (128 bytes) + grouped_ciphertext_hi (128 bytes).

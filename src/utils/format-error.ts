@@ -19,7 +19,7 @@ const DAILY_LIMIT_EXCEEDED_CODE = '0x1771'
 function translateKnownError(message: string): string | null {
   // Not "the relayer" specifically — most flows never touch it, and these fire for any request
   // that couldn't connect at all (no network, DNS failure, RPC or relayer down).
-  if (/fetch failed|ECONNREFUSED|Network request failed|UnknownHostException|Unable to resolve host/i.test(message)) {
+  if (CONNECTION_ERROR.test(message)) {
     return "Can't connect to the network — check your connection and try again."
   }
   if (/429|Too Many Requests/i.test(message)) {
@@ -86,6 +86,14 @@ function causeChainMessages(error: unknown): string[] {
     current = current instanceof Error ? current.cause : undefined
   }
   return messages
+}
+
+const CONNECTION_ERROR =
+  /fetch failed|Failed to fetch|ECONNREFUSED|Network request failed|UnknownHostException|Unable to resolve host/i
+
+// A request that never reached the server (no network, DNS failure, server down).
+export function isConnectionError(error: unknown): boolean {
+  return causeChainMessages(error).some((message) => CONNECTION_ERROR.test(message))
 }
 
 // A transaction submitted after its blockhash expired — a wallet approval that took longer than

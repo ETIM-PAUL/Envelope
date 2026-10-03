@@ -1,4 +1,5 @@
 import type { Base64EncodedWireTransaction, GetSignatureStatusesApi, Rpc, SendTransactionApi } from '@solana/kit'
+import { withNetworkRetry } from './network-retry'
 import { waitForConfirmation } from './wait-for-confirmation'
 
 // Submits base64 wire transactions the cbridge WebView already fully signed (see
@@ -11,9 +12,9 @@ export async function sendSignedTransactions(
   signedTransactionsBase64: string[],
 ): Promise<void> {
   for (const wireBase64 of signedTransactionsBase64) {
-    const signature = await rpc
-      .sendTransaction(wireBase64 as Base64EncodedWireTransaction, { encoding: 'base64' })
-      .send()
+    const signature = await withNetworkRetry(() =>
+      rpc.sendTransaction(wireBase64 as Base64EncodedWireTransaction, { encoding: 'base64' }).send(),
+    )
     await waitForConfirmation(rpc, signature)
   }
 }

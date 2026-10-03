@@ -195,15 +195,31 @@ export type DecryptPotActivityResult = { contributions: PotContribution[] }
 // confidential available balance to their account's *public* cUSDC balance (equality + range
 // proofs, context accounts, same machinery buildTransferPlan/applyPendingBalance already use).
 // `owner` pays their own fee here, like every other self-serve balance operation
-// (ensureAccountReady, applyPendingBalance) — only Send is relayer-sponsored. This is
-// deliberately a separate call from the `[Approve, Unwrap]` step that follows it: that step
-// needs the public cUSDC this mints to have actually landed on-chain first (its proofs would
-// otherwise be built, and unwrap's balance check run, against stale pre-withdraw state) — same
-// landing-order reasoning as closePot's apply-then-sweep split. The host builds and signs
-// `[Approve(vaultAuthority, amount), unwrap(amount)]` itself afterward (plain instructions, no
-// secret material, same precedent as `wrap` in use-add-to-private-balance.ts).
-export type BuildWithdrawPlanParams = { rpcUrl: string; mint: string; owner: string; amount: string }
-export type BuildWithdrawPlanResult = { signedTransactions: string[] }
+// (ensureAccountReady, applyPendingBalance) — only Send is relayer-sponsored.
+//
+// One wallet approval, for one transaction: the proof setup (create + verify the equality and
+// range proof contexts) is paid for and signed by the wallet's gas tank instead (see
+// EnsureGasTankParams), with no approval at all — a single approval covering every transaction
+// took long enough that their shared blockhash expired before the last was sent, and Solflare
+// can't simulate the ones that depend on earlier ones. So this returns only those setup
+// transactions (ready to send immediately) plus a `continuationId`; once they land,
+// `signContinuation` asks the wallet to sign the final transaction with a fresh blockhash. That final transaction also carries
+// `[Approve(vaultAuthority, amount), unwrap(amount)]` — instructions run in order and each sees
+// the previous one's effects, so unwrap converts the public cUSDC the withdraw just produced back
+// into USDC atomically: nothing can be left stranded as public cUSDC halfway through.
+// Tops up the wallet's gas tank (see bridge.ts's gasTanks) when it's below what a withdraw needs:
+// one plain SOL transfer the wallet signs — empty `signedTransactions` when no top-up is needed.
+export type EnsureGasTankParams = { rpcUrl: string; owner: string }
+export type EnsureGasTankResult = { signedTransactions: string[] }
+
+export type BuildWithdrawPlanParams = { rpcUrl: string; mint: string; usdcMint: string; owner: string; amount: string }
+export type BuildWithdrawPlanResult = { signedTransactions: string[]; continuationId: string }
+
+// Signs the deferred remainder of a staged plan (see BuildWithdrawPlanParams) with a fresh
+// blockhash. Safe to call again for the same id after an expired attempt — nothing from an
+// expired attempt lands, and the proof setup it depends on stays valid.
+export type SignContinuationParams = { rpcUrl: string; continuationId: string }
+export type SignContinuationResult = { signedTransactions: string[] }
 
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }
@@ -222,7 +238,9 @@ export type BridgeMethodMap = {
   createPot: { params: CreatePotParams; result: CreatePotResult }
   closePot: { params: ClosePotParams; result: ClosePotResult }
   decryptPotActivity: { params: DecryptPotActivityParams; result: DecryptPotActivityResult }
+  ensureGasTank: { params: EnsureGasTankParams; result: EnsureGasTankResult }
   buildWithdrawPlan: { params: BuildWithdrawPlanParams; result: BuildWithdrawPlanResult }
+  signContinuation: { params: SignContinuationParams; result: SignContinuationResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap

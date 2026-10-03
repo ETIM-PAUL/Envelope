@@ -7,9 +7,11 @@
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import { getTransactionDecoder, getTransactionEncoder } from '@solana/kit'
 import { useCallback, useMemo } from 'react'
+import { useWalletSigning } from './use-wallet-signing'
 
 export function useBridgeSigners() {
-  const { account, signMessages, signTransactions } = useMobileWallet()
+  const { account, signMessages } = useMobileWallet()
+  const { signTransactions } = useWalletSigning()
 
   const onSignMessage = useCallback(
     async (address: string, messageBytes: Uint8Array): Promise<Uint8Array> => {
@@ -28,6 +30,8 @@ export function useBridgeSigners() {
   // required signer (e.g. the relayer's empty fee-payer slot), and each output is exactly what the
   // wallet signed — including any instructions it added (Solflare appends ComputeBudget priority
   // fees), which the bridge adopts as that transaction's final message.
+  // The blockhash in each incoming transaction is replaced with one fetched after the wallet
+  // session opens (see useWalletSigning).
   const onSignTransactions = useCallback(
     async (address: string, transactionsBytes: Uint8Array[]): Promise<Uint8Array[]> => {
       if (!account || account.address.toString() !== address) {
