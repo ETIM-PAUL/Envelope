@@ -3,7 +3,7 @@
 // (tabs)/send.tsx with `recipient` already readiness-checked once; useSendPrivately re-checks it
 // (cheap, and guards the race where the recipient's account changes between screens).
 import * as LocalAuthentication from 'expo-local-authentication'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Link, useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { openURL } from 'expo-linking'
 import { Pressable, Text, TextInput, View } from 'react-native'
@@ -16,9 +16,10 @@ import { usePrivateBalance } from '../features/account/use-private-balance'
 import { useSendPrivately, type SendStep } from '../features/account/use-send-privately'
 import { useTier } from '../features/account/use-tier'
 import { useNetwork } from '../features/network/use-network'
+import { useStakeInfo } from '../features/stake/use-stake-info'
 import { ellipsify } from '../utils/ellipsify'
 import { formatError } from '../utils/format-error'
-import { formatBaseUnits } from '../utils/format-amount'
+import { formatBaseUnits, formatExactBaseUnits } from '../utils/format-amount'
 import { CUSDC_DECIMALS, parseDollarsToBaseUnits } from '../utils/parse-amount'
 
 const STEP_LABEL: Record<SendStep, string> = {
@@ -31,6 +32,7 @@ const STEP_LABEL: Record<SendStep, string> = {
 }
 
 const QUICK_AMOUNTS = ['2', '5', '10']
+const SKR_DECIMALS = 6
 
 export default function SendConfirm() {
   const router = useRouter()
@@ -40,6 +42,7 @@ export default function SendConfirm() {
   const { availableBalance } = usePrivateBalance()
   const { data: tierInfo } = useTier(walletAddress)
   const { sendPrivately, step, isBusy } = useSendPrivately()
+  const { data: stakeInfo } = useStakeInfo()
 
   const [amountText, setAmountText] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -48,9 +51,12 @@ export default function SendConfirm() {
   const amount = parseDollarsToBaseUnits(amountText)
   const overBalance = amount !== null && availableBalance !== null && amount > availableBalance
   const feeAmount = tierInfo?.tier === 'free' && tierInfo.freeTierFeeAmount ? BigInt(tierInfo.freeTierFeeAmount) : 0n
+  // A free-tier send pays its fee in SKR from the wallet; without enough, the fee transfer can't
+  // run and the wallet's own simulation fails the whole send — so catch it here, before the wallet.
+  const notEnoughSkrForFee = feeAmount > 0n && stakeInfo !== undefined && stakeInfo.skrBalance < feeAmount
 
   async function handleConfirm() {
-    if (isBusy || !amount || overBalance || !recipient) return
+    if (isBusy || !amount || overBalance || notEnoughSkrForFee || !recipient) return
     setError(null)
 
     const biometricResult = await LocalAuthentication.authenticateAsync({
@@ -157,19 +163,38 @@ export default function SendConfirm() {
         </View>
       ) : null}
 
-      <Text className="text-mute-600 text-xs mb-10" style={{ fontFamily: fontFamily.ui }}>
+      <Text
+        className={`text-mute-600 text-xs ${notEnoughSkrForFee ? 'mb-2' : 'mb-10'}`}
+        style={{ fontFamily: fontFamily.ui }}
+      >
         {feeAmount > 0n
-          ? `Network fee: ${formatBaseUnits(feeAmount, CUSDC_DECIMALS)} SKR · relayer pays your SOL fees`
+          ? `Send fee: ${formatExactBaseUnits(feeAmount, SKR_DECIMALS)} SKR · the relayer pays the SOL network fee`
           : 'No fee — your tier covers relayed sends'}
       </Text>
+      {notEnoughSkrForFee ? (
+        <Text className="text-paper-400 text-xs mb-10 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
+          You need {formatExactBaseUnits(feeAmount, SKR_DECIMALS)} SKR in your wallet for this fee.{' '}
+          <Link href="/(tabs)/stake" className="text-seal-400" style={{ fontFamily: fontFamily.uiSemibold }}>
+            Get test SKR
+          </Link>
+        </Text>
+      ) : null}
 
       <View className="w-full max-w-xs">
         <Button
           label={
-            isBusy ? STEP_LABEL[step] : overBalance ? 'Not enough balance' : amountText ? `Send $${amountText}` : 'Send'
+            isBusy
+              ? STEP_LABEL[step]
+              : overBalance
+                ? 'Not enough balance'
+                : notEnoughSkrForFee
+                  ? 'Not enough SKR for the fee'
+                  : amountText
+                    ? `Send $${amountText}`
+                    : 'Send'
           }
           onPress={() => void handleConfirm()}
-          disabled={!amount || overBalance}
+          disabled={!amount || overBalance || notEnoughSkrForFee}
           busy={isBusy}
         />
       </View>
