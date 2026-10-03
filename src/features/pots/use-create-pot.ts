@@ -13,6 +13,7 @@ import { useAppStore } from '../../store/app-store'
 import { addPotSummary, type PotSummary } from './pot-store'
 import { findPotPda } from './pot-pda'
 import { usePotKeys } from './use-pot-keys'
+import { recordNotification } from '../notifications/notification-log'
 
 export function useCreatePot() {
   const bridge = useCBridge()
@@ -55,6 +56,7 @@ export function useCreatePot() {
         createdAt: Date.now(),
       }
       await addPotSummary(walletAddress, summary)
+      await recordNotification(walletAddress, { id: `pot-created-${summary.potId}`, kind: 'pot-created', label: name })
       return summary
     },
     [bridge, walletAddress, client, ensurePotKeys],

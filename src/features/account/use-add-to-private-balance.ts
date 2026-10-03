@@ -40,6 +40,7 @@ import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { PLACEHOLDER_LIFETIME, useWalletSigning } from '../wallet/use-wallet-signing'
 import { useConfidentialAccount } from './use-confidential-account'
+import { recordNotification } from '../notifications/notification-log'
 
 // cUSDC's decimals — matches Phase 1's mint setup (scripts/setup-mints.ts) and every other place
 // this constant is duplicated (roundtrip.ts, envelope-vault.test.ts): no shared package to import
@@ -129,6 +130,12 @@ export function useAddToPrivateBalance() {
         await sendSignedTransactions(client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>, [
           getBase64EncodedWireTransaction(signed!),
         ])
+      })
+
+      await recordNotification(walletAddress, {
+        id: `deposit-${Date.now()}`,
+        kind: 'deposit',
+        amount: amount.toString(),
       })
     },
     [bridge, walletAddress, client, signTransactions, ensureAccountReady],

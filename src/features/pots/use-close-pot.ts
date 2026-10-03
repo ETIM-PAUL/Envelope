@@ -12,7 +12,8 @@ import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
-import { removePotSummary } from './pot-store'
+import { listPotSummaries, removePotSummary } from './pot-store'
+import { recordNotification } from '../notifications/notification-log'
 
 export function useClosePot() {
   const bridge = useCBridge()
@@ -49,7 +50,9 @@ export function useClosePot() {
         await sendSignedTransactions(rpc, signedTransactions)
       })
 
+      const pot = (await listPotSummaries(walletAddress)).find((p) => p.potId === potId)
       await removePotSummary(walletAddress, potId)
+      await recordNotification(walletAddress, { id: `pot-closed-${potId}`, kind: 'pot-closed', label: pot?.name })
     },
     [bridge, walletAddress, client],
   )

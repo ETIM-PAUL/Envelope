@@ -4,6 +4,7 @@
 import Feather from '@expo/vector-icons/Feather'
 import { Redirect, Tabs } from 'expo-router'
 import { colors } from '../../design/tokens'
+import { useNotifications } from '../../features/notifications/use-notifications'
 import { useAppStore } from '../../store/app-store'
 
 const TAB_ICONS = {
@@ -12,12 +13,14 @@ const TAB_ICONS = {
   receive: 'arrow-down-left',
   pots: 'archive',
   stake: 'trending-up',
+  notifications: 'bell',
 } as const
 
 export default function TabsLayout() {
   // The gate at app/index.tsx is the only way in — if this group is reached without a connected
   // wallet (e.g. a stale deep link after disconnect), bounce back rather than showing empty tabs.
   const walletAddress = useAppStore((s) => s.walletAddress)
+  const { unreadCount } = useNotifications()
   if (!walletAddress) {
     return <Redirect href="/" />
   }
@@ -43,6 +46,11 @@ export default function TabsLayout() {
           key={name}
           name={name}
           options={{
+            tabBarAccessibilityLabel:
+              name === 'notifications' && unreadCount > 0 ? `Notifications, ${unreadCount} unread` : name,
+            tabBarBadge:
+              name === 'notifications' && unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : undefined,
+            tabBarBadgeStyle: { backgroundColor: colors.seal[500], color: colors.paper[500], fontSize: 10 },
             tabBarIcon: ({ color, focused }) => (
               <Feather name={TAB_ICONS[name]} size={22} color={color} style={{ opacity: focused ? 1 : 0.8 }} />
             ),

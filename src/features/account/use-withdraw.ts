@@ -19,6 +19,7 @@ import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { useAppStore } from '../../store/app-store'
 import { usePrivateBalance } from './use-private-balance'
+import { recordNotification } from '../notifications/notification-log'
 
 export type WithdrawStep = 'unsealing' | 'unwrapping'
 
@@ -64,6 +65,11 @@ export function useWithdraw() {
         await sendSignedTransactions(rpc, signedTransactions)
       })
 
+      await recordNotification(walletAddress, {
+        id: `withdraw-${continuationId}`,
+        kind: 'withdraw',
+        amount: amount.toString(),
+      })
       await refetchBalance()
     },
     [bridge, walletAddress, client, refetchBalance],

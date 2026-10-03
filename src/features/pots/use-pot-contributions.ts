@@ -6,9 +6,12 @@ import { useCBridge } from '@envelope/rn-confidential'
 import { useQuery } from '@tanstack/react-query'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
+import { useAppStore } from '../../store/app-store'
+import { recordPotContributions } from '../notifications/use-notifications'
 
 export function usePotContributions(potOwnerAddress: string | null) {
   const bridge = useCBridge()
+  const walletAddress = useAppStore((s) => s.walletAddress)
 
   return useQuery({
     queryKey: ['pot-contributions', potOwnerAddress],
@@ -20,6 +23,7 @@ export function usePotContributions(potOwnerAddress: string | null) {
         mint: cusdc,
         potOwner: potOwnerAddress!,
       })
+      if (walletAddress) await recordPotContributions(walletAddress, potOwnerAddress!, contributions)
       return contributions
     },
   })

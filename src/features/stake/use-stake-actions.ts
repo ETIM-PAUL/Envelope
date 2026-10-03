@@ -28,6 +28,7 @@ import { useAppStore } from '../../store/app-store'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { PLACEHOLDER_LIFETIME, useWalletSigning } from '../wallet/use-wallet-signing'
+import { recordNotification } from '../notifications/notification-log'
 
 export function useStakeActions() {
   const { client } = useMobileWallet()
@@ -73,13 +74,17 @@ export function useStakeActions() {
       await sendWithWallet((user) =>
         envelopeStake.getStakeInstructionAsync({ user, userSkr, vaultSkr: pool.data.vaultSkr, amount }),
       )
+      await recordNotification(walletAddress, { id: `stake-${Date.now()}`, kind: 'stake', amount: amount.toString() })
     },
     [walletAddress, client, sendWithWallet],
   )
 
   const requestUnstake = useCallback(async (): Promise<void> => {
     await sendWithWallet((user) => envelopeStake.getRequestUnstakeInstructionAsync({ user }))
-  }, [sendWithWallet])
+    if (walletAddress) {
+      await recordNotification(walletAddress, { id: `unstake-requested-${Date.now()}`, kind: 'unstake-requested' })
+    }
+  }, [walletAddress, sendWithWallet])
 
   const withdrawUnstaked = useCallback(async (): Promise<void> => {
     if (!walletAddress) throw new Error('connect a wallet first')
@@ -94,6 +99,7 @@ export function useStakeActions() {
     await sendWithWallet((user) =>
       envelopeStake.getWithdrawUnstakedInstructionAsync({ user, userSkr, vaultSkr: pool.data.vaultSkr }),
     )
+    await recordNotification(walletAddress, { id: `unstake-withdrawn-${Date.now()}`, kind: 'unstake-withdrawn' })
   }, [walletAddress, client, sendWithWallet])
 
   return { stake, requestUnstake, withdrawUnstaked }

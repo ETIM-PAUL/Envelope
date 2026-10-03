@@ -2,12 +2,13 @@
 // and merged into the local encrypted cache (activity-cache.ts) so older entries survive even
 // once they fall outside what a fresh fetch re-decrypts.
 import { useCBridge } from '@envelope/rn-confidential'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { useAppStore } from '../../store/app-store'
 import { mergeActivityCache, readActivityCache } from './activity-cache'
 import { useConfidentialKeys } from '../keys/use-confidential-keys'
+import { activityCacheQueryKey } from '../notifications/use-notifications'
 
 const FETCH_LIMIT = 20
 
@@ -15,6 +16,7 @@ export function useActivity() {
   const bridge = useCBridge()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { keysUnlocked } = useConfidentialKeys()
+  const queryClient = useQueryClient()
 
   const query = useQuery({
     queryKey: ['activity', walletAddress],
@@ -34,9 +36,12 @@ export function useActivity() {
         }),
       ])
       if (fresh.length === 0) return cached
-      return mergeActivityCache(walletAddress!, fresh)
+      const merged = await mergeActivityCache(walletAddress!, fresh)
+      // The Notifications feed (and its tab badge) reads this cache directly.
+      void queryClient.invalidateQueries({ queryKey: activityCacheQueryKey(walletAddress) })
+      return merged
     },
   })
 
-  return { entries: query.data ?? [], isLoading: query.isLoading }
+  return { entries: query.data ?? [], isLoading: query.isLoading, refetch: query.refetch }
 }

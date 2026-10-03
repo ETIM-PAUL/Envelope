@@ -3,10 +3,12 @@ import Feather from '@expo/vector-icons/Feather'
 import { Link } from 'expo-router'
 import { Pressable, Text, View } from 'react-native'
 import { AppAddressLink } from '../../components/app-address-link'
+import { BalanceSheen, DeltaStamp } from '../../components/balance-change-effects'
 import { Screen } from '../../components/screen'
 import { SealMark } from '../../components/seal-mark'
 import { TierBadge } from '../../components/tier-badge'
 import { colors, fontFamily } from '../../design/tokens'
+import { useBalanceChange } from '../../features/account/use-balance-change'
 import { usePrivateBalance } from '../../features/account/use-private-balance'
 import { useTier } from '../../features/account/use-tier'
 import { useConfidentialKeys } from '../../features/keys/use-confidential-keys'
@@ -21,6 +23,7 @@ export default function Home() {
   useTier(walletAddress)
   const { keysUnlocked } = useConfidentialKeys()
   const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePrivateBalance()
+  const { displayed, change } = useBalanceChange(keysUnlocked ? availableBalance : null)
 
   return (
     <Screen>
@@ -54,15 +57,15 @@ export default function Home() {
         </View>
       ) : null}
 
-      <View className="bg-ink-900 border border-ink-800 rounded-3xl py-10 items-center">
+      <View className="bg-ink-900 border border-ink-800 rounded-3xl py-10 items-center overflow-hidden">
+        <BalanceSheen change={change} />
         <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.ui }}>
           Private balance
         </Text>
         <Text className="text-paper-500" style={{ fontFamily: fontFamily.display, fontSize: 44, letterSpacing: -0.5 }}>
-          {keysUnlocked && availableBalance !== null
-            ? `$${formatBaseUnits(availableBalance, CUSDC_DECIMALS)}`
-            : '— cUSDC'}
+          {keysUnlocked && displayed !== null ? `$${formatBaseUnits(displayed, CUSDC_DECIMALS)}` : '— cUSDC'}
         </Text>
+        <DeltaStamp change={change} decimals={CUSDC_DECIMALS} />
         <View className="flex-row items-center gap-1.5 mt-3">
           {keysUnlocked ? <View className="w-1.5 h-1.5 rounded-full bg-gold-500" /> : null}
           <Text className="text-mute-600 text-xs" style={{ fontFamily: fontFamily.ui }}>
