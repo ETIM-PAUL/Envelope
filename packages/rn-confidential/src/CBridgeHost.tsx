@@ -121,8 +121,13 @@ export function CBridgeHost({ children, onSignMessage, onSignTransaction, onRead
       <View style={styles.hidden} pointerEvents="none">
         <WebViewComponent
           ref={webviewRef}
-          source={{ html: BRIDGE_HTML, baseUrl: 'about:blank' }}
-          originWhitelist={['about:blank']}
+          // `baseUrl: 'about:blank'` makes Android's WebView treat the page as an insecure
+          // context (`window.isSecureContext === false`), so `crypto.subtle` is unavailable and
+          // @solana/kit's crypto helpers throw SOLANA_ERROR__SUBTLE_CRYPTO__DISALLOWED_IN_INSECURE_CONTEXT.
+          // An `https:` baseUrl is treated as secure even though the HTML is injected locally,
+          // not fetched — no network request is made, so this fake origin is never dereferenced.
+          source={{ html: BRIDGE_HTML, baseUrl: 'https://localhost/' }}
+          originWhitelist={['https://localhost/']}
           onMessage={handleMessage}
           onLoadEnd={handleLoadEnd}
           onShouldStartLoadWithRequest={() => false}
