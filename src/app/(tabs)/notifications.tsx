@@ -34,6 +34,7 @@ function present(item: AppNotification): Presentation {
     stake: { icon: 'trending-up', text: `${amount} SKR staked`, inbound: false },
     'unstake-requested': { icon: 'clock', text: 'Unstake requested — SKR unlocks after the cooldown', inbound: false },
     'unstake-withdrawn': { icon: 'corner-up-left', text: 'Unstaked SKR returned to wallet', inbound: true },
+    faucet: { icon: 'droplet', text: `${amount} test SKR received from the faucet`, inbound: true },
   }
   return copy[item.kind]
 }

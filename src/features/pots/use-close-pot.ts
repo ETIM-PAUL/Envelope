@@ -14,11 +14,13 @@ import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
 import { listPotSummaries, removePotSummary } from './pot-store'
 import { recordNotification } from '../notifications/notification-log'
+import { useGasTank } from '../wallet/use-gas-tank'
 
 export function useClosePot() {
   const bridge = useCBridge()
   const { client } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
+  const { ensureGasTank } = useGasTank()
 
   const closePot = useCallback(
     async (potOwnerAddress: string, potId: string): Promise<void> => {
@@ -26,6 +28,7 @@ export function useClosePot() {
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
       const { cusdc } = requireMints()
       const rpc = client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>
+      await ensureGasTank()
 
       await retryOnExpiry(async () => {
         const { signedTransactions: applyTransactions } = await bridge.call('applyPendingBalance', {
@@ -54,7 +57,7 @@ export function useClosePot() {
       await removePotSummary(walletAddress, potId)
       await recordNotification(walletAddress, { id: `pot-closed-${potId}`, kind: 'pot-closed', label: pot?.name })
     },
-    [bridge, walletAddress, client],
+    [bridge, walletAddress, client, ensureGasTank],
   )
 
   return { closePot }

@@ -33,6 +33,7 @@ export function useActivity() {
           mint: cusdc,
           owner: walletAddress!,
           limit: FETCH_LIMIT,
+          known: (await readActivityCache(walletAddress!)).map((entry) => entry.signature),
         }),
       ])
       if (fresh.length === 0) return cached

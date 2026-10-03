@@ -38,22 +38,31 @@ export function useSendPrivately() {
 
         const tierInfo = await fetchTierInfo(walletAddress)
 
-        const signatures = await retryOnExpiry(async () => {
-          setStep('preparing-proofs')
-          const { signedTransactions } = await bridge.call('buildTransferPlan', {
-            rpcUrl: DEVNET_RPC_URL,
-            mint: cusdc,
-            owner: walletAddress,
-            destinationOwner,
-            amount: amount.toString(),
-            feePayer: tierInfo.relayerAddress,
-            feeInstruction:
-              tierInfo.tier === 'free' ? { skrMint: tierInfo.skrMint, amount: tierInfo.freeTierFeeAmount } : undefined,
-          })
+        // Two relayed batches (see protocol.ts's BuildTransferPlanResult): the proof setup first,
+        // with no wallet approval; then the transfer itself, approved and relayed back to back on
+        // a fresh blockhash. An expired transfer is re-signed against the same, already-landed proofs.
+        setStep('preparing-proofs')
+        const { signedTransactions: proofSetup, continuationId } = await bridge.call('buildTransferPlan', {
+          rpcUrl: DEVNET_RPC_URL,
+          mint: cusdc,
+          owner: walletAddress,
+          destinationOwner,
+          amount: amount.toString(),
+          feePayer: tierInfo.relayerAddress,
+          feeInstruction:
+            tierInfo.tier === 'free' ? { skrMint: tierInfo.skrMint, amount: tierInfo.freeTierFeeAmount } : undefined,
+        })
+        const setupSignatures = proofSetup.length > 0 ? await relayTransactions(walletAddress, proofSetup) : []
 
-          setStep('relaying')
+        setStep('relaying')
+        const transferSignatures = await retryOnExpiry(async () => {
+          const { signedTransactions } = await bridge.call('signContinuation', {
+            rpcUrl: DEVNET_RPC_URL,
+            continuationId,
+          })
           return relayTransactions(walletAddress, signedTransactions)
         })
+        const signatures = [...setupSignatures, ...transferSignatures]
 
         setStep('confirming')
         await refetchBalance()

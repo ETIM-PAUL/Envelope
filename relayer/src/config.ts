@@ -70,6 +70,14 @@ export const mints = {
   cusdc: address(devnetConfig.mints.cusdc),
 }
 
+// Devnet SKR faucet (faucet.ts). Base units, 6 decimals. Never enable against a real SKR mint:
+// it hands the relayer's own SKR to anyone who asks, within these limits.
+export const faucetConfig = {
+  enabled: (process.env.SKR_FAUCET_ENABLED ?? 'true') === 'true',
+  dailyLimit: BigInt(process.env.SKR_FAUCET_DAILY_LIMIT ?? '500000000'), // 500 SKR per wallet per 24h
+  maxHeld: BigInt(process.env.SKR_FAUCET_MAX_HELD ?? '6000000000'), // never past 6,000 SKR held (incl. staked)
+}
+
 export const policyConfig = {
   // Priority fees are capped, not fixed — this bounds how much of the relayer's own SOL a single
   // relayed transaction can spend on prioritization, regardless of what the client requests.

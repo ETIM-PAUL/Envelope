@@ -63,3 +63,5 @@ app-example
 test-ledger
 
 envelope-core-build-plan.md
+# Relayer runtime data (devnet faucet claim ledger)
+relayer/.data/

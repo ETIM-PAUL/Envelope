@@ -66,7 +66,11 @@ export type BuildTransferPlanParams = {
   // transfer plan's own transactions. Omit entirely for Member/Business tiers, which are exempt.
   feeInstruction?: { skrMint: string; amount: string }
 }
-export type BuildTransferPlanResult = { signedTransactions: string[] }
+// Two relayed batches, in order: `signedTransactions` is the proof setup (no wallet approval —
+// relay it first and let it land); then `signContinuation({ continuationId })` asks the wallet to
+// sign the transfer itself (plus the free-tier fee, when there is one) with a fresh blockhash —
+// relay that second. Retrying an expired second batch re-signs it against the same proofs.
+export type BuildTransferPlanResult = { signedTransactions: string[]; continuationId: string }
 
 export type DecryptAvailableParams = { rpcUrl: string; mint: string; owner: string }
 export type DecryptAvailableResult = { availableBalance: string; pendingBalance: string }
@@ -134,7 +138,9 @@ export type ActivityEntry = {
   amount: string // stringified bigint, base units
   blockTime: number | null
 }
-export type DecryptActivityParams = { rpcUrl: string; mint: string; owner: string; limit?: number }
+// `known`: signatures the host already has decrypted (cached) — skipped, since finding each
+// transfer's proof costs extra RPC round trips (see bridge.ts's findValidityProofData).
+export type DecryptActivityParams = { rpcUrl: string; mint: string; owner: string; limit?: number; known?: string[] }
 export type DecryptActivityResult = { entries: ActivityEntry[] }
 
 // Phase 15: a pot's own signing + confidential-balance identity, derived entirely from one MWA

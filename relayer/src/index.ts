@@ -11,13 +11,37 @@ import {
   partiallySignTransaction,
   type Transaction,
 } from '@solana/kit'
-import { mints, policyConfig, port, relayerAddress, relayerCryptoKeyPair, rpc, heliusWebhookSecret } from './config.ts'
+import {
+  faucetConfig,
+  mints,
+  policyConfig,
+  port,
+  relayerAddress,
+  relayerCryptoKeyPair,
+  rpc,
+  heliusWebhookSecret,
+} from './config.ts'
 import { confirmSignature } from './confirm.ts'
 import { validateTransaction } from './policy.ts'
 import { checkRateLimit } from './rate-limit.ts'
 import { getTierForWallet } from './tier.ts'
 import { getPushTokens, registerPushToken } from './push-store.ts'
+import { claimFromFaucet, FaucetRefusal, getFaucetStatus } from './faucet.ts'
 import { sendPushNotification } from './expo-push.ts'
+
+// The outermost SolanaError is usually generic ("Transaction simulation failed"); the reason that
+// matters to the client — e.g. "Blockhash not found", which it retries by re-asking the wallet —
+// is in the cause chain. Messages only, joined: never the full error, which can carry bigints and
+// program logs.
+function describeFailure(err: unknown): string {
+  const messages: string[] = []
+  let current = err
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    messages.push(current.message)
+    current = current.cause
+  }
+  return messages.length > 0 ? messages.join(': ') : String(err)
+}
 
 const app = new Hono()
 
@@ -44,6 +68,35 @@ app.get('/tier/:wallet', async (c) => {
   })
 })
 
+// GET /faucet/skr/:wallet — what a claim would give right now, and why not if nothing (see faucet.ts).
+app.get('/faucet/skr/:wallet', async (c) => {
+  if (!faucetConfig.enabled) return c.json({ error: 'faucet disabled' }, 404)
+  try {
+    return c.json(await getFaucetStatus(address(c.req.param('wallet'))))
+  } catch {
+    return c.json({ error: 'malformed wallet address' }, 400)
+  }
+})
+
+// POST /faucet/skr — body: { wallet: string }. Sends that wallet whatever it's allowed right now.
+app.post('/faucet/skr', async (c) => {
+  if (!faucetConfig.enabled) return c.json({ error: 'faucet disabled' }, 404)
+  const body = await c.req.json<{ wallet?: string }>().catch(() => null)
+  let wallet: ReturnType<typeof address>
+  try {
+    wallet = address(body?.wallet ?? '')
+  } catch {
+    return c.json({ error: 'body must be { wallet: string }' }, 400)
+  }
+  try {
+    return c.json(await claimFromFaucet(wallet))
+  } catch (err) {
+    if (err instanceof FaucetRefusal) return c.json({ error: err.message }, 400)
+    console.error('faucet claim failed:', err)
+    return c.json({ error: 'faucet transfer failed, try again shortly' }, 502)
+  }
+})
+
 // POST /relay — body: { owner: string, transactions: string[] } (base64 wire transactions,
 // already signed by `owner` for every signature role except the relayer's own fee-payer slot).
 // Validates each against policy.ts, co-signs as fee payer, submits, and returns each signature —
@@ -67,6 +120,7 @@ app.post('/relay', async (c) => {
   // once per transaction (see policy.ts's validateTransaction doc comment).
   const transactions: Transaction[] = []
   let sawFreeTierFeeInstruction = false
+  let proofSetupOnly = true
   for (const wireBase64 of body.transactions) {
     let transaction: Transaction
     try {
@@ -80,10 +134,13 @@ app.post('/relay', async (c) => {
       return c.json({ error: `rejected: ${policyResult.reason}` }, 400)
     }
     if (policyResult.sawFreeTierFeeInstruction) sawFreeTierFeeInstruction = true
+    if (!policyResult.proofSetupOnly) proofSetupOnly = false
     transactions.push(transaction)
   }
 
-  if (tier === 'free' && !sawFreeTierFeeInstruction) {
+  // A batch of nothing but proof-context setup is exempt (see policy.ts's PolicyResult): a private
+  // send's transfer batch, relayed right after it, still has to carry the fee.
+  if (tier === 'free' && !sawFreeTierFeeInstruction && !proofSetupOnly) {
     return c.json(
       { error: 'rejected: free-tier transactions must include the SKR fee instruction to the relayer' },
       400,
@@ -109,7 +166,7 @@ app.post('/relay', async (c) => {
       // JSON.stringify — and therefore c.json() — throws on) but only a plain message goes to
       // the client.
       console.error('submission failed:', err)
-      return c.json({ error: `submission failed: ${err instanceof Error ? err.message : String(err)}` }, 502)
+      return c.json({ error: `submission failed: ${describeFailure(err)}` }, 502)
     }
     signatures.push(signature)
   }

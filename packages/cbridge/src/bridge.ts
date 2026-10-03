@@ -15,7 +15,9 @@ import {
   getBase58Decoder,
   getBase64EncodedWireTransaction,
   getCompiledTransactionMessageDecoder,
+  getSignersFromTransactionMessage,
   getTransactionDecoder,
+  isTransactionModifyingSigner,
   isSolanaError,
   sequentialInstructionPlan,
   setTransactionMessageFeePayerSigner,
@@ -435,8 +437,27 @@ channel.on('buildTransferPlan', async (params) => {
     feePlan = singleInstructionPlan(feeIx)
   }
 
-  const signedTransactions = await signInstructionPlan(feePlan ? [feePlan, plan] : [plan], relayerSigner, rpc)
-  return { signedTransactions } satisfies BuildTransferPlanResult
+  // Two stages (see BuildTransferPlanResult): every transaction before the first one the wallet
+  // must sign is proof setup — signed now (relayer slot left empty, one-time keypairs sign here)
+  // and relayed first, with no approval. The rest — the transfer itself (and the free-tier fee) —
+  // waits as a continuation, signed only once the setup has landed, so the wallet's approval and
+  // the relay happen back to back on a fresh blockhash instead of the transfer waiting behind
+  // every proof transaction's submission and confirmation (which outlasted its blockhash), and
+  // so the wallet can simulate it against proof accounts that already exist.
+  const transferMessages = await planMessages(plan, relayerSigner)
+  const firstWalletIndex = transferMessages.findIndex((message) =>
+    getSignersFromTransactionMessage(message).some(isTransactionModifyingSigner),
+  )
+  const setupMessages = firstWalletIndex === -1 ? transferMessages : transferMessages.slice(0, firstWalletIndex)
+  const finalMessages = [
+    ...(feePlan ? await planMessages(feePlan, relayerSigner) : []),
+    ...(firstWalletIndex === -1 ? [] : transferMessages.slice(firstWalletIndex)),
+  ]
+
+  const continuationId = `transfer-${owner}-${Date.now()}`
+  continuations.set(continuationId, finalMessages)
+  const signedTransactions = await signPlannedMessages(setupMessages, rpc)
+  return { signedTransactions, continuationId } satisfies BuildTransferPlanResult
 })
 
 channel.on('decryptAvailable', async (params) => {
@@ -484,7 +505,10 @@ channel.on('applyPendingBalance', async (params) => {
   const mintAddress = address(mint)
   const ownerAddress = address(owner)
   const signer = createHostTransactionSigner(ownerAddress)
-  const payerSigner = payer ? createHostTransactionSigner(address(payer)) : signer
+  // A pot's apply is paid on the host's behalf: by the host's gas tank when it has one, so the
+  // pot's own keypair (no approval needed) is the only signer and closing a pot needs no extra
+  // wallet approval for it.
+  const payerSigner = payer ? (gasTanks.get(payer) ?? createHostTransactionSigner(address(payer))) : signer
 
   const [token] = await findAssociatedTokenPda({
     owner: ownerAddress,
@@ -837,8 +861,60 @@ function decryptProofInstructionAmount(
 
 type ElGamalSecretKeyLike = { decrypt(ciphertext: ElGamalCiphertext): bigint }
 
+type RawInstruction = { programIdIndex: number; accounts: number[]; data: string }
+
+// A ConfidentialTransfer instruction's account list: [source, mint, destination, equality proof,
+// ciphertext-validity proof, range proof, ...] — each proof slot being either a proof context
+// account or the instructions sysvar (proof inline in the same transaction).
+const TRANSFER_VALIDITY_PROOF_ACCOUNT_INDEX = 4
+
+// The ciphertext-validity proof's raw instruction data (the per-party encrypted amount handles
+// live in it, nowhere else). Older plans verified it inline in the transfer transaction itself;
+// @solana-program/token-2022's current getConfidentialTransferInstructionPlan instead verifies it
+// into a proof context account in an earlier transaction, and the transfer only references (then
+// closes) that account — so look there: the account's history still lists that verification
+// even after it's closed. Confirmed against real devnet transfers: the transfer transaction holds
+// only Token2022[27,7] + CloseContextState×3, while the validity account's history holds the
+// VerifyBatchedGroupedCiphertext3HandlesValidity (12) instruction.
+async function findValidityProofData(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  transferSignature: string,
+  accountKeys: string[],
+  instructions: RawInstruction[],
+  transferInstruction: RawInstruction,
+): Promise<Uint8Array | null> {
+  const isValidityProof = (keys: string[], ix: RawInstruction): Uint8Array | null => {
+    if (keys[ix.programIdIndex] !== ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS) return null
+    const raw = base58ToBytes(ix.data)
+    return raw[0] === VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR ? raw : null
+  }
+
+  for (const ix of instructions) {
+    const inline = isValidityProof(accountKeys, ix)
+    if (inline) return inline
+  }
+
+  const contextAccount = accountKeys[transferInstruction.accounts[TRANSFER_VALIDITY_PROOF_ACCOUNT_INDEX]!]
+  if (!contextAccount) return null
+  const history = await rpc.getSignaturesForAddress(address(contextAccount), { limit: 5 }).send()
+  for (const { signature, err } of history) {
+    if (err || signature === transferSignature) continue
+    const tx = await rpc
+      .getTransaction(signature, { commitment: 'confirmed', encoding: 'json', maxSupportedTransactionVersion: 0 })
+      .send()
+    if (!tx) continue
+    const keys = tx.transaction.message.accountKeys as unknown as string[]
+    for (const ix of tx.transaction.message.instructions as unknown as RawInstruction[]) {
+      const proof = isValidityProof(keys, ix)
+      if (proof) return proof
+    }
+  }
+  return null
+}
+
 channel.on('decryptActivity', async (params) => {
-  const { rpcUrl, mint, owner, limit } = params as DecryptActivityParams
+  const { rpcUrl, mint, owner, limit, known } = params as DecryptActivityParams
+  const alreadyKnown = new Set(known ?? [])
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before decryptActivity`)
@@ -856,6 +932,7 @@ channel.on('decryptActivity', async (params) => {
 
   for (const { signature, err } of signatures) {
     if (err) continue // failed transactions never landed a real transfer
+    if (alreadyKnown.has(signature)) continue
     const tx = await rpc
       .getTransaction(signature, { commitment: 'confirmed', encoding: 'json', maxSupportedTransactionVersion: 0 })
       .send()
@@ -872,6 +949,7 @@ channel.on('decryptActivity', async (params) => {
     // source/destination token accounts are its first and third accounts (see
     // ConfidentialTransferInstruction's account list in the generated instruction).
     let direction: 'incoming' | 'outgoing' | null = null
+    let transferInstruction: RawInstruction | null = null
     for (const ix of instructions) {
       const programId = accountKeys[ix.programIdIndex]
       if (programId !== TOKEN_2022_PROGRAM_ADDRESS) continue
@@ -885,33 +963,27 @@ channel.on('decryptActivity', async (params) => {
       const destinationToken = accountKeys[ix.accounts[2]!]
       if (sourceToken === token) direction = 'outgoing'
       else if (destinationToken === token) direction = 'incoming'
+      transferInstruction = ix
       break
     }
-    if (!direction) continue
+    if (!direction || !transferInstruction) continue
 
-    // Find the paired ciphertext-validity proof instruction in the same transaction and decrypt
-    // the handle matching our direction (our own ElGamal key never decrypts the other party's
-    // handle — that's the whole point of ElGamal's per-recipient handles).
-    for (const ix of instructions) {
-      const programId = accountKeys[ix.programIdIndex]
-      if (programId !== ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS) continue
-      const raw = base58ToBytes(ix.data)
-      if (raw[0] !== VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR) continue
-      try {
-        const handleIndex = direction === 'outgoing' ? SOURCE_HANDLE_INDEX : DESTINATION_HANDLE_INDEX
-        const secretKey = keys.elgamalKeypair.secret()
-        const amount = decryptProofInstructionAmount(raw, secretKey, handleIndex)
-        entries.push({
-          signature,
-          direction,
-          amount: amount.toString(),
-          blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
-        })
-      } catch {
-        // A proof instruction that doesn't decrypt cleanly with our key isn't ours to show —
-        // skip rather than surface a broken entry.
-      }
-      break
+    // Decrypt the handle matching our direction (our own ElGamal key never decrypts the other
+    // party's handle — that's the whole point of ElGamal's per-recipient handles).
+    const proofData = await findValidityProofData(rpc, signature, accountKeys, instructions, transferInstruction)
+    if (!proofData) continue
+    try {
+      const handleIndex = direction === 'outgoing' ? SOURCE_HANDLE_INDEX : DESTINATION_HANDLE_INDEX
+      const amount = decryptProofInstructionAmount(proofData, keys.elgamalKeypair.secret(), handleIndex)
+      entries.push({
+        signature,
+        direction,
+        amount: amount.toString(),
+        blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
+      })
+    } catch {
+      // A proof that doesn't decrypt cleanly with our key isn't ours to show — skip rather than
+      // surface a broken entry.
     }
   }
 
@@ -962,6 +1034,8 @@ channel.on('createPot', async (params) => {
   const potOwnerAddress = address(potOwner)
   const hostSigner = createHostTransactionSigner(hostAddress)
   const potSigner = createHostTransactionSigner(potOwnerAddress)
+  const gasTank = gasTanks.get(host)
+  if (!gasTank) throw new Error(`call deriveKeys("${host}") before createPot`)
 
   const [potTokenAccount] = await findAssociatedTokenPda({
     owner: potOwnerAddress,
@@ -969,11 +1043,13 @@ channel.on('createPot', async (params) => {
     tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
   })
 
-  // Token-account setup first, create_pot last — matches the plan's own ordering ("derive pot key
-  // → create + configure pot account → create_pot"), though the two are independent on-chain
-  // (create_pot just records `potTokenAccount` as a Pubkey field, it doesn't verify the account
-  // exists yet).
-  const { steps } = await buildEnsureAccountReadySteps(rpc, mintAddress, potSigner, hostSigner, keys)
+  // The pot's own keypair (held here, no approval) authorizes its token-account setup and the gas
+  // tank pays for it, so the wallet signs exactly one transaction: create_pot. A single approval
+  // covering the whole setup took long enough to outlast its blockhash. The two halves are
+  // independent on-chain (create_pot just records `potTokenAccount` as a Pubkey field, it doesn't
+  // verify the account exists), so create_pot goes first: it's sent the moment the wallet
+  // returns, before its blockhash has aged any further.
+  const { steps } = await buildEnsureAccountReadySteps(rpc, mintAddress, potSigner, gasTank, keys)
 
   const createPotInstruction = await envelopeVault.getCreatePotInstructionAsync({
     host: hostSigner,
@@ -984,9 +1060,11 @@ channel.on('createPot', async (params) => {
     potTokenAccount,
   })
 
-  const signedTransactions = await signInstructionPlan(
-    sequentialInstructionPlan([...steps, createPotInstruction]),
-    hostSigner,
+  const signedTransactions = await signPlannedMessages(
+    [
+      ...(await planMessages(singleInstructionPlan(createPotInstruction), hostSigner)),
+      ...(steps.length > 0 ? await planMessages(sequentialInstructionPlan(steps), gasTank) : []),
+    ],
     rpc,
   )
   return { signedTransactions } satisfies CreatePotResult
@@ -1011,6 +1089,8 @@ channel.on('closePot', async (params) => {
   const potOwnerAddress = address(potOwner)
   const hostSigner = createHostTransactionSigner(hostAddress)
   const potSigner = createHostTransactionSigner(potOwnerAddress)
+  const gasTank = gasTanks.get(host)
+  if (!gasTank) throw new Error(`call deriveKeys("${host}") before closePot`)
 
   const closePotInstruction = await envelopeVault.getClosePotInstructionAsync({
     host: hostSigner,
@@ -1035,7 +1115,10 @@ channel.on('closePot', async (params) => {
     aesKey: keys.aesKey,
   })
 
-  const plan: (Instruction | InstructionPlan)[] = [closePotInstruction]
+  // The wallet signs only close_pot; the sweep back to the host is authorized by the pot's own
+  // keypair and paid for by the gas tank, so its proof transactions need no approval and are
+  // signed with a fresh blockhash right after the wallet returns.
+  const messages = await planMessages(singleInstructionPlan(closePotInstruction), hostSigner)
 
   if (balance.availableBalance > 0n) {
     const [potAccount, hostAccount] = await Promise.all([fetchToken(rpc, potToken), fetchToken(rpc, hostToken)])
@@ -1049,13 +1132,13 @@ channel.on('closePot', async (params) => {
       amount: balance.availableBalance,
       sourceElgamalKeypair: keys.elgamalKeypair,
       aesKey: keys.aesKey,
-      payer: hostSigner,
+      payer: gasTank,
       rpc,
     })
-    plan.push(sweepPlan)
+    messages.push(...(await planMessages(sweepPlan, gasTank)))
   }
 
-  const signedTransactions = await signInstructionPlan(sequentialInstructionPlan(plan), hostSigner, rpc)
+  const signedTransactions = await signPlannedMessages(messages, rpc)
   return { signedTransactions } satisfies ClosePotResult
 })
 
@@ -1093,6 +1176,7 @@ channel.on('decryptPotActivity', async (params) => {
     // sweep, which this same loop would otherwise misattribute as a self-contribution) — find an
     // incoming ConfidentialTransfer naming our own token account as the destination.
     let sourceToken: string | null = null
+    let transferInstruction: RawInstruction | null = null
     for (const ix of instructions) {
       const programId = accountKeys[ix.programIdIndex]
       if (programId !== TOKEN_2022_PROGRAM_ADDRESS) continue
@@ -1105,25 +1189,21 @@ channel.on('decryptPotActivity', async (params) => {
       const destinationToken = accountKeys[ix.accounts[2]!]
       if (destinationToken !== potToken) continue
       sourceToken = accountKeys[ix.accounts[0]!] ?? null
+      transferInstruction = ix
       break
     }
     if (!sourceToken) continue
     if (sourceToken === potToken) continue // the close-time sweep is pot -> host, not a contribution
 
-    let amount: bigint | null = null
-    for (const ix of instructions) {
-      const programId = accountKeys[ix.programIdIndex]
-      if (programId !== ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS) continue
-      const raw = base58ToBytes(ix.data)
-      if (raw[0] !== VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR) continue
-      try {
-        amount = decryptProofInstructionAmount(raw, keys.elgamalKeypair.secret(), DESTINATION_HANDLE_INDEX)
-      } catch {
-        // Not decryptable with our key — not actually ours, skip.
-      }
-      break
+    if (!transferInstruction) continue
+    const proofData = await findValidityProofData(rpc, signature, accountKeys, instructions, transferInstruction)
+    if (!proofData) continue
+    let amount: bigint
+    try {
+      amount = decryptProofInstructionAmount(proofData, keys.elgamalKeypair.secret(), DESTINATION_HANDLE_INDEX)
+    } catch {
+      continue // Not decryptable with our key — not actually ours, skip.
     }
-    if (amount === null) continue
 
     const contributorAccount = await fetchMaybeToken(rpc, address(sourceToken))
     if (!contributorAccount.exists) continue

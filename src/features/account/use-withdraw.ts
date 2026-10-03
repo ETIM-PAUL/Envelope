@@ -19,6 +19,7 @@ import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { useAppStore } from '../../store/app-store'
 import { usePrivateBalance } from './use-private-balance'
+import { useGasTank } from '../wallet/use-gas-tank'
 import { recordNotification } from '../notifications/notification-log'
 
 export type WithdrawStep = 'unsealing' | 'unwrapping'
@@ -28,6 +29,7 @@ export function useWithdraw() {
   const { client } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { refetchBalance } = usePrivateBalance()
+  const { ensureGasTank } = useGasTank()
 
   const withdraw = useCallback(
     async (amount: bigint, onStep?: (step: WithdrawStep) => void): Promise<void> => {
@@ -37,13 +39,7 @@ export function useWithdraw() {
       const rpc = client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>
 
       onStep?.('unsealing')
-      await retryOnExpiry(async () => {
-        const { signedTransactions } = await bridge.call('ensureGasTank', {
-          rpcUrl: DEVNET_RPC_URL,
-          owner: walletAddress,
-        })
-        await sendSignedTransactions(rpc, signedTransactions)
-      })
+      await ensureGasTank()
       const continuationId = await retryOnExpiry(async () => {
         const { signedTransactions, continuationId } = await bridge.call('buildWithdrawPlan', {
           rpcUrl: DEVNET_RPC_URL,
@@ -72,7 +68,7 @@ export function useWithdraw() {
       })
       await refetchBalance()
     },
-    [bridge, walletAddress, client, refetchBalance],
+    [bridge, walletAddress, client, refetchBalance, ensureGasTank],
   )
 
   return { withdraw }

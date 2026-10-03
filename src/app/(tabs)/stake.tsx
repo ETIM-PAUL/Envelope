@@ -2,12 +2,13 @@
 // envelope_stake (use-stake-info.ts/use-stake-actions.ts) — no bridge, no secret material.
 import * as Haptics from 'expo-haptics'
 import { useEffect, useRef, useState } from 'react'
-import { Text, TextInput, View } from 'react-native'
+import { Pressable, Text, TextInput, View } from 'react-native'
 import { Button } from '../../components/button'
 import { Screen } from '../../components/screen'
 import { TierBadge } from '../../components/tier-badge'
 import { colors, fontFamily } from '../../design/tokens'
 import { useStakeInfo } from '../../features/stake/use-stake-info'
+import { useSkrFaucet } from '../../features/stake/use-skr-faucet'
 import { useStakeActions } from '../../features/stake/use-stake-actions'
 import { formatBaseUnits } from '../../utils/format-amount'
 import { formatError } from '../../utils/format-error'
@@ -22,6 +23,51 @@ function parseSkrToBaseUnits(input: string): bigint | null {
   const paddedFraction = fraction.padEnd(SKR_DECIMALS, '0')
   const baseUnits = BigInt(whole) * 10n ** BigInt(SKR_DECIMALS) + BigInt(paddedFraction)
   return baseUnits > 0n ? baseUnits : null
+}
+
+// Devnet only: test SKR from the relayer's faucet, so trying the tiers doesn't need a script.
+function FaucetRow() {
+  const { status, claim } = useSkrFaucet()
+  if (!status) return null
+
+  const available = BigInt(status.available)
+  const nextClaimTime = status.nextClaimAt
+    ? new Date(status.nextClaimAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    : null
+  const reason =
+    available > 0n
+      ? null
+      : BigInt(status.held) >= BigInt(status.maxHeld)
+        ? `You hold the ${formatBaseUnits(BigInt(status.maxHeld), SKR_DECIMALS).replace('.00', '')} test SKR maximum`
+        : `Today's test SKR claimed — more after ${nextClaimTime}`
+
+  return (
+    <View className="items-center mt-5">
+      {reason ? (
+        <Text className="text-mute-600 text-xs" style={{ fontFamily: fontFamily.ui }}>
+          {reason}
+        </Text>
+      ) : (
+        <Pressable
+          onPress={() => claim.mutate()}
+          disabled={claim.isPending}
+          accessibilityRole="button"
+          className="flex-row items-center gap-2 border border-ink-700 rounded-full px-4 py-2 active:bg-ink-800"
+        >
+          <Text className="text-paper-400 text-sm" style={{ fontFamily: fontFamily.uiSemibold }}>
+            {claim.isPending
+              ? 'Sending…'
+              : `Get ${formatBaseUnits(available, SKR_DECIMALS).replace('.00', '')} test SKR`}
+          </Text>
+        </Pressable>
+      )}
+      {claim.error ? (
+        <Text className="text-seal-500 text-xs mt-2 text-center" style={{ fontFamily: fontFamily.ui }}>
+          {formatError(claim.error)}
+        </Text>
+      ) : null}
+    </View>
+  )
 }
 
 function useCountdown(unlockAt: number | null) {
@@ -121,6 +167,7 @@ export default function Stake() {
         <Text className="text-mute-600 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
           {info ? `${formatBaseUnits(info.skrBalance, SKR_DECIMALS)} SKR available to stake` : 'Loading…'}
         </Text>
+        <FaucetRow />
       </View>
 
       {info && info.unlockRequestedAt === 0n ? (

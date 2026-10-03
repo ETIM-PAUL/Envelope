@@ -55,7 +55,7 @@ function translateKnownError(message: string): string | null {
   }
   // Catch-alls last, once every pattern with something more specific to say has had a chance.
   if (/[Tt]ransaction simulation failed|[Ss]imulation failed/.test(message)) {
-    return "That couldn't go through — check you have enough balance and try again."
+    return "That couldn't go through — try again in a moment."
   }
   // A raw @solana/kit SolanaError ("Solana error #NNNNNNN; Decode this error by running...") —
   // every code we specifically handle is caught above; anything else reaching here genuinely

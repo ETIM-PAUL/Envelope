@@ -60,7 +60,15 @@ const CLOSE_CONTEXT_STATE_DISCRIMINATOR = 0
 const CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS = new Set([3, 12, 7])
 
 export type PolicyViolation = { ok: false; reason: string }
-export type PolicyResult = { ok: true; sawFreeTierFeeInstruction: boolean } | PolicyViolation
+// `proofSetupOnly`: every instruction is proof-context setup — the relayer funding a ZK proof
+// context account (CreateAccount owned by the ZK proof program), a proof verification into one,
+// or a compute budget. index.ts lets a free-tier batch made only of these through without the SKR
+// fee: a private send relays its proof setup first, as its own batch, so the transfer the wallet
+// signs afterwards can be approved and relayed on a fresh blockhash — and that transfer batch
+// still has to carry the fee. Setup alone moves no one's funds; what a free-tier wallet gets for
+// it is the relayer paying transaction fees and temporarily funding context accounts it remains
+// the authority of (it can always close them and reclaim the rent) — bounded by the rate limit.
+export type PolicyResult = { ok: true; sawFreeTierFeeInstruction: boolean; proofSetupOnly: boolean } | PolicyViolation
 
 function violation(reason: string): PolicyViolation {
   return { ok: false, reason }
@@ -165,6 +173,7 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
   }
 
   let sawFreeTierFeeInstruction = false
+  let proofSetupOnly = true
   const [relayerSkrAta] = await findAssociatedTokenPda({
     owner: relayerAddress,
     mint: mints.skr,
@@ -178,6 +187,15 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
     }
 
     const data = instruction.data instanceof Uint8Array ? instruction.data : new Uint8Array(instruction.data ?? [])
+
+    const isProofSetupInstruction =
+      programAddress === COMPUTE_BUDGET_PROGRAM_ADDRESS ||
+      (programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS &&
+        CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS.has(data[0]!)) ||
+      (programAddress === SYSTEM_PROGRAM_ADDRESS &&
+        isCreateAccountInstruction(data) &&
+        createAccountOwnerIsZkProofProgram(data))
+    if (!isProofSetupInstruction) proofSetupOnly = false
 
     // System program: only CreateAccount (funding a proof context account) is ever legitimate
     // for a transaction the relayer pays for. Everything else — Transfer, Assign, Allocate — is
@@ -223,5 +241,5 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
     }
   }
 
-  return { ok: true, sawFreeTierFeeInstruction }
+  return { ok: true, sawFreeTierFeeInstruction, proofSetupOnly }
 }

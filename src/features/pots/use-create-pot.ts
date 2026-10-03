@@ -13,6 +13,7 @@ import { useAppStore } from '../../store/app-store'
 import { addPotSummary, type PotSummary } from './pot-store'
 import { findPotPda } from './pot-pda'
 import { usePotKeys } from './use-pot-keys'
+import { useGasTank } from '../wallet/use-gas-tank'
 import { recordNotification } from '../notifications/notification-log'
 
 export function useCreatePot() {
@@ -20,6 +21,7 @@ export function useCreatePot() {
   const { client } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { ensurePotKeys } = usePotKeys()
+  const { ensureGasTank } = useGasTank()
 
   const createPot = useCallback(
     async (name: string, closeTs: bigint): Promise<PotSummary> => {
@@ -30,6 +32,7 @@ export function useCreatePot() {
       const potId = BigInt(Date.now())
       const potOwnerAddress = await ensurePotKeys(potId.toString())
       const potPda = await findPotPda(address(walletAddress), potId)
+      await ensureGasTank()
 
       await retryOnExpiry(async () => {
         const { signedTransactions } = await bridge.call('createPot', {
@@ -59,7 +62,7 @@ export function useCreatePot() {
       await recordNotification(walletAddress, { id: `pot-created-${summary.potId}`, kind: 'pot-created', label: name })
       return summary
     },
-    [bridge, walletAddress, client, ensurePotKeys],
+    [bridge, walletAddress, client, ensurePotKeys, ensureGasTank],
   )
 
   return { createPot }
