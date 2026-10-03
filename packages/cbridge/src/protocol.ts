@@ -233,15 +233,19 @@ export type BridgeMethod = keyof BridgeMethodMap
 export type SignMessageParams = { address: string; messageBase64: string }
 export type SignMessageResult = { signatureBase64: string }
 
-// Transaction signature — used per transaction in a plan, for the owner's authority/fee-payer
-// signature. `messageBase64` is the transaction's compiled message bytes (`transaction.messageBytes`),
-// matching what MWA's `signMessages`/raw-sign API expects.
-export type SignTransactionParams = { address: string; messageBase64: string }
-export type SignTransactionResult = { signatureBase64: string }
+// Transaction signatures — every transaction a flow needs from the wallet, in ONE request, so the
+// user sees one approval screen per flow. Both directions carry *whole* wire transactions (every
+// required signer's slot, filled or empty), not bare messages or signatures: wallets are allowed
+// to modify what they sign (Solflare appends its own ComputeBudget priority-fee instructions to
+// every transaction), so the signed transactions that come back are the source of truth — their
+// messages may differ from the ones sent, and each signature is only valid for its returned
+// message. Same order and count in as out.
+export type SignTransactionsParams = { address: string; transactionsBase64: string[] }
+export type SignTransactionsResult = { signedTransactionsBase64: string[] }
 
 export type HostMethodMap = {
   signMessage: { params: SignMessageParams; result: SignMessageResult }
-  signTransaction: { params: SignTransactionParams; result: SignTransactionResult }
+  signTransactions: { params: SignTransactionsParams; result: SignTransactionsResult }
 }
 
 export type HostMethod = keyof HostMethodMap

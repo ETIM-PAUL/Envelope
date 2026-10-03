@@ -11,6 +11,8 @@ import {
   createSignableMessage,
   createSolanaRpc,
   getBase58Decoder,
+  getBase64EncodedWireTransaction,
+  getTransactionDecoder,
   isSolanaError,
   sequentialInstructionPlan,
   singleInstructionPlan,
@@ -23,7 +25,11 @@ import {
   type MessagePartialSigner,
   type ReadonlyUint8Array,
   type SignatureDictionary,
-  type TransactionPartialSigner,
+  type Transaction,
+  type TransactionModifyingSigner,
+  type TransactionSigner,
+  type TransactionWithinSizeLimit,
+  type TransactionWithLifetime,
 } from '@solana/kit'
 import {
   ExtensionType,
@@ -93,7 +99,7 @@ import type {
   RestorePotKeysParams,
   RestorePotKeysResult,
   SignMessageResult,
-  SignTransactionResult,
+  SignTransactionsResult,
 } from './protocol.ts'
 
 // Matches roundtrip.ts's MAX_PENDING_BALANCE_CREDIT_COUNTER — how many unapplied confidential
@@ -192,24 +198,40 @@ function createReplayMessageSigner(owner: Address, signature: Uint8Array): Messa
   }
 }
 
-function createHostTransactionSigner(owner: Address): TransactionPartialSigner {
+// A *modifying* signer, not a partial one: real wallets rewrite what they sign (Solflare appends
+// ComputeBudget priority-fee instructions to every transaction), so a bare signature returned
+// for our original message would fail on-chain signature verification — the transaction the
+// wallet hands back is adopted whole. signPlan.ts sends every transaction a flow needs from the
+// wallet through one call here, so the user sees one approval screen per flow.
+function createHostTransactionSigner(owner: Address): TransactionSigner {
   const potSigner = potSigners.get(owner)
   if (potSigner) return potSigner
 
-  return {
+  const signer: TransactionModifyingSigner = {
     address: owner,
-    async signTransactions(transactions) {
-      return Promise.all(
-        transactions.map(async (transaction) => {
-          const { signatureBase64 } = await channel.call<SignTransactionResult>('signTransaction', {
-            address: owner,
-            messageBase64: bytesToBase64(transaction.messageBytes),
-          })
-          return { [owner]: base64ToBytes(signatureBase64) } as SignatureDictionary
-        }),
-      )
+    async modifyAndSignTransactions(transactions) {
+      const { signedTransactionsBase64 } = await channel.call<SignTransactionsResult>('signTransactions', {
+        address: owner,
+        transactionsBase64: transactions.map((transaction) => getBase64EncodedWireTransaction(transaction)),
+      })
+      if (signedTransactionsBase64.length !== transactions.length) {
+        throw new Error('The wallet returned a different number of transactions than it was asked to sign.')
+      }
+      return signedTransactionsBase64.map((signedBase64, i) => {
+        const walletTransaction = getTransactionDecoder().decode(base64ToBytes(signedBase64))
+        if (!walletTransaction.signatures[owner]) {
+          throw new Error('The wallet returned a transaction without signing it.')
+        }
+        // Verified against Solflare: it keeps the lifetime (blockhash or nonce) and only appends
+        // instructions, so the original lifetime still describes the returned transaction.
+        return {
+          ...walletTransaction,
+          lifetimeConstraint: (transactions[i] as Partial<TransactionWithLifetime>).lifetimeConstraint,
+        } as Transaction & TransactionWithinSizeLimit & TransactionWithLifetime
+      })
     },
   }
+  return signer
 }
 
 channel.on('ping', async (_params) => {
@@ -337,13 +359,12 @@ channel.on('buildTransferPlan', async (params) => {
     rpc,
   })
 
-  const transferTransactions = await signInstructionPlan(plan, relayerSigner, rpc)
-
   // Free-tier senders (owner asked the relayer's GET /tier/:wallet) prepend a small, separate SKR
   // fee transaction — same owner-signs/relayer-noop-payer pattern, built and signed here (not in
   // React Native) so it reuses the exact same MWA round-trip and never needs its own Solana
-  // instruction-building code on the native side.
-  let feeTransactions: string[] = []
+  // instruction-building code on the native side. Signed in the same signInstructionPlan call as
+  // the transfer so the wallet shows one approval for both, and each gets its own nonce.
+  let feePlan: InstructionPlan | null = null
   if (feeInstruction) {
     const skrMintAddress = address(feeInstruction.skrMint)
     const [ownerSkrAta] = await findClassicAssociatedTokenPda({
@@ -362,10 +383,11 @@ channel.on('buildTransferPlan', async (params) => {
       authority: signer,
       amount: BigInt(feeInstruction.amount),
     })
-    feeTransactions = await signInstructionPlan(singleInstructionPlan(feeIx), relayerSigner, rpc)
+    feePlan = singleInstructionPlan(feeIx)
   }
 
-  return { signedTransactions: [...feeTransactions, ...transferTransactions] } satisfies BuildTransferPlanResult
+  const signedTransactions = await signInstructionPlan(feePlan ? [feePlan, plan] : [plan], relayerSigner, rpc)
+  return { signedTransactions } satisfies BuildTransferPlanResult
 })
 
 channel.on('decryptAvailable', async (params) => {
@@ -420,7 +442,17 @@ channel.on('applyPendingBalance', async (params) => {
     mint: mintAddress,
     tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
   })
-  const tokenAccount = await fetchToken(rpc, token)
+
+  let tokenAccount
+  try {
+    tokenAccount = await fetchToken(rpc, token)
+  } catch (err) {
+    // No confidential token account yet (never enabled) — nothing to apply, not a failure.
+    if (isSolanaError(err, SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND)) {
+      return { signedTransactions: [] } satisfies ApplyPendingBalanceResult
+    }
+    throw err
+  }
 
   const balance = await fetchConfidentialTransferBalance({
     token,
@@ -491,8 +523,8 @@ function hasCpiGuardEnabled(extensions: { __kind: string; lockCpi?: boolean }[] 
 async function buildEnsureAccountReadySteps(
   rpc: ReturnType<typeof createSolanaRpc>,
   mintAddress: Address,
-  owner: TransactionPartialSigner,
-  payer: TransactionPartialSigner,
+  owner: TransactionSigner,
+  payer: TransactionSigner,
   keys: { elgamalKeypair: ElGamalKeypair; aesKey: AeKey },
 ): Promise<{ token: Address; steps: (Instruction | InstructionPlan)[] }> {
   const [token] = await findAssociatedTokenPda({
@@ -587,12 +619,20 @@ channel.on('prepareApplyPendingBalance', async (params) => {
     mint: address(mint),
     tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
   })
-  const tokenAccount = await fetchToken(rpc, token)
-  const current = decryptConfidentialTransferBalance({
-    tokenAccount: tokenAccount.data,
-    elgamalSecretKey: keys.elgamalKeypair.secret(),
-    aesKey: keys.aesKey,
-  })
+
+  // No confidential token account yet means this is the first-ever deposit (the account gets
+  // created earlier in this same transaction) — starts from a zero balance, not a fetch error.
+  let current = { availableBalance: 0n, pendingBalance: 0n, pendingBalanceCreditCounter: 0n }
+  try {
+    const tokenAccount = await fetchToken(rpc, token)
+    current = decryptConfidentialTransferBalance({
+      tokenAccount: tokenAccount.data,
+      elgamalSecretKey: keys.elgamalKeypair.secret(),
+      aesKey: keys.aesKey,
+    })
+  } catch (err) {
+    if (!isSolanaError(err, SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND)) throw err
+  }
 
   // Both terms account for what will have already happened on-chain by the time this
   // instruction runs (Deposit, earlier in the same transaction): the deposited amount is about

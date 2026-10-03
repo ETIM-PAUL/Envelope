@@ -33,7 +33,9 @@ import { useCallback } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { useAppStore } from '../../store/app-store'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { waitForConfirmation } from '../../utils/wait-for-confirmation'
+import { useConfidentialAccount } from './use-confidential-account'
 
 // cUSDC's decimals — matches Phase 1's mint setup (scripts/setup-mints.ts) and every other place
 // this constant is duplicated (roundtrip.ts, envelope-vault.test.ts): no shared package to import
@@ -44,11 +46,19 @@ export function useAddToPrivateBalance() {
   const bridge = useCBridge()
   const { client, getTransactionSigner } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
+  const { ensureAccountReady } = useConfidentialAccount()
 
   const addToPrivateBalance = useCallback(
     async (amount: bigint): Promise<void> => {
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
+
+      // Idempotent (see useConfidentialAccount's doc comment) — covers wallets whose onboarding
+      // derived keys but never finished creating/configuring the on-chain confidential account
+      // (e.g. an earlier attempt failed partway through), which otherwise fails Deposit's
+      // simulation with no indication why: Deposit requires the account to already have the
+      // ConfidentialTransferAccount extension configured.
+      await ensureAccountReady()
 
       const owner = address(walletAddress)
       const { usdc, cusdc } = requireMints()
@@ -65,56 +75,62 @@ export function useAddToPrivateBalance() {
         tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
       })
 
-      // One signer, reused for every instruction *and* the fee payer, so the message ends up
-      // needing exactly one MWA approval — see the module doc comment for why this matters more
-      // here than it looks: wallet-ui's own `sendTransactions` convenience method creates its own
-      // internal signer instance, and mixing that with a differently-instantiated signer for the
-      // instructions themselves is the kind of identity mismatch that's easy to get subtly wrong.
-      const {
-        context: { slot: minContextSlot },
-        value: latestBlockhash,
-      } = await client.rpc.getLatestBlockhash().send()
-      const signer = getTransactionSigner(owner, minContextSlot)
+      // Rebuilt from scratch on each attempt: if the approval outlasts the blockhash, the wallet
+      // is asked again with a fresh one (see retry-on-expiry.ts). The blockhash is fetched last,
+      // right before the wallet request, so none of its short lifetime is spent beforehand.
+      await retryOnExpiry(async () => {
+        const { newDecryptableAvailableBalanceBase64, expectedPendingBalanceCreditCounter } = await bridge.call(
+          'prepareApplyPendingBalance',
+          { rpcUrl: DEVNET_RPC_URL, mint: cusdc, owner: walletAddress, amount: amount.toString() },
+        )
 
-      const wrapInstruction = await envelopeVault.getWrapInstructionAsync({
-        user: signer,
-        userUsdc,
-        vaultUsdc: config.data.vaultUsdc,
-        cusdcMint,
-        userCusdc,
-        amount,
+        // One signer, reused for every instruction *and* the fee payer, so the message ends up
+        // needing exactly one MWA approval — see the module doc comment for why this matters more
+        // here than it looks: wallet-ui's own `sendTransactions` convenience method creates its own
+        // internal signer instance, and mixing that with a differently-instantiated signer for the
+        // instructions themselves is the kind of identity mismatch that's easy to get subtly wrong.
+        const {
+          context: { slot: minContextSlot },
+          value: latestBlockhash,
+        } = await client.rpc.getLatestBlockhash().send()
+        const signer = getTransactionSigner(owner, minContextSlot)
+
+        const wrapInstruction = await envelopeVault.getWrapInstructionAsync({
+          user: signer,
+          userUsdc,
+          vaultUsdc: config.data.vaultUsdc,
+          cusdcMint,
+          userCusdc,
+          amount,
+        })
+
+        const depositInstruction = getConfidentialDepositInstruction({
+          token: userCusdc,
+          mint: cusdcMint,
+          authority: signer,
+          amount,
+          decimals: CUSDC_DECIMALS,
+        })
+
+        const applyInstruction = getApplyConfidentialPendingBalanceInstruction({
+          token: userCusdc,
+          authority: signer,
+          expectedPendingBalanceCreditCounter: BigInt(expectedPendingBalanceCreditCounter),
+          newDecryptableAvailableBalance: toByteArray(newDecryptableAvailableBalanceBase64),
+        })
+
+        const message = pipe(
+          createTransactionMessage({ version: 0 }),
+          (m) => appendTransactionMessageInstructions([wrapInstruction, depositInstruction, applyInstruction], m),
+          (m) => setTransactionMessageFeePayerSigner(signer, m),
+          (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+        )
+        const signatureBytes = await signAndSendTransactionMessageWithSigners(message)
+        const signature = getBase58Decoder().decode(signatureBytes) as Signature
+        await waitForConfirmation(client.rpc, signature)
       })
-
-      const depositInstruction = getConfidentialDepositInstruction({
-        token: userCusdc,
-        mint: cusdcMint,
-        authority: signer,
-        amount,
-        decimals: CUSDC_DECIMALS,
-      })
-
-      const { newDecryptableAvailableBalanceBase64, expectedPendingBalanceCreditCounter } = await bridge.call(
-        'prepareApplyPendingBalance',
-        { rpcUrl: DEVNET_RPC_URL, mint: cusdc, owner: walletAddress, amount: amount.toString() },
-      )
-      const applyInstruction = getApplyConfidentialPendingBalanceInstruction({
-        token: userCusdc,
-        authority: signer,
-        expectedPendingBalanceCreditCounter: BigInt(expectedPendingBalanceCreditCounter),
-        newDecryptableAvailableBalance: toByteArray(newDecryptableAvailableBalanceBase64),
-      })
-
-      const message = pipe(
-        createTransactionMessage({ version: 0 }),
-        (m) => appendTransactionMessageInstructions([wrapInstruction, depositInstruction, applyInstruction], m),
-        (m) => setTransactionMessageFeePayerSigner(signer, m),
-        (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
-      )
-      const signatureBytes = await signAndSendTransactionMessageWithSigners(message)
-      const signature = getBase58Decoder().decode(signatureBytes) as Signature
-      await waitForConfirmation(client.rpc, signature)
     },
-    [bridge, walletAddress, client, getTransactionSigner],
+    [bridge, walletAddress, client, getTransactionSigner, ensureAccountReady],
   )
 
   return { addToPrivateBalance }

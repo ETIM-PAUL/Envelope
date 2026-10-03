@@ -13,11 +13,6 @@ import { formatError } from '../utils/format-error'
 import { formatBaseUnits } from '../utils/format-amount'
 import { CUSDC_DECIMALS, parseDollarsToBaseUnits } from '../utils/parse-amount'
 
-// envelope_vault's ErrorCode::DailyLimitExceeded is Anchor custom error index 1 -> code 6001
-// (0x1771) — Anchor errors don't come back with their #[msg(...)] text over the RPC, just this
-// number, so matching it is the only way to show the friendly message instead of a raw hex code.
-const DAILY_LIMIT_EXCEEDED_CODE = '0x1771'
-
 export default function AddFunds() {
   const router = useRouter()
   const tier = useAppStore((s) => s.tier)
@@ -40,12 +35,7 @@ export default function AddFunds() {
       await refetchBalance()
       router.replace('/(tabs)/home')
     } catch (e) {
-      const message = formatError(e)
-      setError(
-        message.includes(DAILY_LIMIT_EXCEEDED_CODE)
-          ? "You've hit today's limit for your tier — stake SKR to raise it."
-          : message,
-      )
+      setError(formatError(e))
       await refetchDailyLimit()
     } finally {
       setIsBusy(false)

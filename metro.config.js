@@ -18,9 +18,4 @@ uniwindConfig.cacheStores = ({ FileStore }) => [
   new FileStore({ root: path.join(__dirname, 'node_modules', '.cache', 'metro') }),
 ]
 
-// Dev-machine workaround: Watchman can't start FSEvents here (needs Full Disk Access, a
-// one-time System Settings grant) — fall back to Metro's own Node-based file watcher instead of
-// failing outright. Remove once Full Disk Access is granted to the terminal app.
-uniwindConfig.resolver.useWatchman = false
-
 module.exports = uniwindConfig

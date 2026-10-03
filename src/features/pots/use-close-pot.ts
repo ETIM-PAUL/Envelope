@@ -10,6 +10,7 @@ import { useCallback } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
 import { removePotSummary } from './pot-store'
 
@@ -25,24 +26,28 @@ export function useClosePot() {
       const { cusdc } = requireMints()
       const rpc = client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>
 
-      const { signedTransactions: applyTransactions } = await bridge.call('applyPendingBalance', {
-        rpcUrl: DEVNET_RPC_URL,
-        mint: cusdc,
-        owner: potOwnerAddress,
-        payer: walletAddress,
+      await retryOnExpiry(async () => {
+        const { signedTransactions: applyTransactions } = await bridge.call('applyPendingBalance', {
+          rpcUrl: DEVNET_RPC_URL,
+          mint: cusdc,
+          owner: potOwnerAddress,
+          payer: walletAddress,
+        })
+        if (applyTransactions.length > 0) {
+          await sendSignedTransactions(rpc, applyTransactions)
+        }
       })
-      if (applyTransactions.length > 0) {
-        await sendSignedTransactions(rpc, applyTransactions)
-      }
 
-      const { signedTransactions } = await bridge.call('closePot', {
-        rpcUrl: DEVNET_RPC_URL,
-        mint: cusdc,
-        host: walletAddress,
-        potOwner: potOwnerAddress,
-        potId,
+      await retryOnExpiry(async () => {
+        const { signedTransactions } = await bridge.call('closePot', {
+          rpcUrl: DEVNET_RPC_URL,
+          mint: cusdc,
+          host: walletAddress,
+          potOwner: potOwnerAddress,
+          potId,
+        })
+        await sendSignedTransactions(rpc, signedTransactions)
       })
-      await sendSignedTransactions(rpc, signedTransactions)
 
       await removePotSummary(walletAddress, potId)
     },

@@ -8,6 +8,7 @@ import { useCallback, useState } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { relayTransactions } from '../../utils/relay-transactions'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
 import { usePrivateBalance } from './use-private-balance'
 import { useConfidentialAccount } from './use-confidential-account'
@@ -37,20 +38,22 @@ export function useSendPrivately() {
 
         const tierInfo = await fetchTierInfo(walletAddress)
 
-        setStep('preparing-proofs')
-        const { signedTransactions } = await bridge.call('buildTransferPlan', {
-          rpcUrl: DEVNET_RPC_URL,
-          mint: cusdc,
-          owner: walletAddress,
-          destinationOwner,
-          amount: amount.toString(),
-          feePayer: tierInfo.relayerAddress,
-          feeInstruction:
-            tierInfo.tier === 'free' ? { skrMint: tierInfo.skrMint, amount: tierInfo.freeTierFeeAmount } : undefined,
-        })
+        const signatures = await retryOnExpiry(async () => {
+          setStep('preparing-proofs')
+          const { signedTransactions } = await bridge.call('buildTransferPlan', {
+            rpcUrl: DEVNET_RPC_URL,
+            mint: cusdc,
+            owner: walletAddress,
+            destinationOwner,
+            amount: amount.toString(),
+            feePayer: tierInfo.relayerAddress,
+            feeInstruction:
+              tierInfo.tier === 'free' ? { skrMint: tierInfo.skrMint, amount: tierInfo.freeTierFeeAmount } : undefined,
+          })
 
-        setStep('relaying')
-        const signatures = await relayTransactions(walletAddress, signedTransactions)
+          setStep('relaying')
+          return relayTransactions(walletAddress, signedTransactions)
+        })
 
         setStep('confirming')
         await refetchBalance()

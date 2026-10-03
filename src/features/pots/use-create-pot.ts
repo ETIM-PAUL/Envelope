@@ -8,6 +8,7 @@ import { useCallback } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
 import { addPotSummary, type PotSummary } from './pot-store'
 import { findPotPda } from './pot-pda'
@@ -29,19 +30,21 @@ export function useCreatePot() {
       const potOwnerAddress = await ensurePotKeys(potId.toString())
       const potPda = await findPotPda(address(walletAddress), potId)
 
-      const { signedTransactions } = await bridge.call('createPot', {
-        rpcUrl: DEVNET_RPC_URL,
-        mint: cusdc,
-        host: walletAddress,
-        potOwner: potOwnerAddress,
-        potId: potId.toString(),
-        name,
-        closeTs: closeTs.toString(),
+      await retryOnExpiry(async () => {
+        const { signedTransactions } = await bridge.call('createPot', {
+          rpcUrl: DEVNET_RPC_URL,
+          mint: cusdc,
+          host: walletAddress,
+          potOwner: potOwnerAddress,
+          potId: potId.toString(),
+          name,
+          closeTs: closeTs.toString(),
+        })
+        await sendSignedTransactions(
+          client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
+          signedTransactions,
+        )
       })
-      await sendSignedTransactions(
-        client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
-        signedTransactions,
-      )
 
       const summary: PotSummary = {
         potId: potId.toString(),

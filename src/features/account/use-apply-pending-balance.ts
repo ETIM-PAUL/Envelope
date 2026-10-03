@@ -9,6 +9,7 @@ import { useCallback } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
 import { usePrivateBalance } from './use-private-balance'
 
@@ -23,17 +24,21 @@ export function useApplyPendingBalance() {
     if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
     const { cusdc } = requireMints()
 
-    const { signedTransactions } = await bridge.call('applyPendingBalance', {
-      rpcUrl: DEVNET_RPC_URL,
-      mint: cusdc,
-      owner: walletAddress,
-    })
-    if (signedTransactions.length === 0) return false
+    const applied = await retryOnExpiry(async () => {
+      const { signedTransactions } = await bridge.call('applyPendingBalance', {
+        rpcUrl: DEVNET_RPC_URL,
+        mint: cusdc,
+        owner: walletAddress,
+      })
+      if (signedTransactions.length === 0) return false
 
-    await sendSignedTransactions(
-      client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
-      signedTransactions,
-    )
+      await sendSignedTransactions(
+        client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
+        signedTransactions,
+      )
+      return true
+    })
+    if (!applied) return false
     await refetchBalance()
     return true
   }, [bridge, walletAddress, client, refetchBalance])

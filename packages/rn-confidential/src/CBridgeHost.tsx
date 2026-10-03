@@ -8,8 +8,8 @@ import {
   type BridgeMethodMap,
   type SignMessageParams,
   type SignMessageResult,
-  type SignTransactionParams,
-  type SignTransactionResult,
+  type SignTransactionsParams,
+  type SignTransactionsResult,
 } from '@envelope/cbridge'
 
 // react-native-webview@14's `WebView` is `class WebView<P = undefined> extends Component<WebViewProps & P>`.
@@ -44,7 +44,10 @@ export type CBridgeHostProps = {
   // this host ever sees a private key — these round-trip to whatever wallet-adapter call the app
   // wires up (Phase 8).
   onSignMessage: (address: string, messageBytes: Uint8Array) => Promise<Uint8Array>
-  onSignTransaction: (address: string, messageBytes: Uint8Array) => Promise<Uint8Array>
+  // Takes and returns whole wire transactions — all of a flow's, in one call, so the wallet shows
+  // one approval screen. The wallet may rewrite messages while signing, so the signed
+  // transactions it returns (not just their signatures) are what must be used; same order out.
+  onSignTransactions: (address: string, transactionsBytes: Uint8Array[]) => Promise<Uint8Array[]>
   onReady?: () => void
 }
 
@@ -55,20 +58,20 @@ const bytesToBase64 = (bytes: Uint8Array): string => fromByteArray(bytes)
 
 // Mount exactly once at the app root. Renders a zero-size, locked-down WebView that loads only
 // the inlined cbridge HTML bundle — no remote scripts, no navigation, no file access.
-export function CBridgeHost({ children, onSignMessage, onSignTransaction, onReady }: CBridgeHostProps) {
+export function CBridgeHost({ children, onSignMessage, onSignTransactions, onReady }: CBridgeHostProps) {
   const webviewRef = useRef<WebView>(null)
   const [ready, setReady] = useState(false)
 
   // The channel's identity must stay stable for the life of the WebView (recreating it would
-  // drop in-flight calls), but `onSignMessage`/`onSignTransaction` change identity on every
+  // drop in-flight calls), but `onSignMessage`/`onSignTransactions` change identity on every
   // render where the connected account changes (see useBridgeSigners). Refs, updated every
   // render, let the channel's handlers always call whichever version is current instead of the
   // one captured when the channel was first created — otherwise every call after the first
   // reconnect/account-change closes over a stale `account` and wrongly rejects a real signer.
   const onSignMessageRef = useRef(onSignMessage)
-  const onSignTransactionRef = useRef(onSignTransaction)
+  const onSignTransactionsRef = useRef(onSignTransactions)
   onSignMessageRef.current = onSignMessage
-  onSignTransactionRef.current = onSignTransaction
+  onSignTransactionsRef.current = onSignTransactions
 
   const channel = useMemo(() => {
     const rpcChannel = new RpcChannel((text) => webviewRef.current?.postMessage(text), 'host')
@@ -79,10 +82,10 @@ export function CBridgeHost({ children, onSignMessage, onSignTransaction, onRead
       return { signatureBase64: bytesToBase64(signature) } satisfies SignMessageResult
     })
 
-    rpcChannel.on('signTransaction', async (params) => {
-      const { address, messageBase64 } = params as SignTransactionParams
-      const signature = await onSignTransactionRef.current(address, base64ToBytes(messageBase64))
-      return { signatureBase64: bytesToBase64(signature) } satisfies SignTransactionResult
+    rpcChannel.on('signTransactions', async (params) => {
+      const { address, transactionsBase64 } = params as SignTransactionsParams
+      const signed = await onSignTransactionsRef.current(address, transactionsBase64.map(base64ToBytes))
+      return { signedTransactionsBase64: signed.map(bytesToBase64) } satisfies SignTransactionsResult
     })
 
     return rpcChannel

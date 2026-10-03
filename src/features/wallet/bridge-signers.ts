@@ -5,7 +5,7 @@
 // derivation message → MWA signMessages"); onSignTransaction is for later phases' transfer/proof
 // flows.
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
-import type { Address, SignatureBytes, Transaction, TransactionMessageBytes } from '@solana/kit'
+import { getTransactionDecoder, getTransactionEncoder } from '@solana/kit'
 import { useCallback, useMemo } from 'react'
 
 export function useBridgeSigners() {
@@ -23,27 +23,27 @@ export function useBridgeSigners() {
     [account, signMessages],
   )
 
-  const onSignTransaction = useCallback(
-    async (address: string, messageBytes: Uint8Array): Promise<Uint8Array> => {
+  // Whole wire transactions in, whole signed wire transactions out, all in ONE MWA request so the
+  // wallet shows a single approval for the whole flow. Each input already carries a slot for every
+  // required signer (e.g. the relayer's empty fee-payer slot), and each output is exactly what the
+  // wallet signed — including any instructions it added (Solflare appends ComputeBudget priority
+  // fees), which the bridge adopts as that transaction's final message.
+  const onSignTransactions = useCallback(
+    async (address: string, transactionsBytes: Uint8Array[]): Promise<Uint8Array[]> => {
       if (!account || account.address.toString() !== address) {
         throw new Error(`no connected MWA account matches ${address}`)
       }
-      const unsigned: Transaction = {
-        // `messageBytes` from the bridge already is wire-format compiled message bytes (that's
-        // what CBridgeHost's onSignTransaction contract promises) — only the nominal brand is
-        // missing, so this cast is real, not a type-safety shortcut.
-        messageBytes: messageBytes as unknown as TransactionMessageBytes,
-        signatures: { [account.address]: null } as Record<Address, SignatureBytes | null>,
-      }
+      const unsigned = transactionsBytes.map((bytes) => getTransactionDecoder().decode(bytes))
       const signed = await signTransactions(unsigned)
-      const signature = signed.signatures[account.address]
-      if (!signature) {
-        throw new Error(`MWA did not return a signature for ${address}`)
-      }
-      return signature
+      return signed.map((transaction) => {
+        if (!transaction.signatures[account.address]) {
+          throw new Error(`MWA did not return a signature for ${address}`)
+        }
+        return new Uint8Array(getTransactionEncoder().encode(transaction))
+      })
     },
     [account, signTransactions],
   )
 
-  return useMemo(() => ({ onSignMessage, onSignTransaction }), [onSignMessage, onSignTransaction])
+  return useMemo(() => ({ onSignMessage, onSignTransactions }), [onSignMessage, onSignTransactions])
 }

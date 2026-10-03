@@ -83,10 +83,10 @@ export default function Layout() {
 // and useBridgeSigners both read useMobileWallet(), which only works below that provider.
 function AppShell() {
   useWalletSession() // mirrors the connected account into useAppStore for every screen
-  const { onSignMessage, onSignTransaction } = useBridgeSigners()
+  const { onSignMessage, onSignTransactions } = useBridgeSigners()
 
   return (
-    <CBridgeHost onSignMessage={onSignMessage} onSignTransaction={onSignTransaction}>
+    <CBridgeHost onSignMessage={onSignMessage} onSignTransactions={onSignTransactions}>
       <AutoUnlockOnOpen />
       <AutoApplyOnOpen />
       <RegisterPushOnOpen />

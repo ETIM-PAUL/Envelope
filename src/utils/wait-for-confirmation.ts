@@ -10,10 +10,20 @@ export async function waitForConfirmation(
   timeoutMs = 30_000,
 ) {
   const startedAt = Date.now()
+  let lastPollError: unknown
   while (Date.now() - startedAt < timeoutMs) {
-    const {
-      value: [status],
-    } = await rpc.getSignatureStatuses([transactionSignature]).send()
+    let status
+    try {
+      ;({
+        value: [status],
+      } = await rpc.getSignatureStatuses([transactionSignature]).send())
+      lastPollError = undefined
+    } catch (error) {
+      // The transaction is already submitted, so one failed status poll — a DNS blip right after
+      // the app returns from the wallet (seen repeatedly on the emulator), a rate limit — says
+      // nothing about whether it landed. Keep polling; only the timeout gives up.
+      lastPollError = error
+    }
     if (status?.err) {
       throw new Error(`Transaction ${transactionSignature} failed: ${JSON.stringify(status.err)}`)
     }
@@ -22,5 +32,7 @@ export async function waitForConfirmation(
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000))
   }
+  // Still unreachable at the deadline: surface the connection error itself, not a timeout.
+  if (lastPollError) throw lastPollError
   throw new Error(`Timed out waiting for transaction ${transactionSignature} to confirm.`)
 }

@@ -29,6 +29,7 @@ import { useCallback } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { waitForConfirmation } from '../../utils/wait-for-confirmation'
 import { useAppStore } from '../../store/app-store'
 import { usePrivateBalance } from './use-private-balance'
@@ -49,16 +50,18 @@ export function useWithdraw() {
       const owner = address(walletAddress)
 
       onStep?.('unsealing')
-      const { signedTransactions } = await bridge.call('buildWithdrawPlan', {
-        rpcUrl: DEVNET_RPC_URL,
-        mint: cusdc,
-        owner: walletAddress,
-        amount: amount.toString(),
+      await retryOnExpiry(async () => {
+        const { signedTransactions } = await bridge.call('buildWithdrawPlan', {
+          rpcUrl: DEVNET_RPC_URL,
+          mint: cusdc,
+          owner: walletAddress,
+          amount: amount.toString(),
+        })
+        await sendSignedTransactions(
+          client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
+          signedTransactions,
+        )
       })
-      await sendSignedTransactions(
-        client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
-        signedTransactions,
-      )
 
       onStep?.('unwrapping')
       const [configAddress] = await envelopeVault.findConfigPda()
@@ -71,33 +74,35 @@ export function useWithdraw() {
         tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
       })
 
-      const {
-        context: { slot: minContextSlot },
-        value: latestBlockhash,
-      } = await client.rpc.getLatestBlockhash().send()
-      const signer = getTransactionSigner(owner, minContextSlot)
+      await retryOnExpiry(async () => {
+        const {
+          context: { slot: minContextSlot },
+          value: latestBlockhash,
+        } = await client.rpc.getLatestBlockhash().send()
+        const signer = getTransactionSigner(owner, minContextSlot)
 
-      const approveInstruction = getApproveInstruction(
-        { source: userCusdc, delegate: vaultAuthority, owner: signer, amount },
-        { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
-      )
-      const unwrapInstruction = await envelopeVault.getUnwrapInstructionAsync({
-        user: signer,
-        cusdcMint: address(cusdc),
-        userCusdc,
-        vaultUsdc: vaultConfig.data.vaultUsdc,
-        userUsdc,
-        amount,
+        const approveInstruction = getApproveInstruction(
+          { source: userCusdc, delegate: vaultAuthority, owner: signer, amount },
+          { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
+        )
+        const unwrapInstruction = await envelopeVault.getUnwrapInstructionAsync({
+          user: signer,
+          cusdcMint: address(cusdc),
+          userCusdc,
+          vaultUsdc: vaultConfig.data.vaultUsdc,
+          userUsdc,
+          amount,
+        })
+
+        const message = pipe(
+          createTransactionMessage({ version: 0 }),
+          (m) => appendTransactionMessageInstructions([approveInstruction, unwrapInstruction], m),
+          (m) => setTransactionMessageFeePayerSigner(signer, m),
+          (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+        )
+        const signatureBytes = await signAndSendTransactionMessageWithSigners(message)
+        await waitForConfirmation(client.rpc, getBase58Decoder().decode(signatureBytes) as Signature)
       })
-
-      const message = pipe(
-        createTransactionMessage({ version: 0 }),
-        (m) => appendTransactionMessageInstructions([approveInstruction, unwrapInstruction], m),
-        (m) => setTransactionMessageFeePayerSigner(signer, m),
-        (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
-      )
-      const signatureBytes = await signAndSendTransactionMessageWithSigners(message)
-      await waitForConfirmation(client.rpc, getBase58Decoder().decode(signatureBytes) as Signature)
 
       await refetchBalance()
     },

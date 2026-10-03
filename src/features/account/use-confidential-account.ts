@@ -7,6 +7,7 @@ import { useCallback } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
+import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
 
 export function useConfidentialAccount() {
@@ -21,17 +22,19 @@ export function useConfidentialAccount() {
     if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
     const { cusdc } = requireMints()
 
-    const { signedTransactions } = await bridge.call('ensureAccountReady', {
-      rpcUrl: DEVNET_RPC_URL,
-      mint: cusdc,
-      owner: walletAddress,
+    await retryOnExpiry(async () => {
+      const { signedTransactions } = await bridge.call('ensureAccountReady', {
+        rpcUrl: DEVNET_RPC_URL,
+        mint: cusdc,
+        owner: walletAddress,
+      })
+      if (signedTransactions.length > 0) {
+        await sendSignedTransactions(
+          client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
+          signedTransactions,
+        )
+      }
     })
-    if (signedTransactions.length > 0) {
-      await sendSignedTransactions(
-        client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
-        signedTransactions,
-      )
-    }
   }, [bridge, walletAddress, client])
 
   // Used by Send before building a transfer — no session keys or signature needed, it's someone
