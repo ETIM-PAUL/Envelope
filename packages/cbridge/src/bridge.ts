@@ -11,8 +11,10 @@ import {
   createSignableMessage,
   createSolanaRpc,
   getBase58Decoder,
+  isSolanaError,
   sequentialInstructionPlan,
   singleInstructionPlan,
+  SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND,
   unwrapOption,
   type Address,
   type Instruction,
@@ -379,17 +381,26 @@ channel.on('decryptAvailable', async (params) => {
     tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
   })
 
-  const balance = await fetchConfidentialTransferBalance({
-    token,
-    rpc,
-    elgamalSecretKey: keys.elgamalKeypair.secret(),
-    aesKey: keys.aesKey,
-  })
+  try {
+    const balance = await fetchConfidentialTransferBalance({
+      token,
+      rpc,
+      elgamalSecretKey: keys.elgamalKeypair.secret(),
+      aesKey: keys.aesKey,
+    })
 
-  return {
-    availableBalance: balance.availableBalance.toString(),
-    pendingBalance: balance.pendingBalance.toString(),
-  } satisfies DecryptAvailableResult
+    return {
+      availableBalance: balance.availableBalance.toString(),
+      pendingBalance: balance.pendingBalance.toString(),
+    } satisfies DecryptAvailableResult
+  } catch (err) {
+    // The wallet's confidential token account doesn't exist yet (never enabled, or the enable
+    // transaction hasn't landed) — a normal pre-setup state, not a failure to surface as an error.
+    if (isSolanaError(err, SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND)) {
+      return { availableBalance: '0', pendingBalance: '0' } satisfies DecryptAvailableResult
+    }
+    throw err
+  }
 })
 
 channel.on('applyPendingBalance', async (params) => {

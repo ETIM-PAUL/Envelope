@@ -126,8 +126,11 @@ export function CBridgeHost({ children, onSignMessage, onSignTransaction, onRead
           // @solana/kit's crypto helpers throw SOLANA_ERROR__SUBTLE_CRYPTO__DISALLOWED_IN_INSECURE_CONTEXT.
           // An `https:` baseUrl is treated as secure even though the HTML is injected locally,
           // not fetched — no network request is made, so this fake origin is never dereferenced.
-          source={{ html: BRIDGE_HTML, baseUrl: 'https://localhost/' }}
-          originWhitelist={['https://localhost/']}
+          // Deliberately not `https://localhost` — some RPC providers (confirmed: the public
+          // devnet endpoint) 403 any request whose `Origin` header is exactly `https://localhost`
+          // as an anti-abuse rule, which otherwise surfaces as an opaque "Failed to fetch".
+          source={{ html: BRIDGE_HTML, baseUrl: 'https://envelope.internal/' }}
+          originWhitelist={['https://envelope.internal/']}
           onMessage={handleMessage}
           onLoadEnd={handleLoadEnd}
           onShouldStartLoadWithRequest={() => false}
