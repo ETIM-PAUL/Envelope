@@ -108,6 +108,11 @@ function HostView({
   }, [ensurePotKeys, potId])
 
   const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePotBalance(keysReady ? potOwner : null)
+  // Contributions land in the pot's *pending* balance and only move to *available* when applied,
+  // which happens when the pot is closed (useClosePot applies, then sweeps). Both are money the
+  // pot holds, so the host sees them as one total.
+  const totalRaised =
+    availableBalance === null && pendingBalance === null ? null : (availableBalance ?? 0n) + (pendingBalance ?? 0n)
   const { data: contributions } = usePotContributions(keysReady ? potOwner : null)
   const { closePot } = useClosePot()
   const [isClosing, setIsClosing] = useState(false)
@@ -161,15 +166,8 @@ function HostView({
             Total raised
           </Text>
           <Text style={{ fontFamily: fontFamily.display, fontSize: 40, color: colors.paper[500] }}>
-            {balanceLoading || availableBalance === null
-              ? '—'
-              : `$${formatBaseUnits(availableBalance, CUSDC_DECIMALS)}`}
+            {balanceLoading || totalRaised === null ? '—' : `$${formatBaseUnits(totalRaised, CUSDC_DECIMALS)}`}
           </Text>
-          {pendingBalance !== null && pendingBalance > 0n ? (
-            <Text className="text-gold-500 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
-              +${formatBaseUnits(pendingBalance, CUSDC_DECIMALS)} pending
-            </Text>
-          ) : null}
         </View>
 
         <Text className="text-mute-500 text-sm mb-3" style={{ fontFamily: fontFamily.uiSemibold }}>

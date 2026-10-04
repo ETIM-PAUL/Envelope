@@ -35,6 +35,7 @@ Every Solana payment is public. Pay a friend for dinner and they — and anyone 
   <tr>
     <td align="center"><img src="docs/screenshots/pots.png" width="200" alt="Event pots" /><br /><sub><b>Pots</b> — sealed group gifts</sub></td>
     <td align="center"><img src="docs/screenshots/pot-detail.png" width="200" alt="An event pot: total raised, contributors, invite QR code" /><br /><sub><b>Pot</b> — host sees the total; guests see only their own</sub></td>
+    <td align="center"><img src="docs/screenshots/withdraw.png" width="200" alt="Withdraw private cUSDC back to USDC" /><br /><sub><b>Withdraw</b> — back to regular USDC in one approval</sub></td>
     <td align="center"><img src="docs/screenshots/stake.png" width="200" alt="Stake SKR for tiers" /><br /><sub><b>Stake</b> — SKR tiers and perks</sub></td>
   </tr>
 </table>
