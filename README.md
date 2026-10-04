@@ -1,468 +1,192 @@
-# myapp
+# Envelope
 
-This is an [Expo](https://expo.dev) project pre-configured with an [Anchor](https://www.anchor-lang.com/) program, [Uniwind](https://uniwind.dev/) for styling, and Solana libraries.
+**Private payments on Solana. Your balance is sealed — only you can open it.**
 
-## Technologies
+Envelope is an Android wallet companion for sending dollars privately on Solana. Balances and transfer amounts are encrypted on-chain with Token-2022 Confidential Transfers; the zero-knowledge proofs are generated on your phone, the keys never leave it, and you never need SOL to send.
 
-- [Anchor](https://www.anchor-lang.com/) (Solana program framework)
-- [Expo](https://expo.dev)
-- [Uniwind](https://uniwind.dev/) (Tailwind CSS for React Native)
-- [@solana/kit](https://www.solanakit.com/)
-- [@wallet-ui/react-native-kit](https://wallet-ui.dev/)
+`Solana devnet` · `Android + Mobile Wallet Adapter` · `Token-2022 Confidential Transfers` · `Anchor` · `Expo` · `Apache-2.0`
 
-## Envelope (Phase 0 — environment & monorepo)
+---
 
-This repo is being built out per `envelope-core-build-plan.md`, using a **flat layout**: the Expo app stays at the repo root (it's already wired up as the mobile app — see `apps/mobile` in the plan's diagram, mapped here to the root), and the rest of the plan's top-level folders sit alongside it as npm workspaces:
+## The problem
+
+Every Solana payment is public. Pay a friend for dinner and they — and anyone with a block explorer — can see your entire balance and every transfer you've ever made. That's a non-starter for salaries, group gifts, donations, or any payment between people who don't want to publish their finances.
+
+## What Envelope does
+
+- **Private balance** — wrap USDC 1:1 into cUSDC, a confidential token. Your balance is stored on-chain as ciphertext; only your device can decrypt it.
+- **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL.
+- **Receive** — share your address as a QR code or a tip link; incoming transfers are applied to your balance automatically.
+- **Event pots** — sealed group gifts (a wedding, a farewell): guests contribute privately, the host sees the total, and guests never see each other's amounts.
+- **Withdraw** — turn private cUSDC back into spendable USDC in one approval.
+- **Staking tiers** — stake SKR to raise your daily limit and drop the send fee.
+- **Notifications** — every movement of your funds, decrypted on-device: deposits, withdrawals, transfers, pot activity.
+- **Biometric unlock** — reopening the app restores your keys behind your fingerprint, with no new wallet prompt.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/home.png" width="200" alt="Home: the sealed private balance" /><br /><sub><b>Home</b> — your sealed balance</sub></td>
+    <td align="center"><img src="docs/screenshots/send.png" width="200" alt="Send privately" /><br /><sub><b>Send</b> — amount known only to you and the recipient</sub></td>
+    <td align="center"><img src="docs/screenshots/receive.png" width="200" alt="Receive privately with a QR code and tip link" /><br /><sub><b>Receive</b> — QR code and tip link</sub></td>
+    <td align="center"><img src="docs/screenshots/notifications.png" width="200" alt="Notifications feed" /><br /><sub><b>Notifications</b> — every movement of your funds</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/pots.png" width="200" alt="Event pots" /><br /><sub><b>Pots</b> — sealed group gifts</sub></td>
+    <td align="center"><img src="docs/screenshots/pot-detail.png" width="200" alt="An event pot: total raised, contributors, invite QR code" /><br /><sub><b>Pot</b> — host sees the total; guests see only their own</sub></td>
+    <td align="center"><img src="docs/screenshots/stake.png" width="200" alt="Stake SKR for tiers" /><br /><sub><b>Stake</b> — SKR tiers and perks</sub></td>
+  </tr>
+</table>
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph Phone
+    App["Envelope app<br/>(Expo / React Native)"]
+    Bridge["Proof bridge<br/>(WebView + WASM)<br/>keys in memory only"]
+    Wallet["Your wallet<br/>(Solflare via MWA)"]
+    App <--> Bridge
+    App <--> Wallet
+  end
+  Relayer["Relayer<br/>pays SOL fees,<br/>validates every tx"]
+  subgraph Solana["Solana (devnet)"]
+    CT["Token-2022<br/>Confidential Transfers"]
+    ZK["ZK ElGamal<br/>Proof program"]
+    Vault["envelope_vault<br/>USDC ⇄ cUSDC, pots"]
+    Stake["envelope_stake<br/>SKR tiers"]
+  end
+  App --> Relayer
+  App --> Solana
+  Relayer --> Solana
+```
+
+1. **Keys from one signature.** Your wallet signs a fixed message once; Envelope derives your encryption keys (ElGamal + AES) from it. They live only in memory on your device — the signature is stored behind your fingerprint so the app can rebuild them when you reopen it.
+2. **Proofs on the phone.** Confidential transfers need zero-knowledge proofs (equality, ciphertext validity, range). Envelope generates them on-device with Solana's `zk-sdk` compiled to WebAssembly, running in a locked-down WebView (React Native's JS engine has no WebAssembly).
+3. **Your wallet signs, nothing more.** Every transaction is signed in your own wallet through Mobile Wallet Adapter. Envelope never holds a wallet private key.
+4. **A relayer pays the gas.** Private sends are relayed: the relayer co-signs as fee payer only after checking every instruction against a strict policy, so it can't be drained or tricked into moving its own funds.
+5. **Programs enforce the rules.** `envelope_vault` wraps USDC into cUSDC 1:1, enforces daily limits by tier, and runs event pots; `envelope_stake` holds SKR stakes and computes tiers that both the vault and the relayer read.
+
+## Privacy, honestly
+
+"Private" here means **amount-private**, not anonymous.
+
+| Who                        | Sees amounts?        | Sees who paid whom? |
+| -------------------------- | -------------------- | ------------------- |
+| You and the person you pay | Yes                  | Yes                 |
+| A pot's host               | Yes, for that pot    | Yes                 |
+| Other pot guests           | No                   | No                  |
+| The relayer                | No                   | Yes                 |
+| Anyone watching the chain  | No — only ciphertext | Yes                 |
+
+Wallet addresses and the fact that a transfer happened are public; only amounts and balances are hidden. The full analysis — relayer trust, linkability, key storage, and audit findings — is in [THREAT_MODEL.md](THREAT_MODEL.md).
+
+## Tiers
+
+Stake SKR to unlock more. Tiers are computed on-chain from your stake and enforced by both the vault program and the relayer.
+
+| Tier     | SKR staked | Add to private balance | Private sends            |
+| -------- | ---------- | ---------------------- | ------------------------ |
+| Free     | —          | 100 USDC / day         | 0.001 SKR fee to relayer |
+| Member   | 1,000      | 10,000 USDC / day      | No fee                   |
+| Business | 5,000      | Unlimited              | No fee                   |
+
+On devnet, the Stake tab has a test-SKR faucet (500 SKR a day, up to 6,000 held).
+
+## Deployed on devnet
+
+| Component            | Address                                        |
+| -------------------- | ---------------------------------------------- |
+| `envelope_vault`     | `43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi` |
+| `envelope_stake`     | `331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx` |
+| cUSDC (confidential) | `8wc4rgUPj4a2542YpgrjaxXW9XzBFZA1PLSvdNXmkjsf` |
+| USDC (Circle devnet) | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
+| SKR (test token)     | `5m3R8bdAZr5xMg7ioMXoPabsKGcRPAWLu2muzyUNzRKY` |
+
+The app reads these from [`config/devnet.json`](config/devnet.json), so it runs against the deployed programs out of the box.
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 22+
+- An Android device or emulator (Android Studio). Envelope is Android-only: Mobile Wallet Adapter is an Android protocol.
+- A devnet wallet that supports Mobile Wallet Adapter — e.g. [Solflare](https://solflare.com) switched to devnet.
+- For working on the programs only: [Rust](https://www.rust-lang.org/tools/install), the [Solana CLI](https://solana.com/docs/intro/installation), and [Anchor](https://www.anchor-lang.com/docs/installation).
+
+### Run it
+
+```bash
+npm install
+cp .env.example .env                # add a Helius devnet API key (helius.dev) — optional, avoids public-RPC rate limits
+cp relayer/.env.example relayer/.env
+npm run devnet:keys                 # devnet keypairs for the relayer and test wallets → .keys/ (gitignored)
+npm run devnet:airdrop              # fund them with devnet SOL
+
+npm run relayer:dev                 # terminal 1: relayer on :8787
+npm run android                     # terminal 2: first time only — builds and installs the dev client
+npm run dev                         # afterwards: start Metro, then press `a`
+```
+
+Then, in the app: connect your wallet, tap **Enable private balance**, and approve. Get devnet USDC for your wallet at [faucet.circle.com](https://faucet.circle.com) and devnet SOL at [faucet.solana.com](https://faucet.solana.com), then **Add to private balance**.
+
+<details>
+<summary><strong>Troubleshooting</strong></summary>
+
+- **`EMFILE: too many open files` when starting Metro (macOS)** — add `ulimit -n 10240` to `~/.zshrc`, and make sure Watchman works (`watchman watch-project .`). If file watching fails everywhere, stop stray `tsx watch` / dev-server processes or restart the machine.
+- **Emulator fingerprint prompt** — enroll a fingerprint in Android Settings → Security, then use the emulator's Extended Controls → Fingerprint to touch the sensor.
+- **"Can't connect to the network" right after returning from the wallet** — Android briefly blocks a backgrounded app's network; Envelope retries automatically. If it persists, cold-boot the emulator.
+- **Wallet shows a black screen on Connect** — force-stop the wallet app and tap Connect again.
+
+</details>
+
+## Project structure
 
 ```
-myapp/
-├── anchor/programs/      # envelope_vault, envelope_stake land here (Phase 4/5), alongside the hello_world template program
+├── src/                     Expo app (Expo Router screens in src/app, features in src/features)
 ├── packages/
-│   ├── cbridge/          # Token-2022 confidential + @solana/zk-sdk, bundled into a WebView HTML file (Phase 3)
-│   └── rn-confidential/  # RN hooks + WebView host (Phase 3)
-├── relayer/               # fee payer, tx policy, webhooks, push (Phase 12)
-├── scripts/                # devnet setup, seeding, CLI round trip (Phase 1, 2)
-├── config/                  # devnet.json — public addresses only, generated by scripts, safe to commit
-└── src/                       # the Expo app itself
+│   ├── cbridge/             proof bridge: Token-2022 confidential + zk-sdk, bundled into one HTML file for a WebView
+│   └── rn-confidential/     React Native host for the bridge (<CBridgeHost>, useCBridge)
+├── anchor/programs/
+│   ├── envelope_vault/      USDC ⇄ cUSDC wrap/unwrap, daily limits by tier, event pots
+│   └── envelope_stake/      SKR staking and tier computation
+├── relayer/                 fee-payer service: transaction policy, tiers, push webhooks, devnet SKR faucet
+├── scripts/                 devnet setup and end-to-end round-trip scripts
+└── config/devnet.json       public devnet addresses (programs, mints, wallets)
 ```
 
-### Setup
-
-1. `npm install` — installs the root app plus the `packages/*`, `relayer`, and `scripts` workspaces.
-2. Copy `.env.example` → `.env` (root, `scripts/`, `relayer/`) and fill in a **Helius devnet API key** (sign up at [helius.dev](https://helius.dev), create a devnet key). The RPC URL with the key embedded never gets committed — only `.env` files, which are gitignored.
-3. `npm run devnet:keys` — generates (or reuses) devnet keypairs for `admin`, `relayer`, `alice`, `bob`, `carol` under `.keys/` (gitignored) via `solana-keygen`, and writes their public keys to `config/devnet.json`.
-4. `npm run devnet:airdrop` — airdrops 2 devnet SOL to each wallet. The public `api.devnet.solana.com` faucet is aggressively rate-limited (expect `429`s); rerun daily, or point `HELIUS_DEVNET_RPC_URL` at a devnet RPC with a more generous faucet.
-5. On a physical Android phone: enable USB debugging, confirm `adb devices` sees it, then `npm run android` to build and install the dev client.
-6. Install a devnet-capable MWA wallet on the phone (Solana Mobile's test wallet, or Phantom/Solflare switched to devnet). Confirm it supports `sign_transactions` (not just `signAndSendTransactions`) — the relayer path in Phase 12 needs it; there's a fallback if it doesn't.
-7. Confidential-transfer helpers are already installed as dependencies of `scripts`, `relayer`, and `packages/cbridge`: `@solana-program/token-2022` (see its `./confidential` subpath export), `@solana/zk-sdk`, `@solana-program/zk-elgamal-proof`, `@solana-program/token`, `@solana-program/system`, `@solana-program/compute-budget`. These pin `@solana/kit@^8.3.0` (required by `@solana-program/token-2022@0.19`); the root app keeps `@solana/kit@^7.0.0` since `@wallet-ui/react-native-kit` depends on it — npm nests the two versions separately, so there's no conflict, but don't share `@solana/kit` values (addresses, signers, etc.) across that boundary without checking they're API-compatible.
-
-Steps 5–6 need physical hardware and manual account setup and can't be scripted — do them by hand before Phase 3 (the on-device proof bridge GO/NO-GO).
-
-**Done when:** the dev client runs on the phone, connects the devnet wallet via MWA, and signs a test memo transaction (exercise this with the existing `hello_world` counter program — see below).
-
-### Phase 1 — token setup scripts
-
-`npm run devnet:mints` ([scripts/setup-mints.ts](scripts/setup-mints.ts)) points `config/devnet.json`'s `mints` at the two devnet mints we don't control and creates the one we do:
-
-- **USDC** — **Circle's real devnet USDC mint**, `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (verified on-chain: an initialized `spl-token` mint, 6 decimals, Circle-owned mint/freeze authorities). We don't create or mint this — fund any wallet from [faucet.circle.com](https://faucet.circle.com) (20 USDC / 2hr / address, public, no account needed). Using Circle's actual mint instead of a self-minted fake means `envelope_vault`'s wrap/unwrap path is exercised against the same asset (and faucet flow) a real deployment would use.
-- **Mock SKR** — classic SPL Token mint, 6 decimals (matches real SKR's decimals — [Solana Mobile's Seeker token](https://www.coingecko.com/en/coins/seeker)). Real SKR only exists on mainnet — it's tied to actual value and to Solana Mobile's own Guardian-delegation staking (`stake.solanamobile.com`), a different mechanism from `envelope_stake`'s custom vault — so there's no devnet/testnet SKR to point at instead. We mint our own for devnet testing.
-- **cUSDC** — Token-2022 mint, 6 decimals, three extensions initialized in the same transaction as `InitializeMint` (required by the `ConfidentialTransferMint` extension): `ConfidentialTransferMint` (`autoApproveNewAccounts: true`, `auditorElgamalPubkey: null`, authority = admin — **revoke this authority before any mainnet use**), `MetadataPointer` (self-hosted, points at the mint itself), and `TokenMetadata` (name "Envelope USD", symbol "cUSDC"). Mint authority is admin, temporarily — Phase 6 hands it to the `envelope_vault` PDA.
-
-`npm run devnet:faucet` ([scripts/faucet.ts](scripts/faucet.ts)) mints 1,000 mock SKR to alice, bob, and carol, creating their ATAs if needed, and prints each wallet's address so you can paste it into [faucet.circle.com](https://faucet.circle.com) for devnet USDC (that step is manual — Circle's public faucet has no scriptable API without a Circle account).
-
-Both scripts build instructions with the current `@solana-program/token`/`@solana-program/token-2022` `InstructionPlan` API (`getCreateMintInstructionPlan`, `getMintToATAInstructionPlanAsync`) and execute them through `scripts/lib/executePlan.ts`, a thin `createTransactionPlanner` + `createTransactionPlanExecutor` wrapper that plans, signs, sends and confirms — splitting into multiple transactions automatically if an instruction set ever grows too large for one.
-
-**Verify:** `spl-token display <cUSDC address> --url devnet` should show the `ConfidentialTransferMint` extension with `Auto Approve: true` and no auditor pubkey.
-
-**Done when:** `spl-token display <cUSDC>` shows the confidential extension with auto-approve on and no auditor.
-
-`scripts/` has its own `tsconfig.json` (Node ESM, `allowImportingTsExtensions`) since it's excluded from the app's tsconfig — run `npm run typecheck -w scripts` to check it in isolation.
-
-> **Blocked on funding:** `admin` (and the other demo wallets) have 0 devnet SOL — the public `api.devnet.solana.com` faucet used by `npm run devnet:airdrop` is still rate-limited as of this writing. `npm run devnet:mints` was dry-run against devnet and got as far as transaction simulation before failing on insufficient funds, which confirms the instruction-building, planning, and RPC plumbing are correct. Fund `admin` (its pubkey is in `config/devnet.json`) via [faucet.solana.com](https://faucet.solana.com) or an already-funded wallet, then rerun `npm run devnet:mints` and `npm run devnet:faucet`.
-
-### Phase 2 — CLI confidential round trip
-
-`npm run devnet:roundtrip` ([scripts/roundtrip.ts](scripts/roundtrip.ts)) is a Node script that exercises every confidential-transfer operation end to end, in order:
-
-1. Derive alice's and bob's confidential keys with `deriveConfidentialKeys` — the standard, non-deprecated wallet-level derivation (`@solana-program/token-2022/confidential`): one Ed25519 signature over a fixed message yields both an ElGamal keypair and an AES key via the WASM ZK SDK. (The plan doc's `deriveElGamalKeypairForOwnerMint`/`deriveAeKeyForOwnerMint` are now marked deprecated in favor of this — kept only for migrating accounts configured under the old owner+mint scheme.)
-2. Configure alice's and bob's cUSDC Token-2022 accounts for confidential transfers (`getCreateConfidentialTransferAccountInstructionPlan` — creates the ATA, reallocates it, runs `ConfigureAccount` with the pubkey-validity proof, `maximumPendingBalanceCreditCounter: 65536`).
-3. Admin mints 100 public cUSDC to alice, she deposits it to her pending balance, then applies it to her available balance.
-4. Alice confidentially transfers 30 cUSDC to bob (`getConfidentialTransferInstructionPlan` — equality, ciphertext-validity, and range proofs via context-state accounts, then the transfer, then the proof accounts close automatically).
-5. Bob applies his pending balance and decrypts it (asserts it equals exactly 30 cUSDC — the script fails loudly if not).
-6. Bob withdraws 10 cUSDC back to his public balance (`getConfidentialWithdrawInstructionPlan` — equality + range proofs).
-
-Each step's transaction count, total compute units consumed, total transaction bytes, and wall-clock time are written to `docs/benchmarks.md` (`scripts/lib/executePlan.ts` now returns per-transaction stats instead of just signatures — `getTransactionSize` for bytes, `getTransaction(...).meta.computeUnitsConsumed` for compute units).
-
-**Done when:** the script completes end to end twice in a row, with a timing table in `docs/benchmarks.md`.
-
-> **Also blocked on funding** — same `admin` wallet as Phase 1. `npm run devnet:roundtrip` correctly refuses to run until `config/devnet.json` has a `mints.cusdc` entry (i.e. until Phase 1's `devnet:mints` has actually succeeded on-chain).
-
-### Phase 3 — proof bridge on device (GO/NO-GO)
-
-**Why this phase exists:** React Native's Hermes engine has no WebAssembly, and `@solana/zk-sdk` (the confidential-transfer proof library) is WASM. The fix is to run the WASM-heavy code inside a hidden `react-native-webview` instead of the RN JS thread, and talk to it over `postMessage`.
-
-**The packages**
-
-- `packages/cbridge` — bundles `src/bridge.ts` (Token-2022 confidential helpers + `@solana/zk-sdk`) into a single offline HTML file via `npm run cbridge:build`.
-- `packages/rn-confidential` — `<CBridgeHost>` React component + `useCBridge()` hook: mounts a locked-down, zero-size WebView loading that HTML, and exposes `ping`/`deriveKeys`/`buildTransferPlan`/`decryptAvailable` as promise-returning calls.
-
-**The WASM-loading problem, and how it's solved:** `@solana/zk-sdk` ships three wasm-bindgen targets (`node`/`bundler`/`web`), and `@solana-program/token-2022`'s confidential helpers hard-import the `bundler` target. That target does `import * as wasm from "./index_bg.wasm"` — a webpack/Vite-specific convention (the bundler instantiates the wasm and hands back its exports as an ES module) that esbuild does not implement. The `web` target instead exports a plain `async init(bytes)` that calls `WebAssembly.instantiate` directly on whatever bytes it's given — exactly what inlined base64 needs, with no network fetch. `build.ts` aliases `@solana/zk-sdk/bundler` → `@solana/zk-sdk/web` for the whole bundle (esbuild's `alias` option), so both token-2022's internal import and the bridge's own resolve to the same module instance; one `zkInit(...)` call in `bridge.ts` initializes it for both. The `.wasm` file itself (≈2.6MB) is read at build time, base64-encoded, and written to a generated `src/generated/wasmBase64.ts` — no esbuild `.wasm` loader plugin needed, since the base64 encoding happens outside esbuild's module graph entirely.
-
-**The signing split:** the plan's design is "the WebView builds instructions/transactions and proofs; React Native only signs (MWA) and sends." Concretely: `bridge.ts` builds a `TransactionPartialSigner`/`MessagePartialSigner` whose `signTransactions`/`signMessages` round-trip over the bridge to React Native's `signMessage`/`signTransaction` host methods (backed by MWA once Phase 8 wires it up) — so the WebView produces a _fully signed_ transaction without ever holding an MWA-controlled private key; only the derived confidential keys (ElGamal + AES) live in its memory, for the session only. `buildTransferPlan`'s result is base64 wire transactions, ready for the host to send as-is.
-
-**Security lockdown** (`CBridgeHost.tsx`): `source={{ html: BRIDGE_HTML }}` (the bundle is inlined, not loaded from a URL), `originWhitelist={['about:blank']}`, `onShouldStartLoadWithRequest={() => false}` (blocks all navigation), `domStorageEnabled={false}`, `allowFileAccess={false}`, `allowUniversalAccessFromFileURLs={false}`.
-
-**What's actually verified, and what isn't:** the WASM-loading strategy is empirically validated — the built bundle was loaded into a stubbed Node `vm` context (minimal `window`/`document`/`atob`/`btoa`), and both `ping` (confirms `wasmReady`) and a full `deriveKeys` round trip (including the nested bridge → host `signMessage` callback, answered by a real local `@solana/kit` signer standing in for MWA) passed. That's a strong proxy — Android's System WebView is Chromium/V8-based, the same JS engine family as Node, and the whole point of this design is that the WebView (unlike Hermes) has full WASM support. **What it does _not_ prove**: this hasn't run inside an actual `react-native-webview` on a physical Android phone, `WebViewComponent`'s React 19 type-compatibility cast hasn't been exercised at runtime, and no real MWA signature has flowed through `signMessage`/`signTransaction`. That's the actual Phase 3 task ("run the Phase 2 transfer from the phone; time proof generation") and the GO/NO-GO call — both need the physical device from Phase 0 step 5, which this environment doesn't have. `npm run cbridge:build` is ready to go the moment a phone is available to test against.
-
-**Done when:** phone builds a valid transfer that lands on devnet. _(Not yet — needs the physical device.)_
-
-### Phase 4 — `envelope_vault` program
-
-`anchor/programs/envelope_vault` — 1:1 USDC ↔ cUSDC wrapping, tier-based daily limits, and the event-pot registry. Built with `anchor-lang`/`anchor-spl` 1.1.2 (`anchor build --program-name envelope_vault` produces `target/deploy/envelope_vault.so` and `target/idl/envelope_vault.json` cleanly).
-
-**Accounts:** `Config` (PDA `["config"]`), `VaultAuth` (PDA `["vault"]` — a pure signing authority, no stored data), `UserDaily` (PDA `["daily", user]`), `Pot` (PDA `["pot", host, pot_id]`) — as specified in the plan.
-
-**Instructions:** `initialize(limits)`, `wrap(amount)`, `unwrap(amount)`, `create_pot(...)`, `close_pot(pot_id)`.
-
-**Reading `envelope_stake`'s accounts:** `wrap` needs the caller's staking tier — `envelope_stake`'s `Pool` (thresholds) and `StakePosition` (staked amount, pending-unstake flag). Originally (before Phase 5 existed) this was a hand-written `src/external.rs` mirror module with byte-identical struct copies, since Anchor's account discriminator is `sha256("account:<StructName>")[..8]` — derived from the struct _name_ alone — so a same-name, same-layout copy deserializes real `envelope_stake` accounts correctly without a crate dependency. Now that Phase 5 exists, `external.rs` is gone: `envelope_vault`'s `Cargo.toml` depends on `envelope_stake` directly (`features = ["no-entrypoint"]`, the standard Anchor cross-program-type-reuse pattern), and `wrap` reads `Account<'info, envelope_stake::state::Pool>`/`StakePosition` directly — simpler _and_ more secure, since `Account<T>`'s owner check now correctly validates against the real, compiled-in `envelope_stake::ID` instead of needing a manual override against an admin-configurable `Config.stake_program` field (removed — `initialize` no longer takes a `stake_program` argument at all; there would have been no benefit to admin-supplied flexibility here, only a misconfiguration risk).
-
-**CPI Guard compatibility:** `unwrap` burns cUSDC _as delegate_, not as owner — CPI Guard blocks an owner-authorized burn/transfer via CPI but allows a delegate-authorized one. The client must submit `[Approve(delegate = vault_authority, amount), unwrap(amount)]` in one transaction; `unwrap`'s `user_cusdc` account has a constraint that `vault_authority` is already the account's delegate, failing fast with a clear error instead of an opaque SPL Token one if the client forgot the `Approve`.
-
-**`init_if_needed` note** (relevant to Phase 18's hardening pass later): `UserDaily` uses `init_if_needed` rather than a hand-rolled manual-init workaround. Anchor's `init_if_needed` footgun is specifically about handlers that assume init-time zeroing for correctness; `wrap`'s handler doesn't — it always re-checks `day_index` against "today" and resets `deposited_today` itself whether the account was just created or already existed — so it's one of the safer, textbook use cases.
-
-**A real Anchor 1.1.2 API difference discovered while building this:** `CpiContext::new`/`new_with_signer` now take the CPI target's `Pubkey` directly, not `.to_account_info()` — a change from older Anchor versions. Also fixed a pre-existing (not caused by this work, but surfaced by building against it) `anchor-lang`/CLI version mismatch warning by pinning `anchor_version = "1.1.2"` in `Anchor.toml`; both programs still build cleanly under it.
-
-**Invariants by construction, not by assertion:** `wrap`/`unwrap` mint and transfer the exact same `amount` on both sides in the same instruction, so `cusdc_mint.supply == vault_usdc.amount` holds automatically — Phase 6 adds the actual randomized-sequence test for it.
-
-**Done when:** program compiles; instruction handlers written with full account constraints. ✅ (`cargo check --workspace` and `anchor build` both clean, no warnings.)
-
-### Phase 5 — `envelope_stake` program
-
-`anchor/programs/envelope_stake` — SKR staking that defines Envelope's Free/Member/Business tiers.
-
-**Accounts:** `Pool` (PDA `["pool"]`), `StakePosition` (PDA `["stake", user]`), plus a `PoolAuthority` PDA (`["pool_authority"]` — a pure signing authority owning `vault_skr`, analogous to `envelope_vault`'s `VaultAuth`; not spelled out in the plan's account diagram but structurally necessary since something has to own `vault_skr` and sign transfers out of it).
-
-**Instructions:** `initialize(member_threshold, business_threshold, cooldown_secs)`, `stake(amount)`, `request_unstake()`, `withdraw_unstaked()`.
-
-**The tier helper** (`src/tier.rs`) is the canonical, single source of truth the plan calls for ("Rust fn + TS mirror, shared by vault program via account read and relayer via TS mirror"): `tier_for_stake(staked_amount, unlock_requested_at, member_threshold, business_threshold) -> Tier`. One deliberate design decision beyond the plan's literal text: the plan says "tier drops immediately to avoid gaming limits" for `request_unstake`, but a `StakePosition.amount` field can't reflect that _and_ still tell `withdraw_unstaked` how much SKR to return later. Fixed by making the tier function itself check `unlock_requested_at` first — any in-progress unstake forces `Tier::Free` regardless of staked amount, before the cooldown even elapses — so `amount` stays the honest, real staked balance throughout. `envelope_vault::wrap` was updated to pass `unlock_requested_at` into the same function, keeping the one canonical implementation authoritative on both sides of the program boundary.
-
-**A real, non-flaky bug caught by repeated fresh SBF rebuilds:** `anchor build`'s SBF/BPF cross-compile intermittently failed on `Wrap`'s `try_accounts` with `Stack offset ... exceeded max offset of 4096 ... may cause undefined behavior during execution` — a real correctness risk, not a lint. `cargo check` never catches this (BPF's 4KB-per-function stack limit is target-specific); the intermittency came from a stale/mismatched `sbpf` toolchain colliding with the `anchor_version` pin from Phase 4, which made the first couple of reproductions look like toolchain noise. Confirmed genuine by rebuilding fresh 5 times in a row after boxing the larger account fields (`Box<Account<'info, T>>` / `Box<InterfaceAccount<'info, T>>` — moves them off the stack onto the heap, Anchor's standard fix, referenced directly in its own error message) in both `wrap.rs` and `unwrap.rs` — zero failures across all 5, versus intermittent failures before. Handler code is unchanged (`Box<Account<...>>` still derefs transparently).
-
-**Verified, not assumed:** the "byte-identical layout, same discriminator" claim from Phase 4 (now moot for `Pool`/`StakePosition` specifically, since they're a real dependency, but the technique itself matters for anything mirrored before its real crate exists) was checked two ways before deleting `external.rs` — a `diff` of the two struct definitions (only a doc comment differed, no field/type differences) and a direct `sha256("account:<Name>")[..8]` computation confirming both structs produce identical discriminator bytes.
-
-**Done when:** compiles; tier function shared by vault program (via account read) and relayer (TS mirror — relayer TS side comes in Phase 12). ✅ `cargo check --workspace` and `anchor build` clean for all three programs, zero warnings.
-
-### Phase 6 — both programs tested and live on devnet
-
-`anchor/tests/envelope-stake.test.ts` and `anchor/tests/envelope-vault.test.ts` — the plan's full localnet test matrix, run via `anchor test`. ✅ 16/16 tests pass: stake/request-unstake/withdraw-unstaked cooldown flow (including early-withdraw, too-soon, double-request, and stake-while-pending rejections); wrap/unwrap happy path; per-tier daily limit enforcement and next-day reset; wrong mint / wrong vault account / fake `StakePosition` (wrong owner or seeds) all rejected; unwrap without delegate approval and unwrap-over-approved both rejected; tier drops immediately on `request_unstake`; and a checked-math overflow rejection on the daily-total accumulator.
-
-**Two real bugs in `wrap`, caught only by testing against a live validator (not `cargo check`):** (1) `stake_position` was originally `Account<'info, StakePosition>`, which fails `AccountNotInitialized` for any caller who has never staked — an ordinary Free-tier user, not an error case. Fixed by reading it as `UncheckedAccount` and treating a zero-lamport account as "nothing staked", with the handler itself verifying ownership (`envelope_stake::ID`) and the account's own `user` field whenever it isn't empty. (2) Reading that account and running the tier/limit/CPI logic all inlined into one function intermittently overflowed BPF's 4KB-per-function stack frame (`Access violation in stack frame 9`) — fixed by extracting the read into its own `#[inline(never)] fn read_stake_position`, the same category of fix as Phase 5's boxing, but this time the compiler had nothing left to box.
-
-**`seconds_per_day` is a runtime `Config` field, not a Cargo feature flag.** An earlier version shrank a "day" to a few seconds under a `short-day-for-tests` feature so the daily-limit-reset test didn't need to wait 86,400 real seconds — but building `envelope_vault` twice with different feature-flag combinations, in the same `target/` directory, corrupted the cargo build cache in a way that reproduced as a bare `Access violation in unknown section at address 0x8` crash on the program's very first instruction (0 compute units consumed — the entrypoint itself was broken, not handler logic). This is the same class of corruption Phase 5 saw from mixing `envelope_stake`'s standalone and `no-entrypoint`-dependency builds; the general lesson held: **never build the same crate with two different feature-flag combinations inside one `target/` directory.** Rather than re-discipline every future contributor into remembering a `cargo clean` ritual, the fix removes the second build combination entirely — `initialize` now takes a `seconds_per_day: i64` argument stored on `Config` and read by `wrap`, so tests pass a short value (20s) at init time and the deployed program is built exactly once, the normal way.
-
-**Devnet: deployed.** The public-faucet rate-limit blocker from Phase 1/2 cleared once the `admin` wallet (`7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1`) was funded by direct transfer instead. Both programs are deployed (`solana program deploy`, same program keypairs as localnet — a program's address is cluster-independent); `npm run devnet:mints` created the mock SKR and cUSDC mints; `npm run devnet:vault-roundtrip` (new — `scripts/vault-roundtrip.ts`) idempotently initializes `envelope_stake`'s `Pool` and `envelope_vault`'s `Config`, does the `SetAuthority` handing cUSDC's mint authority to the `VaultAuth` PDA, then wraps and unwraps USDC for `alice`. All addresses are recorded in `config/devnet.json` under `programs`/`accounts`.
-
-**A real bug this surfaced, unrelated to the programs themselves:** `anchor/src/index.ts`'s `export * from './client/js'` silently dropped the namespace re-exports (`envelopeStake`/`envelopeVault`/`helloWorld`) when the module graph was loaded by `tsx` (esbuild's ESM transform) — confirmed with a minimal repro outside this repo; real Node ESM doesn't have this bug, and vitest (which `anchor/tests` uses) never hit it, only `tsx`-run scripts like this one did. Fixed by switching to an explicit named re-export (`export { envelopeStake, envelopeVault, helloWorld } from './client/js'`), which forwards correctly under both.
-
-**The round-trip script's wrap/unwrap step needed `alice`'s wallet to hold devnet USDC first.** `envelope_vault`'s `usdc_mint` is deliberately wired to Circle's real devnet USDC mint (Phase 1's design choice — see `scripts/setup-mints.ts`), which this project doesn't control and can't mint to arbitrary addresses; it was claimed by hand at https://faucet.circle.com for `alice`'s address (`Cu5aerK8yvzHfrKPSMBwCYM16HSkXRbnUJt4MNPgzkQX`), the same external step Phase 1/2 already flagged.
-
-**Verified on devnet:** `npm run devnet:vault-roundtrip` wrapped 5 USDC to cUSDC for `alice` (cUSDC balance: 5,000,000), then unwrapped 2 back (final balances: 17,000,000 USDC, 3,000,000 cUSDC) — a real on-chain wrap and unwrap, signed and confirmed on devnet, not a simulation.
-
-**Done when:** tests green ✅; both programs live on devnet with `Pool`/`Config` initialized and cUSDC's mint authority on the `VaultAuth` PDA ✅; a devnet wrap and unwrap succeed from a script ✅.
-
-### Phase 7 — Mobile app foundation
-
-`src/app/` — Expo Router navigation, a Zustand store, a `devnet.json` config loader, MWA session handling, and the `CBridgeHost` WebView mounted at the app root. This replaces the counter-demo screen the `expo-kit-anchor` template ships with (`CounterFeature`'s files are left in place, just no longer rendered — not part of Envelope's product, but not this phase's job to delete either).
-
-**Navigation:** `src/app/index.tsx` is the entry gate — no wallet connected shows a Connect button; connected redirects into `(tabs)`. Home/Send/Receive/Pots/Stake are a bottom-tab group (`src/app/(tabs)/`); Withdraw, Onboarding, and Settings are pushed routes reached from Home/Settings, not tabs — they're one-off flows, not places a user bounces between. `(tabs)/_layout.tsx` itself redirects back to `/` if reached without a connected wallet (e.g. a stale deep link after disconnect), so the tab group can't be shown empty.
-
-**State:** `src/store/app-store.ts` (Zustand) holds `walletAddress`, `keysUnlocked`, `balances`, and `tier` — deliberately not the wallet/keys themselves. `useWalletSession` (`src/features/wallet/`) wraps `@wallet-ui/react-native-kit`'s `useMobileWallet` and mirrors its `account` into the store; the library's own `AuthorizationStore` already owns session persistence and reauthorization, so this phase doesn't reimplement that.
-
-**Config + RPC:** `src/config/devnet-config.ts` loads `config/devnet.json` directly (`resolveJsonModule`); `src/config/rpc.ts` reads `EXPO_PUBLIC_HELIUS_DEVNET_RPC_URL` (falls back to the public devnet RPC if unset). The network list passed to `MobileWalletProvider` is devnet-only now — no more multi-network switcher — matching the plan's "persistent Devnet badge" (`src/components/devnet-badge.tsx`, mounted once at the root, survives navigation).
-
-**`CBridgeHost` is mounted at the app root** (`src/app/_layout.tsx`), wired to real MWA calls via `useBridgeSigners` (`src/features/wallet/bridge-signers.ts`) rather than a stub — its props are required, so _something_ had to satisfy them, and a throwing stub would be exactly the kind of half-finished implementation the project avoids. `onSignMessage` is a direct pass-through to MWA's `signMessage` — this is what Phase 8's key-derivation flow will actually call. `onSignTransaction` wraps the bridge's message bytes in a `Transaction` (`{ messageBytes, signatures }`) and extracts the one signature MWA returns; it's for later phases' transfer/proof flows and isn't exercised by anything in Phase 7 yet, so it's implemented for real but unverified beyond typechecking.
-
-**Design tokens:** `src/design/tokens.ts` (paper/ink/seal/gold palette, spacing, radii, type scale) mirrored by hand into `global.css`'s Tailwind v4 `@theme` block (`--color-seal-600` etc., since `@theme` can't import a TS module) — the envelope/seal visual motif: warm paper background, wax-seal red for primary actions.
-
-**Verified without a physical device** (none available in this environment, same constraint as Phase 3): `tsc --noEmit`, `expo lint`, and `prettier --check` all pass clean, and a full Metro export (`expo export --platform android`) bundled all 1,854 modules with no resolution errors — this exercises the entire import graph, including `CBridgeHost`'s WASM/crypto bridge chain, MWA, expo-router's tab group, and the new Zustand store. **Not verified:** the app hasn't actually run on-device — tapping through the tab bar, the MWA connect prompt appearing, and the Devnet badge rendering correctly are all unconfirmed until Phase 8 brings the next on-device checkpoint.
-
-**Done when:** app navigates between empty screens on the phone with wallet connected — ⏳ the navigation graph and connect flow are built and bundle cleanly, but "on the phone" itself needs the physical device this environment doesn't have (see Phase 3's GO/NO-GO note for the same constraint).
-
-### Phase 8 — Key management
-
-`src/features/keys/` — the flow from the plan: "Enable private balance" → bridge `deriveKeys` → MWA `signMessage` → keys derived in the WebView → the derivation signature (not the keys) persisted behind biometric auth → reopening the app replays that signature to reconstruct the same keys with no MWA prompt.
-
-**The bridge protocol needed two new methods, not just wiring the existing one.** `deriveKeys` (built in Phase 3) only ever returned the public ElGamal key — it had no way to hand back _the signature it used_, and there was no way to reconstruct the same keys later without repeating the MWA round trip. Both gaps needed real changes to `packages/cbridge`, not just app-side plumbing:
-
-- `DeriveKeysResult` now also returns `signatureBase64` — the raw Ed25519 signature over `@solana-program/token-2022`'s fixed `solana-conf-bal/v1` derivation message. `createHostMessageSigner` (`bridge.ts`) captures it via an `onSignature` side-channel as the signature comes back from the `signMessage` host round trip.
-- A new `restoreKeys` method takes `{ owner, signatureBase64 }` and reconstructs the same session keys via a `createReplayMessageSigner` — a `MessagePartialSigner` that returns the cached signature bytes directly, no `signMessage` host call, no MWA prompt. This only works because Ed25519 signing is deterministic (RFC 8032): the same wallet key signing the same fixed message twice produces byte-identical signatures, so replaying a stored signature is cryptographically equivalent to signing again.
-- A new `lockKeys` method clears the bridge's in-memory `sessionKeys` map (the "Lock" button) — deliberately separate from forgetting the stored signature, so locking is a soft, reversible action and only disconnecting the wallet actually forgets it (see below).
-
-**Mobile side:** `secure-store.ts` wraps `expo-secure-store` (`requireAuthentication: true`, Android Keystore/iOS Keychain biometric gating) to persist/read/clear the signature, keyed per wallet address. `use-confidential-keys.ts` ties it together: `enablePrivateBalance` (calls `deriveKeys`, persists the signature, sets `keysUnlocked`), `unlockOnOpen` (reads the stored signature — biometric prompt happens here — then calls `restoreKeys`; returns `false` rather than throwing when nothing's stored or the device declines, since that's just "not enabled yet," not an error), and `lock` (calls `lockKeys`, clears the in-memory flag only). `auto-unlock.tsx`'s `<AutoUnlockOnOpen>` is mounted once at the app root (inside `<CBridgeHost>`, since it needs `useCBridge()`) and fires `unlockOnOpen` exactly once per connected wallet, the moment both the wallet and the bridge are ready — this is the "on app open" half of the flow. Disconnecting the wallet (`use-wallet-session.ts`) additionally clears the stored signature — done with a wallet on this device should mean actually forgetting it, not just clearing app state.
-
-**Screens:** `onboarding.tsx` is now real — a single "Enable private balance" button driving `enablePrivateBalance`, busy/error states matching every other screen's pattern. `settings.tsx` gained a "Lock private balance" button (only shown once keys are unlocked) alongside the existing disconnect. `home.tsx` hides the enable-balance CTA once `keysUnlocked` is true.
-
-**Verified on an Android emulator** (this environment gained one after Phase 8 was first written — biometric enrollment works there via `adb emu finger touch`, so a physical device turned out not to be required after all). `cbridge:typecheck`, `rn-confidential:typecheck`, and the root `tsc --noEmit` all pass; `expo lint` and `prettier --check` are clean; the cbridge bundle rebuilds (`npm run cbridge:build`) with the new methods; and a full Metro export bundles cleanly. Real on-device testing caught two genuine bugs no amount of typechecking would have: `<CBridgeHost>`'s `onSignMessage`/`onSignTransaction` callbacks were captured once by a `useMemo` with an empty dependency array, so they permanently closed over `account` from before the wallet ever connected — every message-sign call failed with "no connected MWA account matches" until fixed with an always-current ref. And `useMobileWallet`'s singular `signMessage`/`signTransaction` are deprecated in favor of `signMessages`/`signTransactions` — fixed in `bridge-signers.ts`.
-
-**Done when:** reopen app → fingerprint → balance readable without a wallet prompt — the derive → persist → reopen → biometric-read → restore flow is implemented, typechecks, and the MWA signature step is confirmed working on-device; biometric enrollment and the full reopen round-trip were still being verified when Phase 9 started.
-
-### Phase 9 — Confidential account setup
-
-Gets a wallet's cUSDC account from nothing to "ready to send and receive privately" in one guided step. This needed real changes to `packages/cbridge`, not just app-side plumbing — account setup uses the derived session keys (the ZK pubkey-validity proof is signed with the ElGamal key from Phase 8's `deriveKeys`/`restoreKeys`), which only ever exist inside the bridge.
-
-**Two new bridge methods** (`protocol.ts` + `bridge.ts`):
-
-- `ensureAccountReady({ rpcUrl, mint, owner })` — idempotent. Checks the account's actual on-chain extension state first (`fetchMaybeToken`, reading the TLV `extensions` array) and only includes the steps genuinely missing: if there's no `ConfidentialTransferAccount` extension yet, `getCreateConfidentialTransferAccountInstructionPlan` creates the ATA, reallocates it, configures it, and verifies the pubkey-validity proof, all in one plan; if `CpiGuard` isn't enabled, a `Reallocate` (only when the extension slot doesn't exist yet — reallocating one that's already there is rejected on-chain) followed by `EnableCpiGuard` is appended. An already-ready account costs one read-only fetch and returns `alreadyReady: true` with nothing to sign. Like `buildTransferPlan`, this only builds and signs (`signInstructionPlan`) — it never submits; the host sends the returned wire transactions itself (see below).
-- `isAccountReady({ rpcUrl, mint, owner })` — the "is recipient ready?" check Send will need. Read-only, no session keys required (it's not `owner`'s own account): just whether the ATA exists and carries the `ConfidentialTransferAccount` extension. Deliberately doesn't check `CpiGuard` — that protects the account's own owner from malicious CPI, not something a sender needs to verify before transferring in.
-
-**A gap the existing architecture didn't need until now:** every prior bridge method either returned data (`decryptAvailable`) or handed back unsigned wire bytes for the RN app to send later (`buildTransferPlan`, for Phase 13). Nothing yet actually _submitted_ a transaction. `ensureAccountReady` is the first flow the app needs to complete synchronously as part of one guided step, so `src/utils/send-signed-transactions.ts` was added — submits each base64 wire transaction via `rpc.sendTransaction(..., { encoding: 'base64' })` and waits for confirmation with the existing `waitForConfirmation` (from Phase 0), sequentially, since later transactions in a plan can depend on earlier ones landing (reallocating an account before enabling an extension on it).
-
-**Wired into onboarding:** `enablePrivateBalance` (derive keys) and `ensureAccountReady` (set up the account) now run back-to-back in the same "Enable private balance" flow (`src/app/onboarding.tsx`), with the button label tracking which step is active ("Waiting for signature…" → "Setting up your account…"). This is genuinely two MWA round trips now — a message signature for key derivation, then a transaction signature (or several) for account setup — the onboarding copy was reworded to say "prompts," not "one signature," to stay honest about that.
-
-**Verified:** `cbridge:typecheck` and `rn-confidential:typecheck` pass, the cbridge bundle rebuilds with the new methods, root `tsc --noEmit`/`expo lint`/`prettier --check` are all clean, and a full Metro export bundles cleanly (1,911 modules). **Not yet exercised on-device:** the full `ensureAccountReady` flow (its own MWA transaction-signing prompt, the actual on-chain reallocate/configure/enable-CpiGuard sequence) — Phase 8's on-device pass was still in progress when this phase was built.
-
-**Done when:** a fresh wallet goes from nothing to a configured account in one guided step — the guided step (onboarding) is wired to do exactly that; on-chain confirmation is pending the same device session verifying Phase 8.
-
-### Phase 10 — Add to private balance
-
-USDC → private cUSDC in one user action: `wrap(amount)` (envelope_vault mints public cUSDC), `Deposit(amount)` (public → pending confidential), `ApplyPendingBalance` (pending → available) — three instructions, one transaction, one MWA signature.
-
-**Where each instruction gets built settled the real design question this phase turned on.** `wrap` and `Deposit` are plain and deterministic — no secret material, so `src/features/account/use-add-to-private-balance.ts` builds them directly on the RN side (`wrap` via `@project/anchor`'s generated `envelopeVault` client, `Deposit` via `@solana-program/token-2022`). Only `ApplyPendingBalance`'s `newDecryptableAvailableBalance` argument needs the bridge — it's the AES-encrypted claim of what the new available balance will be, and the AES key never leaves the bridge's memory. Rather than have the bridge build that whole instruction (and hand back a signed transaction fragment to splice in, which is awkward), a new bridge method — `prepareApplyPendingBalance({ rpcUrl, mint, owner, amount })` — returns just the two raw values (`newDecryptableAvailableBalanceBase64`, `expectedPendingBalanceCreditCounter`) the RN side needs to construct the instruction itself with the library's own low-level builder. This keeps the "only secrets touch the bridge" boundary exact, and means all three instructions end up in one transaction signed once, instead of the two-signature flow every other bridge-touching action needs.
-
-**The one genuinely tricky piece: computing the two values without being able to re-fetch mid-transaction.** `prepareApplyPendingBalance` fetches the account's _pre_-deposit on-chain state and has to account for what its own Deposit instruction (later in the same transaction) is about to do: `newAvailable = currentAvailable + currentPending + depositAmount` (not just `+ depositAmount` — any pre-existing unapplied pending balance gets swept in too, since that's what `ApplyPendingBalance` actually does on-chain), and `expectedPendingBalanceCreditCounter = currentCounter + 1` (accounting for the deposit's own credit).
-
-**One signer, reused everywhere.** `wallet-ui`'s convenience `sendTransactions(instructions)` creates its own internal signer instance — mixing that with a separately-instantiated signer used to build the instructions themselves risked a subtle identity mismatch, so `use-add-to-private-balance.ts` instead calls `useMobileWallet()`'s lower-level `getTransactionSigner` once and threads that same signer through all three instruction builders and the transaction's fee payer, mirroring exactly what `sendTransactions` does internally.
-
-**UI:** Home now shows the real decrypted balance (`usePrivateBalance`, wrapping the `decryptAvailable` bridge method that's existed since Phase 2/3, via `@tanstack/react-query`) instead of a placeholder dash, and gained an "Add to private balance" button once keys are unlocked. `src/app/add-funds.tsx` is a dollars-and-cents amount entry that calls the new hook and routes back to Home on success.
-
-**Not implemented: automatic transaction splitting.** The plan allows for "if too large for one tx, split into 2." Three lightweight instructions (no ZK proof payloads — those only apply to Transfer/Withdraw, not Deposit/ApplyPendingBalance) comfortably fit one transaction's size limit in practice, so no splitting logic was built; if that assumption ever breaks it'll surface as a clear size-limit error, not a silent failure.
-
-**Verified:** `cbridge:typecheck`/`rn-confidential:typecheck` pass, the cbridge bundle rebuilds with the new method, root `tsc --noEmit`/`expo lint`/`prettier --check` are all clean, and a full Metro export bundles cleanly (2,074 modules). **Not yet exercised on-device:** the combined transaction's actual MWA signing prompt and on-chain execution.
-
-**Done when:** "Add $50" → fingerprint → home shows $50 private; explorer shows public cUSDC = 0 — the flow is wired end to end and typechecks/bundles clean; on-device confirmation is pending, same as Phase 9.
-
-### Phase 11 — Balance & activity decryption
-
-Available and pending balance were already flowing through `usePrivateBalance` since Phase 10 (both come back from the same `decryptAvailable` bridge call — AES for available, ElGamal for pending, one loading state for the pair). Home now also shows pending balance when nonzero. The real work this phase was activity: decrypting historical confidential-transfer amounts from transaction history, which turned out to need genuine protocol-level reverse engineering.
-
-**Why this was hard: the byte layout isn't documented anywhere.** A confidential transfer's amount is encrypted three ways — source, destination, and auditor ElGamal handles — inside its _ciphertext-validity proof_ instruction (a sibling instruction in the same transaction, from the ZK ElGamal Proof program), not in the `ConfidentialTransfer` instruction itself (which only carries the auditor ciphertext). `@solana/zk-sdk`'s TypeScript bindings expose that proof's context as an opaque `toBytes()`/`fromBytes()` pair with no field accessors, and `@solana-program/token-2022`'s own `extractCiphertextFromGroupedBytes` helper — which does the actual handle extraction — isn't even part of the package's public API (it's in `dist/types` but never re-exported from `"."` or `"./confidential"` in `package.json`'s `exports` map).
-
-**So this was verified empirically before any of it shipped.** A one-off research script (not part of the app; deleted once its job was done) performed a real devnet confidential transfer with a known amount, then reverse-engineered the exact byte layout by testing hypotheses against that known amount: locate the ZK proof instruction (discriminator `12`, `VerifyBatchedGroupedCiphertext3HandlesValidity`) in the transaction, strip its 1-byte prefix, parse via `BatchedGroupedCiphertext3HandlesValidityProofData.fromBytes`, and its `context()` turned out to be 352 bytes — 96 bytes of pubkeys (not documented; discovered by the context being 96 bytes longer than the 256-byte two-ciphertext hypothesis) followed by the lo and hi grouped ciphertexts. Handle index 1 (destination) decrypted with the receiving wallet's own key produced exactly the known transfer amount — confirmed match, logged and screenshotted before writing a single line of the real bridge code. `extractCiphertextFromGroupedBytes` itself was reimplemented from its own doc comment, since it isn't importable.
-
-**The new bridge method:** `decryptActivity({ rpcUrl, mint, owner, limit })` fetches recent signatures for `owner`'s cUSDC account, and for each transaction that contains a `ConfidentialTransfer` instruction, determines direction (is `owner`'s account the source or destination — source accounts are at index 0, destination at index 2 in that instruction's own account list) and decrypts the matching handle (source for outgoing, destination for incoming) using `owner`'s own ElGamal secret key — never the other party's, which is the entire point of ElGamal's per-recipient handles.
-
-**Local caching, encrypted at rest:** `activity-cache.ts` uses `expo-secure-store` again, but _not_ biometric-gated this time — SecureStore's values are always encrypted at rest (Android Keystore / iOS Keychain) regardless of `requireAuthentication`, which is what the plan actually asks for here (this is a convenience cache, not a secret like Phase 8's derivation signature). Capped to the 30 most recent entries and merged (dedup by signature, freshest wins) on every fetch, so older entries survive even once they fall outside what a fresh decrypt re-covers.
-
-**UI:** a new `activity.tsx` screen (reached from a clock icon on Home, next to settings) lists recent transfers with direction, amount, and date.
-
-**Verified:** the core decryption recipe against a real devnet transfer (see above) — the actual proof-data byte layout is confirmed correct, not guessed. `cbridge:typecheck`/`rn-confidential:typecheck` pass, the cbridge bundle rebuilds with the new method, root `tsc --noEmit`/`expo lint`/`prettier --check` are all clean, and a full Metro export bundles cleanly (2,077 modules). **Not yet exercised on-device:** the full `decryptActivity` bridge call and the Activity screen's rendering — the crypto is verified, the UI wiring around it isn't, same pattern as Phases 9/10.
-
-**Done when:** activity list shows correct amounts for Phase 2 test transfers; explorer shows none — the decryption recipe is verified against a real transfer with a known amount (not the original Phase 2 transfers specifically, but the same underlying mechanism); the full on-device activity list flow is pending the same device session as Phases 9/10.
-
-### Phase 12 — Relayer service
-
-A standalone Node HTTP service (`relayer/`, Hono) that pays fees for users, enforces SKR tiers, and delivers push notifications for incoming activity — the first piece of this project that isn't the mobile app, the on-chain programs, or a script.
-
-**The endpoints, per the plan:** `POST /relay` (validate, co-sign as fee payer, submit, return signatures), `GET /status/:sig`, `POST /push/register`, `POST /webhook/helius` (incoming activity → Expo push). `push-store.ts` and `rate-limit.ts` are in-memory — correct for a single-process devnet relayer, and explicitly called out as the thing a real multi-instance deployment would need to swap for shared storage.
-
-**`policy.ts` is the actual point of this phase.** "The relayer must not be drainable" is the whole goal, and every rule from the plan's validation-policy section is implemented literally: fee payer must be the relayer; every instruction's program ID must be in an explicit allow-list (Token-2022, ZK ElGamal Proof, Associated Token, envelope_vault, envelope_stake, Compute Budget, System); System instructions other than `CreateAccount` are rejected outright (this alone is what blocks "SOL transfer from relayer"); the relayer's own address may never be writable in any instruction except two named safe roles — funding a new proof-context account (System `CreateAccount`, as payer) and reclaiming that account's rent (ZK ElGamal Proof `CloseContextState`, as destination) — checked by exact `(programAddress, instruction-discriminator)` pairs, not just "is it writable"; compute-unit price is capped; Free-tier transactions must include a real SKR-transfer instruction paying the relayer, Members/Business are exempt (tier read from `envelope_stake`'s on-chain `Pool`/`StakePosition`, via `tier.ts` — a direct TS mirror of `tier.rs`'s `tier_for_stake`, matching the plan's own "Rust fn + TS mirror" call-out from Phase 5). Address-lookup-table transactions are refused outright rather than resolved — a deliberate simplification, not a gap: nothing this relayer is meant to carry needs one.
-
-**A real correctness bug caught while writing this:** System program instructions don't use the single-byte discriminator that Token-2022/ComputeBudget/the ZK proof program use — System's is a 4-byte little-endian `u32`. Checking only `data[0]` against `CreateAccount`'s discriminator value happens to work today (every current System instruction's low byte is already distinct), but relying on that coincidence in the one file whose entire job is stopping a drain is exactly the kind of shortcut this code shouldn't take. Fixed to compare the full discriminator bytes (`getCreateAccountDiscriminatorBytes()`), not an assumption about what fits in one byte.
-
-**Verified for real, not just typechecked:** `scripts/test-relayer.ts` (`npm run relayer:test-policy`) sends two transactions to a locally running relayer — a malicious one (a System `Transfer` moving lamports _from_ the relayer, using a no-op signer since the policy check must reject it before any real signature is ever needed) and a benign one (ComputeBudget price under the cap + a real SKR fee transfer to the relayer, signed for real by `alice`, fee payer = relayer). The malicious transaction is rejected with the exact expected reason (`System instructions other than CreateAccount are not allowed`) — Phase 12's "done when" malicious-tx test, passing against the real running service, not a mock. The relayer wallet (`Fjqmc1BpebL3FMVZo93zXMKMuiiMxSS57r5w8PHUP8Fe`) was funded with 1 devnet SOL (transferred from the `admin` wallet — the public faucet stayed rate-limited, same as every other devnet phase), and the benign transaction went all the way: policy-validated, co-signed by the relayer as fee payer, submitted, and **finalized on devnet** — confirmed both via the relayer's own `/status` endpoint and `solana confirm`. This is a real relayed transaction landing on-chain, not a simulation.
-
-**Not built in Phase 12, deliberately:** the mobile app doesn't call the relayer yet (Phase 13's "Send privately" is the first flow that will), so the plan's fallback note ("if the wallet lacks `sign_transactions`, use `signAndSendTransactions` with the user paying devnet SOL") has nothing to wire up to yet — that decision belongs with whichever phase first builds a relayer-submitted transaction from the phone. Priority-fee _estimation_ via Helius (as opposed to the cap this phase enforces) is a client-side concern for the same reason — it's about how a transaction gets built, not how the relayer validates one.
-
-**Done when:** relayer submits a confidential transfer built on the phone ⏳ (the relayer itself now verifiably relays and finalizes real transactions — what's left is Phase 13 building one from the phone instead of a script); a malicious tx is rejected in a test ✅ — verified against the real running service, see above.
-
-## Phase 13 — Send privately
-
-**The fee-payer redesign, done first:** `buildTransferPlan` (in `packages/cbridge/src/bridge.ts`) previously had the owner pay their own transaction fees and proof-context rent — a single-signer spike explicitly flagged as temporary in Phase 3. It now takes a `feePayer` param (the relayer's address, added to `protocol.ts`'s `BuildTransferPlanParams`) and uses `createNoopSigner(relayerAddress)` as both `payer` to `getConfidentialTransferInstructionPlan` and `payer` to `signInstructionPlan` — the officially documented `@solana/signers` pattern for "an account is a signer, but something else will provide its signature later" (exactly the relayer's `/relay` co-signing flow built in Phase 12). The owner's real authority signature (round-tripped through MWA via `createHostTransactionSigner`) still gets attached to every transaction that needs it.
-
-**A real bug found while verifying this, not just typechecked:** `signPlan.ts` was calling `signTransactionMessageWithSigners`, which asserts the result is _fully_ signed and throws otherwise — exactly wrong once the fee payer is a `NoopSigner` left intentionally unsigned. Fixed to `partiallySignTransactionMessageWithSigners`, which signs every real signer it can and leaves the rest (the relayer's slot) empty, matching what `/relay` expects to receive. Caught by writing `scripts/test-relayer-confidential-transfer.ts` and running it against real devnet state (alice's actual confidential balance, a real `getConfidentialTransferInstructionPlan`) rather than trusting the types.
-
-**Verified:** that script builds a real alice → bob confidential transfer plan with the relayer as fee payer, signs it, decodes every resulting transaction, and confirms the relayer's signature slot is empty while every other required signer (alice, as transfer authority) has a real signature — on all 5 transactions the plan produces (proof-context creation ×3, the transfer itself, context close). This is the core Phase 13 redesign working correctly.
-
-**Three gaps this surfaced, all fixed and reverified:**
-
-1. `policy.ts`'s writable-relayer allow-list covered only `CloseContextState`, but the confidential-transfer plan's three ZK proof verify instructions (`VerifyCiphertextCommitmentEquality`=3, `VerifyBatchedGroupedCiphertext3HandlesValidity`=12, `VerifyBatchedRangeProofU128`=7 — confirmed by reading `confidentialTransferHelpers.ts`, not guessed) also list the context-state `authority` — the relayer, since `contextStateAuthority` defaults to `payer` — and Solana's compiled-message format gives one role per address per transaction, so once the relayer is writable anywhere in a transaction (it always is, as fee payer), it decompiles as writable everywhere it's referenced, including here. None of these instructions can move the relayer's own funds; `isSafeWritableInstruction` now allow-lists the three discriminators with a comment explaining why the "writable" flag here isn't the drain signal it would be elsewhere.
-2. The free-tier SKR fee check ran per-transaction, but a confidential transfer spans several transactions and only needs the fee once. `validateTransaction` no longer enforces the tier itself — it reports whether a given transaction carried the fee instruction, and `/relay`'s handler now validates every transaction in a batch first, then enforces "free tier needs the fee instruction somewhere in the batch" once, before co-signing or submitting anything.
-3. Found while actually relaying a 6-transaction batch (5 for the transfer + 1 fee) end to end: `/relay` submitted transactions back-to-back without confirming, so a later transaction that depends on an earlier one landing (the range-proof verify, referencing an account created two transactions earlier) got preflight-rejected with `Invalid account owner` because that account didn't exist yet from the submitting node's point of view. Fixed with a small `confirm.ts` that polls `getSignatureStatuses` between submissions — tolerant of the public devnet RPC's rate-limiting (a recurring theme all through this project), since a transient status-poll failure isn't a reason to fail the whole relay.
-
-**Verified for real, end to end:** `scripts/test-relayer-confidential-transfer.ts` builds an actual alice → bob confidential transfer (relayer as fee payer via `createNoopSigner`) plus the free-tier SKR fee transaction, batches all 6, POSTs them to a locally running relayer, and — after the three fixes above — gets back 6 real signatures, all confirmed **finalized** on devnet. Bob's pending confidential balance increased by exactly the transferred amount. This is the full Phase 12 + Phase 13 relayer path working on real devnet state, not a simulation.
-
-(Also fixed while here: `/status/:sig` was collapsing every RPC failure — including transient rate-limiting — into a blanket "malformed signature" 400. It now only returns 400 for an actually-malformed signature and 502 for a real lookup failure, so status polling from the Send screen's progress UI won't misreport a rate-limit blip as a bad signature.)
-
-**The Send screen itself, now built:**
-
-- `GET /tier/:wallet` (new, relayer): read-only, no auth — lets the phone show an accurate fee line and decide whether to include the free-tier fee instruction, without a second runtime re-deriving `tier.ts`'s on-chain stake lookup. Returns `{ tier, relayerAddress, skrMint, freeTierFeeAmount }`, the exact numbers `/relay`'s own policy check enforces, so the client can't drift out of sync with them.
-- `buildTransferPlan` grew an optional `feeInstruction` param: when the sender is free-tier, the bridge itself builds and signs a small classic-Token SKR transfer (owner → relayer) using the same owner-signs/relayer-noop-payer pattern as the transfer plan, and prepends it to the returned transactions. This keeps every bit of Solana instruction-building inside the bridge (where `@solana/kit`/`@solana-program/token` already live) instead of teaching React Native to construct and sign a second, unrelated transaction by hand.
-- `src/features/account/use-send-privately.ts`: the orchestration hook — checks the recipient is ready to receive, asks `/tier`, calls `buildTransferPlan`, POSTs the result to `/relay` (`src/utils/relay-transactions.ts`), refetches the local balance, and reports a `SendStep` (`checking-recipient → preparing-proofs → relaying → confirming → done`) the UI renders directly. This is the first real caller of `buildTransferPlan` anywhere in the app — `scripts/test-relayer-confidential-transfer.ts` was the Node-side reference it mirrors, signing through MWA instead of a raw keypair.
-- `(tabs)/send.tsx`: recipient entry — paste (via `expo-clipboard`) or type an address, validated with `@solana/kit`'s `isAddress`, checked against `isAccountReady` before continuing. Scan-to-send and a contacts picker are deferred — no `expo-camera`/`expo-contacts` in this build, and paste/manual entry already cover the "done when" flow.
-- `src/app/send-confirm.tsx`: amount entry against the real decrypted available balance, the fee line from `/tier`, a fingerprint/Face ID confirm via `expo-local-authentication` (newly added — `app.json`'s `expo-local-authentication` plugin entry sets the iOS Face ID usage string) before anything is sent, the progress UI, and a "View on explorer" link using the relayer's own returned signature.
-
-A real bug caught while wiring this up, not just typechecked: `useSendPrivately`'s step never reset to `'idle'` on a thrown error, which left the Send button permanently disabled after any failure (a bad recipient, a relay rejection, a network blip) until the app restarted. Fixed with try/catch around the whole flow that resets to `'idle'` before rethrowing.
-
-**Done when:** phone A → phone B transfer in under ~20s on devnet, explorer shows ciphertext only ✅ for the mechanics — every piece (relayer-sponsored fee payer, free-tier fee, multi-transaction confirmation ordering, policy allow-listing) is verified end-to-end on real devnet state via `scripts/test-relayer-confidential-transfer.ts`. The phone-to-phone timing itself hasn't been measured on physical devices in this session (see the on-device-testing notes above) — the UI and RN-to-relayer wiring are in place and ready for that pass.
-
-## Phase 14 — Receive, tip links, auto-apply, push
-
-**Scheme change:** `app.json`'s `scheme` was `"myapp"`, which doesn't match the plan's `envelope://pay/<owner>` deep-link format — changed to `"envelope"`. Checked first that nothing (MWA's `wallet-ui/react-native-kit`, `android.package`) hardcodes the old scheme; `android.package` (`com.anonymous.myapp`) is a separate, unrelated identifier and was left alone.
-
-**Receive + pay deep link:**
-
-- `(tabs)/receive.tsx`: shows this wallet's own `envelope://pay/<owner>` as a QR code (`react-native-qrcode-svg` + `react-native-svg`, newly added) and a "Share tip link" button for `https://<site>/tip/<owner>`. No in-app scanner was built for the other end — a phone's native camera app already recognizes a URL inside a QR code and offers to open it, so "scan to pay" needs no `expo-camera` dependency at all, unlike Send's own deferred scan-to-send.
-- `src/app/pay/[owner].tsx` (new dynamic route, the deep-link destination): validates the address, handles "not connected yet" by showing a connect button inline rather than losing the intended recipient, checks the recipient is ready, then hands off to `send-confirm` with `quickAmounts=1` — reusing Send's entire biometric-confirm/progress/relay flow rather than duplicating it for what the plan calls the "Tip screen."
-- `send-confirm.tsx` grew a `quickAmounts` param: when set, renders $2/$5/$10 chips above the amount field that fill it in on tap — this is the "Tip screen: $2/$5/$10/custom" task, built as a mode of the existing confirm screen instead of a separate one.
-- The `https://<site>/tip/<owner>` web page itself (a static page that deep-links with an app-install fallback) is **not part of this repo** — it needs its own hosting outside this codebase, so `src/config/site.ts`'s `TIP_SITE_URL` points at a placeholder domain until that's deployed. The QR code path doesn't depend on it (it encodes `envelope://` directly); only the shareable web link does.
-
-**Auto-apply:**
-
-- New bridge method `applyPendingBalance` (`packages/cbridge/src/bridge.ts`/`protocol.ts`): applies pending confidential balance to available, reusing `getApplyConfidentialPendingBalanceInstructionFromToken` (the same helper `roundtrip.ts` already used) rather than hand-building the instruction a second time. No-ops (`signedTransactions: []`) when nothing's pending, so it's safe to call unconditionally. Owner pays their own fee — same precedent as `ensureAccountReady`; only Send is relayer-sponsored.
-- `AutoApplyOnOpen` (mounted at the app root next to `AutoUnlockOnOpen`): applies once per connected wallet on open, and again whenever a push notification arrives while the app is foregrounded (`Notifications.addNotificationReceivedListener`) — covering both halves of the plan's "on app open and on push."
-
-**Push notifications:**
-
-- `expo-notifications` (new dependency) + `RegisterPushOnOpen`: requests permission and registers the device's Expo push token against the relayer's existing `POST /push/register` (built in Phase 12, previously never called from the app). `/webhook/helius` (also Phase 12) was already wired to fan incoming-activity events out to registered tokens — Phase 14 is what actually gets a token registered in the first place.
-- **Getting a real push token needs an EAS project id** (`Constants.expoConfig.extra.eas.projectId`), which this build doesn't have configured — no `eas init` has been run. `useRegisterPushToken` checks for it and no-ops with a console warning rather than throwing, so the app still works without it; enabling push for real is a one-time `eas init` plus registering the Helius webhook against devnet in Helius's own dashboard (pointed at the relayer's public `/webhook/helius` URL) — both are account/dashboard steps outside what code in this repo can do, not implementation gaps.
-
-**Known limitation, inherited from Phase 13, not new here:** both `(tabs)/send.tsx` and the new `pay/[owner].tsx` let a sender reach the confirm screen without checking they've enabled a private balance (derived session keys) first — `buildTransferPlan` will throw a bridge-level error for a wallet that never has. This was already true of Send before this phase; Phase 14 doesn't add a new gap, just a second entry point that inherits the existing one.
-
-**Done when:** scan tip QR on phone A → phone B buzzes → B opens app → amount shown and applied — the on-chain mechanics (auto-apply, the deep-link route, the quick-amount tip flow) are built and typecheck/lint/format clean; the actual "buzzes" half needs a real push token, which needs the one-time EAS/Helius dashboard setup above before it can be verified on physical devices.
-
-## Phase 15 — Event pots
-
-**Design, confirmed against the actual Rust before building anything:** `create_pot`/`close_pot` (built in Phase 4) only touch the `Pot` PDA's bookkeeping (host, pot_owner, pot_token_account, name, close time, closed flag) — `close_pot.rs`'s own comment says the confidential sweep "is a separate, ordinary confidential transfer signed by `pot_owner` — not this program's concern." So every bit of the pot's Token-2022 lifecycle (account creation, confidential-transfer configuration, the sweep) is client-side, same division of labor as the wallet's own account in Phases 9–13.
-
-**A pot's identity needs no new on-chain storage.** One MWA signature from the host over the fixed message `envelope-pot:<potId>` is SHA-256'd into a 32-byte seed, which becomes a real Ed25519 keypair via `@solana/keys`' `createKeyPairFromPrivateKeyBytes` — that keypair's address is `pot_owner`. That same keypair then signs its own `deriveWalletConfidentialKeys` derivation message locally (no second MWA round trip — it's a real `MessagePartialSigner`, already held in memory) to get its ElGamal/AES confidential-balance keys, exactly like a wallet derives its own. Recoverable any time by re-signing the same fixed message; never stored raw (only the derivation signature is persisted, biometric-gated, same as Phase 8's wallet keys).
-
-**MWA can't sign for the pot's own address** (it only ever signs for the connected wallet), so `createHostTransactionSigner`/`createHostMessageSigner` in `packages/cbridge/src/bridge.ts` now check a new `potSigners` map first — if the requested address is a pot's derived identity, they return its real in-memory `KeyPairSigner` directly, signing locally with zero MWA round trips. Every existing bridge method that takes an `owner` (`decryptAvailable`, `isAccountReady`, `buildTransferPlan`, …) therefore works unmodified for a pot — pass the pot's own address as `owner` and it's indistinguishable from a normal wallet, except its payer. `ensureAccountReady` and `applyPendingBalance` grew an optional `payer` override (defaulting to `owner`) since a pot never holds its own SOL — the host pays rent/fees for it.
-
-**New bridge methods:** `derivePotKeys`/`restorePotKeys` (the identity recipe above); `createPot` (pot's own Token-2022 account setup + the on-chain `create_pot` instruction, one host-paid call, reusing `anchor/src/index.ts`'s generated `envelopeVault` client via a cross-workspace relative import — the same pattern `relayer/src/tier.ts` already uses, safe here too since `packages/cbridge` bundles with esbuild, not Metro); `closePot` (`close_pot` + the confidential sweep to the host — **deliberately not combined with applying the pot's pending balance**: the sweep's proofs need the pot's post-apply on-chain state, which doesn't exist until the apply transaction has actually landed, so `useClosePot` calls `applyPendingBalance` first and waits for it before calling `closePot`); `decryptPotActivity` (the host's per-contributor breakdown — reuses Phase 11's exact proof-decoding recipe, fixed to the "destination" handle since a pot only ever receives, with the contributor's wallet resolved from the source token account's on-chain `owner` field, not guessed).
-
-**RN side avoids importing the generated Anchor client** (`anchor/src/client/js/generated/envelopeVault`) — unlike the bridge, Metro's cross-workspace resolution of that client (relative JSON IDL imports and all) wasn't worth risking untested. `src/features/pots/decode-pot.ts` and `pot-pda.ts` hand-decode the `Pot` account and hand-derive its PDA instead, using only portable `@solana/kit` codec primitives.
-
-**Verified for real on devnet, not just typechecked:** `scripts/pot-roundtrip.ts` (`npm run devnet:pot-roundtrip`) derives a pot identity, configures its account, calls `create_pot`, has 3 fresh guest wallets each contribute a distinct amount, decrypts the pot's total as the host, confirms no guest's own key can decrypt the pot's balance, closes the pot, and confirms the host's balance grew by exactly the swept total. One real bug found while running it, not guessed: `cusdc`'s mint authority moved to the vault PDA back in Phase 6 (`vault-roundtrip.ts`), so admin can no longer mint fresh cUSDC for test wallets — fixed by having the script's host seed each guest with a normal confidential transfer from its own existing balance instead of minting. A second, environmental one: this session's devnet RPC usage is heavy enough by this point that the public endpoint's rate limits are a near-certainty, not an edge case, including mid-multi-transaction-plan — a naive retry-the-same-built-plan approach double-submitted a proof-context creation and failed with "already in use," so the script's retry helper rebuilds each plan from scratch per attempt (fresh ephemeral proof-context keypairs, no collision) and checks on-chain state before retrying the two non-idempotent steps (`create_pot`, `close_pot`).
-
-**Not yet built:** the create-pot screen's cover image (the plan calls it explicitly "local only," cosmetic, not load-bearing) and a real device run of the deep-link QR flow (same on-device-testing constraint as every prior phase this session).
-
-**Done when:** three demo wallets contribute; host sees total; guests can't see each other's amounts ✅ — verified end to end on real devnet state via `scripts/pot-roundtrip.ts`, including the negative check (no guest's key decrypts the pot's total).
-
-## Phase 16 — SKR tiers end to end
-
-**A real surprise, found by reading the Rust before assuming any work was needed:** the vault's per-tier daily wrap limit — "Vault limit applied in `wrap`; app shows 'You can add $X more today'" — was **already fully implemented on-chain**, since Phase 6. `envelope_vault`'s `wrap` instruction has a genuine cross-program dependency on `envelope_stake`'s real `Pool`/`StakePosition` accounts (not a mirror), computes the caller's tier itself, and enforces `Config.limits[tier]` against a per-user `UserDaily` day-counter, rejecting over-limit wraps with `DailyLimitExceeded`. So this phase's vault-side work was 100% client-surface — reading `Config`/`UserDaily` to show the remaining cap and translating the on-chain error into UI copy — not an Anchor change. Likewise, `anchor/tests/envelope-stake.test.ts` turned out to already be a complete, passing suite covering stake/request-unstake/withdraw/cooldown against a live validator — the stake program itself needed no new verification, just RN/relayer code calling instructions that were already proven correct.
-
-**Relayer:** `getTierForWallet` now caches each wallet's computed tier for 30s (the plan's own ask), cutting the RPC round trips `/tier/:wallet` and every `/relay` call were making. Verified for real, not just typechecked: `scripts/stake-roundtrip.ts` stakes enough SKR to cross the Member threshold, confirms the relayer's `/tier` endpoint **still reports the stale pre-stake tier** immediately afterward (proving the cache is actually doing something, not just present in the code), waits 31 real seconds, and confirms it then reports the correct new tier.
-
-**RN side — direct on-chain reads/writes, no bridge:** `use-stake-info.ts` (tier, staked amount, cooldown state, SKR balance, Pool thresholds), `use-stake-actions.ts` (stake/request-unstake/withdraw-unstaked, one MWA signature each), `use-daily-limit.ts` (reads `Config`/`UserDaily` for the remaining-today figure) — none of this touches confidential balances or secret material, so it follows the exact precedent `use-add-to-private-balance.ts`'s `wrap` call already set in Phase 10: plain envelope_stake/envelope_vault instructions built and signed directly against `useMobileWallet()`, no `packages/cbridge` involved. This also means it reuses that flow's `@project/anchor` TS-path-alias import of the generated client rather than hand-decoding accounts — a more cautious choice was made for Phase 15's pot-account reads (to avoid an unconfirmed Metro-resolution risk), but since this exact alias is already load-bearing in shipped Phase 10 code, there was no reason to repeat that caution here.
-
-**UI:** `(tabs)/stake.tsx` — tier badge, SKR balance, stake input, unstake/cooldown-countdown/withdraw flow, and a perks table; a haptic fires (`expo-haptics`, new dependency) when the computed tier goes up. The same `TierBadge` now also sits in the home screen header, wired to the already-existing (previously unused) `tier` field in `app-store.ts`. `add-funds.tsx` shows "You can add $X more today" from `use-daily-limit.ts` and disables the button over the remaining cap; a `DailyLimitExceeded` failure (Anchor custom error 6001 / `0x1771` — Anchor doesn't return the `#[msg(...)]` text over RPC, only this number) now surfaces as "You've hit today's limit for your tier — stake SKR to raise it" instead of a raw hex code.
-
-**Daily-limit counter verified for real, against a real wrap:** once alice had real devnet USDC (claimed from Circle's faucet), a real `wrap` confirmed `UserDaily.depositedToday` increases by exactly the wrapped amount and `use-daily-limit.ts`'s `remaining` figure drops by the same — on real devnet state, not guessed. **What wasn't demonstrated:** actually hitting the free-tier $100/day cap and watching the limit rise after staking, in one live run — her balance (17 USDC from one faucet claim) doesn't reach the $100 threshold, the faucet caps claims at 20 USDC per 2 hours, and `envelope_vault` has no admin instruction to lower a tier's limit after `initialize` (it's set once, immutably), so there's no way to manufacture a smaller cap to test against either. The enforcement logic itself (`handle_wrap`'s `require!(new_total <= limit, ...)`) is pre-existing Phase 6 code, not new work from this phase.
-
-**Done when:** Free user pays fee and hits limit; after staking 500 mock SKR, fee disappears and limit rises — live ✅ for the tier transition itself (staking 1,000 SKR on devnet immediately flips the on-chain tier to Member, visible once the relayer's cache catches up, verified end to end via `scripts/stake-roundtrip.ts`); the fee-waiver and limit-rise are direct, typechecked consequences of that same tier read (the relayer's `/relay` fee check and the vault's `wrap` limit both branch on identical tier logic, already verified independently in Phases 12 and pre-existing Phase 6 respectively) rather than re-demonstrated together in one live run here.
-
-**Update, once real devnet USDC was available:** the daily-limit counter itself (not just its reads) was verified live — a real `wrap` moved `UserDaily.depositedToday` from 0 to exactly the wrapped amount, matching `use-daily-limit.ts`'s computed `remaining` figure precisely. Hitting the actual $100 cap still wasn't attempted (would need ~100 USDC across multiple faucet claims), but the counter mechanics the limit depends on are now real-verified, not just typechecked.
-
-## Phase 17 — Withdraw
-
-**Two strictly-ordered steps, not one bridge call:** `buildWithdrawPlan` (new bridge method) moves `amount` from the confidential available balance to the account's _public_ cUSDC balance — equality + range proofs, context accounts, the same machinery `buildTransferPlan`/`applyPendingBalance` already use, owner-paid like every other self-serve balance operation (only Send is relayer-sponsored). The host then builds `[Approve(vaultAuthority, amount), Unwrap(amount)]` itself afterward — plain instructions, no secret material, same precedent as `wrap` in `use-add-to-private-balance.ts`. These can't be one call: `Unwrap`'s balance check and the public-cUSDC amount it needs only exist once the confidential withdraw's own transaction has actually landed, not merely been built — the same landing-order reasoning `closePot`'s apply-then-sweep split already established in Phase 15. `use-withdraw.ts` reports which of the two steps is in flight via an `onStep` callback, same shape as Send's `SendStep`.
-
-**UI:** `src/app/withdraw.tsx` replaces the placeholder — amount entry against the real decrypted available balance, a two-phase busy label ("Unsealing…" / "Sending to your wallet…"), and a plain note that the result is no longer private.
-
-**Verified for real on devnet, including the full supply invariant:** `scripts/withdraw-roundtrip.ts` runs the exact two-step sequence `use-withdraw.ts` drives (confidential withdraw, then Approve+Unwrap), against a real confidential balance, and checks all three invariants the plan's "done when" calls for in one run: USDC gained == confidential balance lost == public cUSDC settled back to exactly 0. First attempt caught the public devnet RPC's rate limiting mid-flight (same recurring theme as every heavy-RPC phase this session) — rerunning picked up cleanly since the script re-reads on-chain state fresh each time rather than assuming anything from a prior attempt.
-
-**Done when:** withdraw $20 → wallet USDC +$20; private balance −$20; supply invariant intact ✅ — verified at a smaller real amount (100,000 base units, bounded by what was practical to fund on this run), with all three deltas matching exactly; the mechanism has no amount-dependent behavior, so this generalizes to any amount including $20.
-
-## Phase 18 — Hardening & self-audit
-
-A real self-audit, not a rubber stamp — see **[THREAT_MODEL.md](./THREAT_MODEL.md)** for the full privacy table, relayer-trust writeup, linkability/timing/key-storage sections, devnet-only status, and the CT mint authority note (**revoke before mainnet** — the single highest-priority pre-mainnet item in this repo). Summary of what the audit pass actually found and what happened to each:
-
-**Fixed — four real, concrete issues, not hypothetical ones:**
-
-1. **Unprotected `initialize` on both `envelope_stake` and `envelope_vault`** — `admin: Signer` had no check against any expected key, so whoever's `initialize` call landed first on the parameter-free singleton `Pool`/`Config` PDA would own it permanently, including the ability to zero out tier thresholds (silently granting every wallet Member/Business tier). Fixed with a hardcoded `ADMIN` constant + `address = ADMIN @ ErrorCode::Unauthorized` on both; also added `member_threshold > 0` / `cooldown_secs >= 0` validation the same audit pass surfaced as related gaps.
-2. **`envelope_vault::wrap`'s stake-position check used `lamports() == 0` instead of ownership** — a 1-lamport System transfer to any wallet's not-yet-created `StakePosition` PDA would permanently break that wallet's `wrap()` calls, cheaply and without their cooperation. Fixed by checking `owner != envelope_stake::ID` instead.
-3. **`relayer/src/policy.ts`'s `CreateAccount` allowance never checked the new account's owner field** — only the discriminator, so a malicious transaction could get the relayer to fund an account owned by anything, freely drainable by the attacker with no further relayer involvement.
-4. **`relayer/src/policy.ts` never checked _who_ a proof context's `authority` actually is** — "safely writable" wasn't the same as "the relayer is really in control"; an attacker could set the authority to their own key, let the relayer pay the context account's rent, then close it themselves later and keep the rent.
-
-Both programs were rebuilt and the devnet deployment upgraded in place (existing accounts untouched — Solana upgrades replace code, not data), then re-verified end to end against the upgraded program via `scripts/stake-roundtrip.ts`. Findings 3 and 4 were proven closed with real adversarial transactions, not just typechecked: `scripts/fuzz-relayer-policy.ts` builds both malicious instruction shapes and confirms the relayer now rejects each with the specific policy violation; `scripts/test-relayer-confidential-transfer.ts` confirms the legitimate path still succeeds against the tightened policy.
-
-**Documented, not fixed — real but lower-severity, or needing a product decision:** the same prefund-griefing class behind finding 2 generalizes to every other `init`/`init_if_needed` account in both programs (denial-of-service only, costs the attacker real money for no gain, not fund theft); `create_pot`'s caller-supplied `pot_owner`/`pot_token_account` fields aren't on-chain-validated (not exploitable within the program itself — the risk, if any, is in an off-chain client trusting them); `close_pot`'s `close_ts` is stored but unenforced (self-harm only). Full writeups and reasoning for each are in `THREAT_MODEL.md`'s "Findings & fixes" section.
-
-**App side:** audited every `console.log`/`console.warn`/`console.error` call across `packages/cbridge`, `packages/rn-confidential`, `src/`, and `relayer/src` — no key or signature is ever logged. The WebView was already locked down before this phase (`originWhitelist`, blocked navigation, no DOM storage/file access, inline HTML source — nothing to harden further). Error states for insufficient balance and recipient-not-ready were already handled per-screen with dedicated copy; `formatError` gained translations for the two states that weren't yet friendly — relayer/RPC unreachable and rate-limited — so a real network hiccup reads as "can't reach the relayer, try again" instead of a raw `TypeError: fetch failed`.
-
-**Done when:** self-audit checklist complete; no known critical issues ✅ — every item on the plan's checklist was either verified already-satisfied, fixed and re-verified live, or explicitly documented as an accepted devnet-only limitation with reasoning, not silently skipped.
-
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-This steps builds the dependencies for the development client.
-
-```bash
-npm run android
-```
-
-In the output, you'll find options to open the app in a:
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## The Anchor program
-
-The `anchor` directory contains a Solana program called `hello_world`, scaffolded with the [Anchor CLI](https://www.anchor-lang.com/docs/references/cli). It's a small counter where every wallet gets its own counter account, derived from the wallet address (`seeds = [b"counter", wallet]`) — use it as the starting point for your own program: search for `hello_world` (and `HelloWorld`/`helloWorld`) to find everything to rename.
-
-Working on the program requires the [Rust](https://www.rust-lang.org/tools/install), [Solana](https://solana.com/docs/intro/installation), and [Anchor](https://www.anchor-lang.com/docs/installation) toolchains.
-
-1. Generate a program keypair and sync the program ID
-
-   The program ID in the source is a placeholder. This generates your own keypair, syncs it into `Anchor.toml` and `declare_id!`, rebuilds the program so the IDL carries the new address, and regenerates the TypeScript client from it:
-
-   ```bash
-   npm run anchor:setup
-   ```
-
-2. Build and test the program
-
-   ```bash
-   npm run anchor:test
-   ```
-
-   This builds the program, spins up a local validator, deploys, and runs the [Vitest](https://vitest.dev/) tests in `anchor/tests`.
-
-### The generated TypeScript client
-
-The app talks to the program through a fully typed client generated by [Codama](https://github.com/codama-idl/codama) from the program's IDL. It lives in `anchor/src/client/js/generated` and only depends on `@solana/kit`. Import it anywhere in the app via the `@project/anchor` alias:
-
-```ts
-import { fetchCounter, getIncrementInstructionAsync, HELLO_WORLD_PROGRAM_ADDRESS } from '@project/anchor'
-```
-
-After changing the program, rebuild the IDL and regenerate the client:
-
-```bash
-npm run anchor:build
-npm run codama:js
-```
-
-Add hand-written wrappers around the generated code in `anchor/src/client/js/index.ts` — the `generated` directory is overwritten on every run.
-
-### Using the program from the app
-
-The home screen includes a counter feature (`src/features/counter`) that talks to the program through the generated client and Mobile Wallet Adapter. Each connected wallet initializes and increments its own counter. The app connects to devnet, so deploy the program there before using it:
-
-```bash
-npm run anchor:deploy:devnet
-```
-
-Your deploy wallet needs devnet SOL — get some from [faucet.solana.com](https://faucet.solana.com). The wallet in the app needs a small amount of devnet SOL too, to pay for the counter account and transaction fees.
-
-### Develop against localnet
-
-For a faster loop you can run everything against a local validator, forwarded to your device over adb:
-
-1. Start the localnet and keep it running: `npx solana-mobile localnet`
-2. Deploy the program to it: `npm run anchor:deploy:localnet`
-3. Switch the network to Localnet with the selector in the app
-4. Connect your wallet and tap Request Airdrop to fund it
-
-Two things to know: localnet needs a debug build — `npm run android` makes one, and Android debug builds allow the cleartext `http://localhost` endpoint while release builds only talk HTTPS. And the regular Seeker wallet only signs for public clusters, so signing on localnet requires a localnet-capable wallet such as [fakewallet](https://github.com/solana-mobile/mobile-wallet-adapter/tree/main/android/fakewallet).
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Uniwind documentation](https://uniwind.dev/): Learn how to style your app with Tailwind CSS.
-- [Anchor documentation](https://www.anchor-lang.com/docs): Learn how to build Solana programs with Anchor.
-- [Solana documentation](https://solana.com/docs): Learn how to build on Solana.
+## Useful commands
+
+| Command                                | What it does                                                        |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| `npm run dev`                          | Start Metro for the dev client                                      |
+| `npm run relayer:dev`                  | Run the relayer locally (port 8787)                                 |
+| `npm run cbridge:build`                | Rebuild the proof bridge bundle after changing `packages/cbridge`   |
+| `npm run devnet:roundtrip`             | CLI confidential transfer round trip on devnet                      |
+| `npm run devnet:withdraw-roundtrip`    | Wrap → confidential → withdraw → unwrap, checking supply invariants |
+| `npm run devnet:pot-roundtrip`         | Event pot lifecycle, including a guest-privacy negative check       |
+| `npm run relayer:test-policy`          | Check the relayer rejects a malicious tx and relays a valid one     |
+| `npm run anchor:build` / `anchor:test` | Build / test the Anchor programs                                    |
+| `npm run codama:js`                    | Regenerate the typed program clients from the IDLs                  |
+| `npm run ci`                           | Typecheck, lint, format check, and Android prebuild                 |
+
+## Design decisions
+
+- **Proofs in a WebView, not a server.** Generating proofs on-device keeps encryption keys on the phone. Hermes has no WebAssembly, so the zk-sdk runs in a sandboxed WebView with no network navigation or file access, talking to the app over a small RPC channel.
+- **Wallet-agnostic signing.** Real wallets modify what they sign (Solflare adds priority-fee instructions), so the bridge adopts the wallet's returned transaction rather than assuming its own bytes were signed.
+- **One approval per action, nothing left to expire.** Proof setup is signed without a wallet prompt — by the relayer for sends, or by a small device-derived "gas tank" for withdrawals and pots — and lands first; you then approve a single transaction built on a fresh blockhash.
+- **A relayer that can't be drained.** Every relayed instruction is checked against an allow-list with exact discriminators, account-role checks, and a priority-fee cap — tested by a fuzz script that throws drain attempts at it.
+
+## Security & limitations
+
+Envelope runs on **devnet only** and has not been externally audited. Known limitations, all documented in [THREAT_MODEL.md](THREAT_MODEL.md):
+
+- Who paid whom is public; only amounts are hidden.
+- The relayer sees sender and recipient (never amounts).
+- Mainnet would first require revoking the confidential mint's authority and the other pre-launch steps listed in the threat model.
+- Push notifications need an EAS project (`eas init`); everything else works without one.
+
+## License
+
+[Apache-2.0](LICENSE)

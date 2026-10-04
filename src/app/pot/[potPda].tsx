@@ -7,8 +7,9 @@
 import Feather from '@expo/vector-icons/Feather'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
-import { Pressable, Share, Text, View } from 'react-native'
+import { Pressable, ScrollView, Share, Text, View } from 'react-native'
 import QRCode from 'react-native-qrcode-svg'
+import { AppAddressLink } from '../../components/app-address-link'
 import { BackButton } from '../../components/back-button'
 import { Button } from '../../components/button'
 import { Screen } from '../../components/screen'
@@ -25,6 +26,16 @@ import { ellipsify } from '../../utils/ellipsify'
 import { formatBaseUnits } from '../../utils/format-amount'
 import { formatError } from '../../utils/format-error'
 import { CUSDC_DECIMALS } from '../../utils/parse-amount'
+
+// close_ts is unix seconds (see decode-pot.ts).
+function formatCloseDate(closeTs: bigint): string {
+  return new Date(Number(closeTs) * 1000).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
 
 export default function Pot() {
   const { potPda } = useLocalSearchParams<{ potPda: string }>()
@@ -59,6 +70,7 @@ export default function Pot() {
       potOwner={pot.potOwner}
       name={pot.name}
       closed={pot.closed}
+      closeTs={pot.closeTs}
       potId={pot.potId.toString()}
     />
   ) : (
@@ -71,12 +83,14 @@ function HostView({
   potOwner,
   name,
   closed,
+  closeTs,
   potId,
 }: {
   potPda: string
   potOwner: string
   name: string
   closed: boolean
+  closeTs: bigint
   potId: string
 }) {
   const router = useRouter()
@@ -122,85 +136,99 @@ function HostView({
   return (
     <Screen>
       <BackButton />
-      <View className="mt-10 mb-6">
-        <Text className="text-paper-500 text-2xl mb-1" style={{ fontFamily: fontFamily.display }}>
-          {name}
-        </Text>
-        <Text className="text-mute-500 text-sm" style={{ fontFamily: fontFamily.ui }}>
-          {closed ? 'Closed' : 'Open'}
-        </Text>
-      </View>
-
-      <View className="bg-ink-900 border border-ink-800 rounded-3xl py-8 items-center mb-6">
-        <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.ui }}>
-          Total raised
-        </Text>
-        <Text style={{ fontFamily: fontFamily.display, fontSize: 40, color: colors.paper[500] }}>
-          {balanceLoading || availableBalance === null ? '—' : `$${formatBaseUnits(availableBalance, CUSDC_DECIMALS)}`}
-        </Text>
-        {pendingBalance !== null && pendingBalance > 0n ? (
-          <Text className="text-gold-500 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
-            +${formatBaseUnits(pendingBalance, CUSDC_DECIMALS)} pending
+      {/* Scrolls: a pot's contributor list grows, and the close button must stay reachable. */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+        <View className="mt-10 mb-6">
+          <Text className="text-paper-500 text-2xl mb-1" style={{ fontFamily: fontFamily.display }}>
+            {name}
           </Text>
-        ) : null}
-      </View>
-
-      <Text className="text-mute-500 text-sm mb-3" style={{ fontFamily: fontFamily.uiSemibold }}>
-        Contributors
-      </Text>
-      <View className="gap-2 mb-6">
-        {contributions && contributions.length > 0 ? (
-          contributions.map((c) => (
-            <View
-              key={c.signature}
-              className="flex-row justify-between items-center bg-ink-900 border border-ink-800 rounded-2xl px-4 py-3"
-            >
-              <Text className="text-paper-500 text-sm" style={{ fontFamily: fontFamily.ui }}>
-                {ellipsify(c.contributor)}
-              </Text>
-              <Text className="text-paper-500 text-sm" style={{ fontFamily: fontFamily.uiSemibold }}>
-                ${formatBaseUnits(BigInt(c.amount), CUSDC_DECIMALS)}
-              </Text>
-            </View>
-          ))
-        ) : (
-          <Text className="text-mute-600 text-sm" style={{ fontFamily: fontFamily.ui }}>
-            No contributions yet.
+          <Text className="text-mute-500 text-sm" style={{ fontFamily: fontFamily.ui }}>
+            {closed ? 'Closed' : `Open · Closes ${formatCloseDate(closeTs)}`}
           </Text>
-        )}
-      </View>
-
-      {!closed ? (
-        <View className="bg-ink-900 border border-ink-800 rounded-3xl p-5 items-center mb-6">
-          <QRCode value={potPayLink} size={160} color={colors.ink[950]} backgroundColor={colors.paper[500]} />
         </View>
-      ) : null}
 
-      <View className="gap-3">
         {!closed ? (
-          <Pressable
-            onPress={() => void handleShare()}
-            className="flex-row items-center justify-center gap-2 bg-ink-900 border border-ink-800 rounded-2xl py-4 active:bg-ink-800"
-          >
-            <Feather name="share" size={16} color={colors.paper[500]} />
-            <Text style={{ fontFamily: fontFamily.uiSemibold, color: colors.paper[500], fontSize: 16 }}>
-              Share invite link
+          <View className="mb-6">
+            <AppAddressLink address={potOwner} label="Pot address" />
+            <Text className="text-mute-600 text-xs mt-1.5" style={{ fontFamily: fontFamily.ui }}>
+              Guests can paste this into Send to contribute privately.
             </Text>
-          </Pressable>
+          </View>
         ) : null}
-        {!closed ? (
-          <Button
-            label={isClosing ? 'Closing…' : 'Close pot & collect'}
-            onPress={() => void handleClose()}
-            busy={isClosing}
-          />
-        ) : null}
-      </View>
-      {error ? (
-        <Text className="text-seal-500 mt-4 text-center" style={{ fontFamily: fontFamily.ui }}>
-          {error}
+
+        <View className="bg-ink-900 border border-ink-800 rounded-3xl py-8 items-center mb-6">
+          <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.ui }}>
+            Total raised
+          </Text>
+          <Text style={{ fontFamily: fontFamily.display, fontSize: 40, color: colors.paper[500] }}>
+            {balanceLoading || availableBalance === null
+              ? '—'
+              : `$${formatBaseUnits(availableBalance, CUSDC_DECIMALS)}`}
+          </Text>
+          {pendingBalance !== null && pendingBalance > 0n ? (
+            <Text className="text-gold-500 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
+              +${formatBaseUnits(pendingBalance, CUSDC_DECIMALS)} pending
+            </Text>
+          ) : null}
+        </View>
+
+        <Text className="text-mute-500 text-sm mb-3" style={{ fontFamily: fontFamily.uiSemibold }}>
+          Contributors
         </Text>
-      ) : null}
+        <View className="gap-2 mb-6">
+          {contributions && contributions.length > 0 ? (
+            contributions.map((c) => (
+              <View
+                key={c.signature}
+                className="flex-row justify-between items-center bg-ink-900 border border-ink-800 rounded-2xl px-4 py-3"
+              >
+                <Text className="text-paper-500 text-sm" style={{ fontFamily: fontFamily.ui }}>
+                  {ellipsify(c.contributor)}
+                </Text>
+                <Text className="text-paper-500 text-sm" style={{ fontFamily: fontFamily.uiSemibold }}>
+                  ${formatBaseUnits(BigInt(c.amount), CUSDC_DECIMALS)}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text className="text-mute-600 text-sm" style={{ fontFamily: fontFamily.ui }}>
+              No contributions yet.
+            </Text>
+          )}
+        </View>
+
+        {!closed ? (
+          <View className="bg-ink-900 border border-ink-800 rounded-3xl p-5 items-center mb-6">
+            <QRCode value={potPayLink} size={160} color={colors.ink[950]} backgroundColor={colors.paper[500]} />
+          </View>
+        ) : null}
+
+        <View className="gap-3">
+          {!closed ? (
+            <Pressable
+              onPress={() => void handleShare()}
+              className="flex-row items-center justify-center gap-2 bg-ink-900 border border-ink-800 rounded-2xl py-4 active:bg-ink-800"
+            >
+              <Feather name="share" size={16} color={colors.paper[500]} />
+              <Text style={{ fontFamily: fontFamily.uiSemibold, color: colors.paper[500], fontSize: 16 }}>
+                Share invite link
+              </Text>
+            </Pressable>
+          ) : null}
+          {!closed ? (
+            <Button
+              label={isClosing ? 'Closing…' : 'Close pot & collect'}
+              onPress={() => void handleClose()}
+              busy={isClosing}
+            />
+          ) : null}
+        </View>
+        {error ? (
+          <Text className="text-seal-500 mt-4 text-center" style={{ fontFamily: fontFamily.ui }}>
+            {error}
+          </Text>
+        ) : null}
+      </ScrollView>
     </Screen>
   )
 }

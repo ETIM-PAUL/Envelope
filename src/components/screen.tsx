@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { BADGE_STRIP_HEIGHT } from './devnet-badge'
 
 // Shared page frame: dark ink background, safe-area-aware padding. `center` is for the few
 // screens that are a single focal moment (the connect gate, onboarding); everything else is
@@ -10,7 +11,7 @@ export function Screen({ children, center }: { children: ReactNode; center?: boo
   return (
     <View
       className={`flex-1 bg-ink-950 px-6 ${center ? 'items-center justify-center' : ''}`}
-      style={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }}
+      style={{ paddingTop: insets.top + BADGE_STRIP_HEIGHT + 8, paddingBottom: insets.bottom + 20 }}
     >
       {children}
     </View>
