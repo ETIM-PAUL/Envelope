@@ -11,7 +11,7 @@
     "slug": "myapp",
     "icon": "./assets/images/icon.png",
     "android": {
-      "package": "com.anonymous.myapp",
+      "package": "com.etimpaul.envelope",
       "backgroundColor": "#0F1116",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",

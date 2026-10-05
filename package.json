@@ -44,7 +44,8 @@
     "rn-confidential:typecheck": "npm run typecheck -w packages/rn-confidential",
     "relayer:dev": "npm run dev -w relayer",
     "relayer:typecheck": "npm run typecheck -w relayer",
-    "relayer:test-policy": "tsx scripts/test-relayer.ts"
+    "relayer:test-policy": "tsx scripts/test-relayer.ts",
+    "android:apk": "bash scripts/build-apk.sh"
   },
   "displayName": "Expo Kit Anchor example",
   "description": "A template for building a Solana mobile app with Expo, React Native, Solana Kit, Anchor, and Uniwind.",

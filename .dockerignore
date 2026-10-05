@@ -1,0 +1,7 @@
+# Docker builds here are only for the relayer (relayer/Dockerfile): send just what it copies.
+*
+!config/devnet.json
+!anchor/src/**
+!anchor/target/idl/**
+!relayer/package.json
+!relayer/src/**

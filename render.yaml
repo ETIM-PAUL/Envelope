@@ -1,0 +1,19 @@
+# Render blueprint for the relayer (render.com → New → Blueprint → this repo).
+# Secrets are marked `sync: false`: Render asks for them when the blueprint is first applied.
+services:
+  - type: web
+    name: envelope-relayer
+    runtime: docker
+    plan: free
+    dockerfilePath: ./relayer/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      # The fee-payer keypair: the contents of .keys/relayer.json (a JSON array of 64 numbers).
+      - key: RELAYER_KEYPAIR
+        sync: false
+      # https://devnet.helius-rpc.com/?api-key=<your key> — or leave empty for public devnet RPC.
+      - key: HELIUS_DEVNET_RPC_URL
+        sync: false
+      - key: HELIUS_WEBHOOK_SECRET
+        sync: false

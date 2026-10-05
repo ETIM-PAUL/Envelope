@@ -31,6 +31,9 @@ function readDevnetConfig(): DevnetConfig {
 }
 
 async function loadRelayerKeypairBytes(): Promise<Uint8Array> {
+  // Hosted deployments pass the keypair itself as a secret (the same JSON byte array as the file),
+  // so no key file ever has to exist on the server.
+  if (process.env.RELAYER_KEYPAIR) return new Uint8Array(JSON.parse(process.env.RELAYER_KEYPAIR))
   const path = process.env.RELAYER_KEYPAIR_PATH ?? '../.keys/relayer.json'
   // Relative to the relayer package directory (ROOT/relayer), matching .env.example's own
   // comment and how `RELAYER_KEYPAIR_PATH` reads as a path from someone running `npm run dev`
