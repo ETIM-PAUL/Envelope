@@ -20,6 +20,8 @@ keystore=.keys/envelope-release.jks
 [[ -f $keystore ]] || { echo "Missing $keystore" >&2; exit 1; }
 
 sdk=${ANDROID_HOME:-$HOME/Library/Android/sdk}
+# `prebuild --clean` drops android/local.properties, so tell Gradle where the SDK is.
+export ANDROID_HOME=$sdk
 apksigner=$(ls -d "$sdk"/build-tools/*/apksigner | sort -V | tail -1)
 
 npx expo prebuild -p android --clean --no-install

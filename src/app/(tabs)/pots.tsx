@@ -1,6 +1,8 @@
-// Phase 15: "my pots" — a host's own locally-tracked list (there's no on-chain index to query
-// instead, see pot-store.ts) plus a way to start a new one.
+// Phase 15: "my pots" — the host's pots (local list first, then synced from chain, see
+// pot-store.ts) plus a way to start a new one.
 import Feather from '@expo/vector-icons/Feather'
+import { useMobileWallet } from '@wallet-ui/react-native-kit'
+import type { GetProgramAccountsApi, Rpc } from '@solana/kit'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -8,18 +10,33 @@ import { Button } from '../../components/button'
 import { Screen } from '../../components/screen'
 import { colors, fontFamily } from '../../design/tokens'
 import { useAppStore } from '../../store/app-store'
-import { listPotSummaries, type PotSummary } from '../../features/pots/pot-store'
+import { listPotSummaries, syncPotSummaries, type PotSummary } from '../../features/pots/pot-store'
 
 export default function Pots() {
   const router = useRouter()
+  const { client } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const [pots, setPots] = useState<PotSummary[]>([])
 
   useFocusEffect(
     useCallback(() => {
       if (!walletAddress) return
-      void listPotSummaries(walletAddress).then(setPots)
-    }, [walletAddress]),
+      let active = true
+      void listPotSummaries(walletAddress).then((local) => {
+        if (active) setPots(local)
+      })
+      const rpc = client.rpc as unknown as Rpc<GetProgramAccountsApi>
+      syncPotSummaries(rpc, walletAddress)
+        .then((synced) => {
+          if (active) setPots(synced)
+        })
+        .catch(() => {
+          // Offline or rate-limited: the local list is still shown; the next visit retries.
+        })
+      return () => {
+        active = false
+      }
+    }, [client, walletAddress]),
   )
 
   return (

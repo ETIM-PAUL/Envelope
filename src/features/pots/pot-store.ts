@@ -1,8 +1,21 @@
-// Phase 15: local, per-device pot bookkeeping. There's no on-chain index of "every pot a wallet
-// has created" (envelope_vault's Pot PDA is keyed by host+potId, not enumerable), so the Pots tab
-// keeps its own small list — same spirit as Phase 8's persisted derivation signature, reusing
-// SecureStore rather than adding a new storage dependency for a handful of small records.
+// Phase 15: per-device pot bookkeeping, reusing SecureStore rather than adding a new storage
+// dependency for a handful of small records. The list is a cache, not the source of truth: every
+// Pot account stores its host, so `syncPotSummaries` rebuilds it from chain — a reinstall or a
+// new phone gets the host's open pots back.
 import * as SecureStore from 'expo-secure-store'
+import {
+  getBase58Decoder,
+  type Base58EncodedBytes,
+  type Base64EncodedDataResponse,
+  type GetProgramAccountsApi,
+  type Rpc,
+} from '@solana/kit'
+import { decodePot, type DecodedPot } from './decode-pot'
+import { ENVELOPE_VAULT_PROGRAM_ADDRESS } from './pot-pda'
+
+// Anchor's account discriminator for `Pot` (anchor/target/idl/envelope_vault.json).
+const POT_DISCRIMINATOR = new Uint8Array([238, 118, 60, 175, 178, 191, 59, 58])
+const POT_HOST_OFFSET = 8 // right after the discriminator
 
 export type PotSummary = {
   potId: string // stringified bigint
@@ -58,6 +71,50 @@ export async function addPotSummary(owner: string, summary: PotSummary): Promise
   const existing = await listPotSummaries(owner)
   const updated = [...existing.filter((p) => p.potId !== summary.potId), summary]
   await SecureStore.setItemAsync(listKeyFor(owner), JSON.stringify(updated))
+}
+
+// Merges the host's open pots found on chain into the local list (closed ones are dropped, as
+// closing a pot here does) and returns the result. Keeps local entries the RPC doesn't return
+// yet — a pot created a moment ago may not be visible to getProgramAccounts immediately.
+export async function syncPotSummaries(rpc: Rpc<GetProgramAccountsApi>, owner: string): Promise<PotSummary[]> {
+  const accounts = await rpc
+    .getProgramAccounts(ENVELOPE_VAULT_PROGRAM_ADDRESS, {
+      encoding: 'base64',
+      filters: [
+        {
+          memcmp: {
+            offset: 0n,
+            bytes: getBase58Decoder().decode(POT_DISCRIMINATOR) as Base58EncodedBytes,
+            encoding: 'base58',
+          },
+        },
+        { memcmp: { offset: BigInt(POT_HOST_OFFSET), bytes: owner as Base58EncodedBytes, encoding: 'base58' } },
+      ],
+    })
+    .send()
+  const onChain: { potPda: string; pot: DecodedPot }[] = accounts.map(({ pubkey, account }) => {
+    const [base64Data] = account.data as Base64EncodedDataResponse
+    return { potPda: pubkey as string, pot: decodePot(Uint8Array.from(Buffer.from(base64Data, 'base64'))) }
+  })
+  const closed = new Set(onChain.filter(({ pot }) => pot.closed).map(({ potPda }) => potPda))
+
+  const existing = await listPotSummaries(owner)
+  const known = new Set(existing.map((p) => p.potPda))
+  const recovered: PotSummary[] = onChain
+    .filter(({ potPda, pot }) => !pot.closed && !known.has(potPda))
+    .map(({ potPda, pot }) => ({
+      potId: pot.potId.toString(),
+      potPda,
+      potOwnerAddress: pot.potOwner,
+      name: pot.name,
+      closeTs: pot.closeTs.toString(),
+      createdAt: 0, // unknown for a recovered pot; display only
+    }))
+  const updated = [...existing.filter((p) => !closed.has(p.potPda)), ...recovered]
+  if (recovered.length > 0 || updated.length !== existing.length) {
+    await SecureStore.setItemAsync(listKeyFor(owner), JSON.stringify(updated))
+  }
+  return updated
 }
 
 export async function removePotSummary(owner: string, potId: string): Promise<void> {
