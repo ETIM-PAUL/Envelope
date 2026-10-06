@@ -10,7 +10,7 @@ Envelope is an Android wallet companion for sending dollars privately on Solana.
 
 ## The problem
 
-Every Solana payment is public. Pay a friend for dinner and they — and anyone with a block explorer — can see your entire balance and every transfer you've ever made. That's a non-starter for salaries, group gifts, donations, or any payment between people who don't want to publish their finances.
+By default, every Solana payment is public. Pay a friend for dinner and they — and anyone with a block explorer — can see how much you sent, your entire balance, and every transfer you've ever made. Some wallets can now hide _who_ sent a payment, but the amount and your balance stay on display. That's a non-starter for salaries, group gifts, donations, or any payment between people who don't want to publish their finances.
 
 ## What Envelope does
 
