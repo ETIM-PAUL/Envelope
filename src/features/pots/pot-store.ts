@@ -37,12 +37,19 @@ function listKeyFor(owner: string): string {
 const AUTH_PROMPT = 'Unlock this pot'
 
 // The pot's own derivation signature is as sensitive as the wallet's own (Phase 8) — whoever has
-// it can reconstruct the pot's signing key — so it gets the same biometric gate.
-export async function savePotSignature(owner: string, potId: string, signatureBase64: string): Promise<void> {
-  await SecureStore.setItemAsync(signatureKeyFor(owner, potId), signatureBase64, {
-    requireAuthentication: true,
-    authenticationPrompt: AUTH_PROMPT,
-  })
+// it can reconstruct the pot's signing key — so it gets the same biometric gate. Best-effort, like
+// saveDerivationSignature: where biometric-gated storage isn't available, reopening the pot asks
+// the wallet to sign again instead.
+export async function savePotSignature(owner: string, potId: string, signatureBase64: string): Promise<boolean> {
+  try {
+    await SecureStore.setItemAsync(signatureKeyFor(owner, potId), signatureBase64, {
+      requireAuthentication: true,
+      authenticationPrompt: AUTH_PROMPT,
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function readPotSignature(owner: string, potId: string): Promise<string | null> {

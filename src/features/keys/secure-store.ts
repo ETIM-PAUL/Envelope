@@ -10,11 +10,21 @@ function keyFor(owner: string): string {
 
 const AUTH_PROMPT = 'Unlock your private balance'
 
-export async function saveDerivationSignature(owner: string, signatureBase64: string): Promise<void> {
-  await SecureStore.setItemAsync(keyFor(owner), signatureBase64, {
-    requireAuthentication: true,
-    authenticationPrompt: AUTH_PROMPT,
-  })
+// Best-effort: persisting only saves a wallet prompt on the next app open; the keys are already
+// derived. Some devices can't do biometric-gated storage even with a fingerprint enrolled — e.g.
+// Huawei phones without Google services report "Biometric authentication status is unknown" —
+// and there the signature is simply not kept (never stored without the biometric gate), so
+// reopening the app asks the wallet to sign again. Returns whether it was saved.
+export async function saveDerivationSignature(owner: string, signatureBase64: string): Promise<boolean> {
+  try {
+    await SecureStore.setItemAsync(keyFor(owner), signatureBase64, {
+      requireAuthentication: true,
+      authenticationPrompt: AUTH_PROMPT,
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // Resolves to `null` if nothing is stored for this owner, or the device can't satisfy
