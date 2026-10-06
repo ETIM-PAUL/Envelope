@@ -34,11 +34,53 @@ function generateWasmBase64Module(): void {
   console.log(`embedded ${(wasmBytes.byteLength / 1024).toFixed(0)}KB of wasm as base64`)
 }
 
+// Runs before the bundle, in plain ES5 so it parses on any WebView. Phones without Google services
+// (e.g. Huawei) ship their own WebView that the Play Store can't update, often a few Chrome
+// versions behind; the bundle's syntax is lowered (see `target`), but newer *APIs* it calls need
+// these shims. And if the bridge still fails to start, report why — with the engine version — to
+// the host instead of leaving it waiting forever (CBridgeHost shows it).
+const PRELUDE = `(function () {
+  function report(message) {
+    try {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ bridgeError: String(message), userAgent: navigator.userAgent }))
+    } catch (e) {}
+  }
+  try {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ bridgeInfo: true, userAgent: navigator.userAgent }))
+  } catch (e) {}
+  window.addEventListener('error', function (e) { report((e.error && e.error.stack) || e.message) })
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason
+    report((r && (r.stack || r.message)) || r)
+  })
+  if (!Object.hasOwn) {
+    Object.hasOwn = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k) }
+  }
+  if (!Array.prototype.at) {
+    Object.defineProperty(Array.prototype, 'at', {
+      configurable: true, writable: true,
+      value: function (i) { i = Math.trunc(i) || 0; if (i < 0) i += this.length; return this[i] }
+    })
+  }
+  if (typeof AbortSignal !== 'undefined' && !AbortSignal.any) {
+    AbortSignal.any = function (signals) {
+      var controller = new AbortController()
+      for (var i = 0; i < signals.length; i++) {
+        var s = signals[i]
+        if (s.aborted) { controller.abort(s.reason); break }
+        s.addEventListener('abort', (function (s) { return function () { controller.abort(s.reason) } })(s), { once: true })
+      }
+      return controller.signal
+    }
+  }
+})()`
+
 function wrapAsHtml(js: string): string {
   return `<!doctype html>
 <html>
   <head><meta charset="utf-8" /></head>
   <body>
+    <script>${PRELUDE}</script>
     <script>${js}</script>
   </body>
 </html>
@@ -54,7 +96,9 @@ async function main() {
     write: false,
     format: 'iife',
     platform: 'browser',
-    target: ['es2022'],
+    // Lowered past es2022 for older, non-updatable WebViews (see PRELUDE). The zk-sdk wasm itself
+    // needs reference-types (Chrome 96), so going lower than that wouldn't help.
+    target: ['chrome90'],
     alias: {
       '@solana/zk-sdk/bundler': '@solana/zk-sdk/web',
     },

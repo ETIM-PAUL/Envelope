@@ -83,6 +83,11 @@ export default function Onboarding() {
           {error}
         </Text>
       ) : null}
+      {!bridge.ready && bridge.error ? (
+        <Text className="text-seal-500 mt-4 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
+          {`Envelope's privacy engine couldn't start on this phone. Updating its WebView may fix it.\n\n${bridge.error}`}
+        </Text>
+      ) : null}
     </Screen>
   )
 }

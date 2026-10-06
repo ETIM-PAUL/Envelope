@@ -22,6 +22,9 @@ const WebViewComponent = WebView as unknown as React.ForwardRefExoticComponent<
 
 export type CBridgeApi = {
   ready: boolean
+  // Set when the bridge couldn't start (e.g. a WebView too old to run it), so screens can say so
+  // instead of waiting on `ready` forever. Includes the WebView's engine version when known.
+  error: string | null
   call<TMethod extends keyof BridgeMethodMap>(
     method: TMethod,
     params: BridgeMethodMap[TMethod]['params'],
@@ -56,11 +59,40 @@ export type CBridgeHostProps = {
 const base64ToBytes = (base64: string): Uint8Array => toByteArray(base64)
 const bytesToBase64 = (bytes: Uint8Array): string => fromByteArray(bytes)
 
+// Startup check: the first ping waits on WASM compilation, which takes a few seconds on a slow
+// phone. A ping can also be lost if it lands while the page is still settling, so retry before
+// giving up.
+const PING_TIMEOUT_MS = 20_000
+const PING_ATTEMPTS = 3
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('the secure engine did not respond')), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err: unknown) => {
+        clearTimeout(timer)
+        reject(err instanceof Error ? err : new Error(String(err)))
+      },
+    )
+  })
+}
+
+function engineVersion(userAgent: string | undefined): string {
+  const match = userAgent?.match(/Chrome\/(\d+)/)
+  return match ? `WebView engine Chrome ${match[1]}` : 'unknown WebView engine'
+}
+
 // Mount exactly once at the app root. Renders a zero-size, locked-down WebView that loads only
 // the inlined cbridge HTML bundle — no remote scripts, no navigation, no file access.
 export function CBridgeHost({ children, onSignMessage, onSignTransactions, onReady }: CBridgeHostProps) {
   const webviewRef = useRef<WebView>(null)
   const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const userAgentRef = useRef<string | undefined>(undefined)
 
   // The channel's identity must stay stable for the life of the WebView (recreating it would
   // drop in-flight calls), but `onSignMessage`/`onSignTransactions` change identity on every
@@ -94,7 +126,29 @@ export function CBridgeHost({ children, onSignMessage, onSignTransactions, onRea
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      void channel.receive(event.nativeEvent.data)
+      const text = event.nativeEvent.data
+      // Sent once at page start: the engine version, for any error shown later.
+      if (text.startsWith('{"bridgeInfo"')) {
+        try {
+          userAgentRef.current = (JSON.parse(text) as { userAgent?: string }).userAgent
+        } catch {
+          // malformed report: ignore
+        }
+        return
+      }
+      // The bridge page's own startup-failure reports (packages/cbridge/build.ts's PRELUDE) aren't
+      // RPC messages. Only the first is kept: it's the root cause, later ones are fallout.
+      if (text.startsWith('{"bridgeError"')) {
+        try {
+          const { bridgeError, userAgent } = JSON.parse(text) as { bridgeError: string; userAgent?: string }
+          userAgentRef.current = userAgent
+          setError((current) => current ?? `${bridgeError.split('\n')[0]} (${engineVersion(userAgent)})`)
+        } catch {
+          // malformed report: ignore
+        }
+        return
+      }
+      void channel.receive(text)
     },
     [channel],
   )
@@ -102,20 +156,35 @@ export function CBridgeHost({ children, onSignMessage, onSignTransactions, onRea
   const handleLoadEnd = useCallback(async () => {
     // First real round trip through the WASM-backed bridge — confirms it initialized, not just
     // that the page loaded.
-    const { wasmReady } = await channel.call<BridgeMethodMap['ping']['result']>('ping', {})
-    if (wasmReady) {
-      setReady(true)
-      onReady?.()
+    let lastError: unknown = null
+    for (let attempt = 0; attempt < PING_ATTEMPTS; attempt++) {
+      try {
+        const { wasmReady } = await withTimeout(
+          channel.call<BridgeMethodMap['ping']['result']>('ping', {}),
+          PING_TIMEOUT_MS,
+        )
+        if (wasmReady) {
+          setError(null)
+          setReady(true)
+          onReady?.()
+          return
+        }
+      } catch (err) {
+        lastError = err
+      }
     }
+    const reason = lastError instanceof Error ? lastError.message : 'the secure engine did not start'
+    setError((current) => current ?? `${reason} (${engineVersion(userAgentRef.current)})`)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onReady intentionally not tracked
   }, [channel])
 
   const api = useMemo<CBridgeApi>(
     () => ({
       ready,
+      error: ready ? null : error,
       call: (method, params) => channel.call(method, params),
     }),
-    [ready, channel],
+    [ready, error, channel],
   )
 
   return (
