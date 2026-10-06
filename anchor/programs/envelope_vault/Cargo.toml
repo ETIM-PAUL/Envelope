@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "1:1 USDC <-> cUSDC wrapping, tier-based daily limits, and the event-pot registry"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
