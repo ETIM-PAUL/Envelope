@@ -9,17 +9,24 @@
 // directly on whatever bytes you hand it — exactly what we need for inlined base64, no fetch.
 // (Verified: passing raw bytes to `init` skips the target's URL/fetch branch entirely.)
 //
-// So: alias `@solana/zk-sdk/bundler` to `@solana/zk-sdk/web` for this whole bundle. Both targets
-// export identically-named classes (same wasm-bindgen source, different JS glue only), so
-// token-2022's import and bridge.ts's own import resolve to the very same module instance —
-// meaning the one `zkInit(...)` call in bridge.ts initializes it for both.
+// So: alias both `@solana/zk-sdk/bundler` and `@solana/zk-sdk/web` to a "web"-target build for
+// this whole bundle — our own, vendor/zk-sdk-web (see ZK_SDK_COMPAT_DIR). The targets export
+// identically-named classes (same wasm-bindgen source, different JS glue only), so token-2022's
+// import and bridge.ts's own import resolve to the very same module instance — meaning the one
+// `zkInit(...)` call in bridge.ts initializes it for both. (esbuild warns about `import.meta` in
+// that glue: it's only on the fetch-by-URL path, which passing bytes skips.)
 import { build } from 'esbuild'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = dirname(fileURLToPath(import.meta.url))
-const ZK_SDK_WASM_PATH = join(ROOT, '..', '..', 'node_modules', '@solana', 'zk-sdk', 'dist', 'web', 'index_bg.wasm')
+// Not the npm package's own "web" build: a rebuild of the same version without WebAssembly
+// reference types, so the bridge also runs on WebViews older than Chrome 96 (see
+// scripts/build-zk-sdk-compat.sh, which regenerates it). Same public API, so imports of
+// `@solana/zk-sdk/web` (types included) are unchanged — only the bundle is redirected.
+const ZK_SDK_COMPAT_DIR = join(ROOT, 'vendor', 'zk-sdk-web')
+const ZK_SDK_WASM_PATH = join(ZK_SDK_COMPAT_DIR, 'index_bg.wasm')
 const GENERATED_DIR = join(ROOT, 'src', 'generated')
 const DIST_DIR = join(ROOT, 'dist')
 
@@ -100,7 +107,8 @@ async function main() {
     // needs reference-types (Chrome 96), so going lower than that wouldn't help.
     target: ['chrome90'],
     alias: {
-      '@solana/zk-sdk/bundler': '@solana/zk-sdk/web',
+      '@solana/zk-sdk/bundler': join(ZK_SDK_COMPAT_DIR, 'index.js'),
+      '@solana/zk-sdk/web': join(ZK_SDK_COMPAT_DIR, 'index.js'),
     },
     define: {
       'process.env.NODE_ENV': '"production"',

@@ -22,6 +22,8 @@ Every Solana payment is public. Pay a friend for dinner and they — and anyone 
 - **Staking tiers** — stake SKR to raise your daily limit and drop the send fee.
 - **Notifications** — every movement of your funds, decrypted on-device: deposits, withdrawals, transfers, pot activity.
 - **Biometric unlock** — reopening the app restores your keys behind your fingerprint, with no new wallet prompt.
+- **Restore on any phone** — keys are re-derived from your wallet, and your open pots are found on-chain, so a reinstall or a new device picks up where you left off.
+- **Runs on older phones too** — the proof engine is rebuilt to work on WebViews back to Chrome 85, including Huawei and other phones without Google services.
 
 ## Screenshots
 
@@ -107,6 +109,18 @@ On devnet, the Stake tab has a test-SKR faucet (500 SKR a day, up to 6,000 held)
 
 The app reads these from [`config/devnet.json`](config/devnet.json), so it runs against the deployed programs out of the box.
 
+## Install the app
+
+Download `envelope.apk` from the [Releases](https://github.com/ETIM-PAUL/Envelope/releases) page and open it on an Android phone (allow installs from your browser or file manager when asked), or install it over USB with `adb install envelope.apk`.
+
+Then:
+
+1. Install a Mobile Wallet Adapter wallet such as [Solflare](https://solflare.com) and switch it to **Devnet**.
+2. Get devnet SOL at [faucet.solana.com](https://faucet.solana.com) and devnet USDC at [faucet.circle.com](https://faucet.circle.com).
+3. Open Envelope, connect your wallet, tap **Enable private balance**, then **Add to private balance**.
+
+The APK talks to the deployed devnet programs and a hosted relayer, so nothing else needs to run. The relayer is on a free tier that sleeps when idle: the first request after a quiet spell can take up to a minute.
+
 ## Getting started
 
 ### Prerequisites
@@ -132,6 +146,28 @@ npm run dev                         # afterwards: start Metro, then press `a`
 
 Then, in the app: connect your wallet, tap **Enable private balance**, and approve. Get devnet USDC for your wallet at [faucet.circle.com](https://faucet.circle.com) and devnet SOL at [faucet.solana.com](https://faucet.solana.com), then **Add to private balance**.
 
+### Build a release APK
+
+A release build runs without Metro, so it needs a relayer reachable over HTTPS. Set it in `.env`:
+
+```bash
+EXPO_PUBLIC_RELAYER_URL=https://your-relayer.example.com
+```
+
+Create a signing key once (keep it: every update, including on the Solana dApp Store, must be signed with the same key):
+
+```bash
+keytool -genkeypair -storetype PKCS12 -keystore .keys/envelope-release.jks -alias envelope \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Envelope"
+printf '%s' '<the keystore password>' > .keys/envelope-release.password
+```
+
+Then `npm run android:apk` builds and signs `dist/envelope.apk`.
+
+### Deploy the relayer
+
+The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and a [Render](https://render.com) blueprint ([`render.yaml`](render.yaml)): New → Blueprint → this repo. Set `RELAYER_KEYPAIR` to the contents of `.keys/relayer.json` and, optionally, `HELIUS_DEVNET_RPC_URL`. Any Docker host works the same way: build with `docker build -f relayer/Dockerfile .` from the repo root.
+
 <details>
 <summary><strong>Troubleshooting</strong></summary>
 
@@ -139,6 +175,8 @@ Then, in the app: connect your wallet, tap **Enable private balance**, and appro
 - **Emulator fingerprint prompt** — enroll a fingerprint in Android Settings → Security, then use the emulator's Extended Controls → Fingerprint to touch the sensor.
 - **"Can't connect to the network" right after returning from the wallet** — Android briefly blocks a backgrounded app's network; Envelope retries automatically. If it persists, cold-boot the emulator.
 - **Wallet shows a black screen on Connect** — force-stop the wallet app and tap Connect again.
+- **"Envelope's privacy engine couldn't start on this phone"** — the message includes the phone's WebView engine version. Envelope needs Chrome 85 or newer; update Android System WebView from the Play Store if you can.
+- **"Can't reach the relayer" on the first action of the day** — the hosted relayer was asleep; wait a minute and try again.
 
 </details>
 
@@ -148,11 +186,12 @@ Then, in the app: connect your wallet, tap **Enable private balance**, and appro
 ├── src/                     Expo app (Expo Router screens in src/app, features in src/features)
 ├── packages/
 │   ├── cbridge/             proof bridge: Token-2022 confidential + zk-sdk, bundled into one HTML file for a WebView
+│   │   └── vendor/          zk-sdk rebuilt for older WebViews (scripts/build-zk-sdk-compat.sh reproduces it)
 │   └── rn-confidential/     React Native host for the bridge (<CBridgeHost>, useCBridge)
 ├── anchor/programs/
 │   ├── envelope_vault/      USDC ⇄ cUSDC wrap/unwrap, daily limits by tier, event pots
 │   └── envelope_stake/      SKR staking and tier computation
-├── relayer/                 fee-payer service: transaction policy, tiers, push webhooks, devnet SKR faucet
+├── relayer/                 fee-payer service: transaction policy, tiers, push webhooks, devnet SKR faucet (Dockerfile)
 ├── scripts/                 devnet setup and end-to-end round-trip scripts
 └── config/devnet.json       public devnet addresses (programs, mints, wallets)
 ```
@@ -163,6 +202,7 @@ Then, in the app: connect your wallet, tap **Enable private balance**, and appro
 | -------------------------------------- | ------------------------------------------------------------------- |
 | `npm run dev`                          | Start Metro for the dev client                                      |
 | `npm run relayer:dev`                  | Run the relayer locally (port 8787)                                 |
+| `npm run android:apk`                  | Build and sign a standalone release APK → `dist/envelope.apk`       |
 | `npm run cbridge:build`                | Rebuild the proof bridge bundle after changing `packages/cbridge`   |
 | `npm run devnet:roundtrip`             | CLI confidential transfer round trip on devnet                      |
 | `npm run devnet:withdraw-roundtrip`    | Wrap → confidential → withdraw → unwrap, checking supply invariants |
@@ -175,6 +215,7 @@ Then, in the app: connect your wallet, tap **Enable private balance**, and appro
 ## Design decisions
 
 - **Proofs in a WebView, not a server.** Generating proofs on-device keeps encryption keys on the phone. Hermes has no WebAssembly, so the zk-sdk runs in a sandboxed WebView with no network navigation or file access, talking to the app over a small RPC channel.
+- **Proofs on phones the Play Store can't update.** The published zk-sdk WebAssembly needs Chrome 96+, but phones without Google services (Huawei, many budget devices) ship a frozen, older WebView. Envelope bundles the same zk-sdk version rebuilt without WebAssembly reference types, which brings support back to Chrome 85. Keys, ciphertexts, and proofs were cross-checked bit-for-bit against the published build, and [a script](packages/cbridge/scripts/build-zk-sdk-compat.sh) reproduces it from Solana's source.
 - **Wallet-agnostic signing.** Real wallets modify what they sign (Solflare adds priority-fee instructions), so the bridge adopts the wallet's returned transaction rather than assuming its own bytes were signed.
 - **One approval per action, nothing left to expire.** Proof setup is signed without a wallet prompt — by the relayer for sends, or by a small device-derived "gas tank" for withdrawals and pots — and lands first; you then approve a single transaction built on a fresh blockhash.
 - **A relayer that can't be drained.** Every relayed instruction is checked against an allow-list with exact discriminators, account-role checks, and a priority-fee cap — tested by a fuzz script that throws drain attempts at it.

@@ -5,6 +5,6 @@ const expoConfig = require('eslint-config-expo/flat')
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['anchor/src/client/js/generated/*', 'anchor/target/*', 'dist/*'],
+    ignores: ['anchor/src/client/js/generated/*', 'anchor/target/*', 'dist/*', 'packages/cbridge/vendor/*'],
   },
 ])
