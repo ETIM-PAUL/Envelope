@@ -149,7 +149,7 @@ export default function Stake() {
   }
 
   return (
-    <Screen>
+    <Screen scroll>
       <View className="flex-row justify-between items-center mb-6">
         <Text className="text-paper-500 text-2xl" style={{ fontFamily: fontFamily.display }}>
           Stake

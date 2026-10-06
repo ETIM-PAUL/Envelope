@@ -30,6 +30,13 @@
       "expo-secure-store",
       "expo-font",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan a QR code to fill in who you're paying.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-local-authentication",
         {
           "faceIDPermission": "Confirm this send with Face ID."

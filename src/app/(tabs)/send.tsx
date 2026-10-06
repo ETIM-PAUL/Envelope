@@ -1,7 +1,6 @@
-// Phase 13: recipient entry — the tab's entry point. Paste or type an address, check it's set up
-// to receive privately, then hand off to /send-confirm (a pushed route, not a tab) for the amount
-// + confirm step. Scan-to-send and a contacts picker are deferred (no expo-camera/expo-contacts in
-// this build yet) — paste and manual entry cover the "Done when" flow for now.
+// Phase 13: recipient entry — the tab's entry point. Paste, type, or scan an address, check it's
+// set up to receive privately, then hand off to /send-confirm (a pushed route, not a tab) for the
+// amount + confirm step. Scanning a pot invite opens that pot instead (see parse-scanned-code.ts).
 import Feather from '@expo/vector-icons/Feather'
 import { isAddress } from '@solana/kit'
 import * as Clipboard from 'expo-clipboard'
@@ -9,11 +8,13 @@ import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Pressable, Text, TextInput, View } from 'react-native'
 import { Button } from '../../components/button'
+import { QrScanner } from '../../components/qr-scanner'
 import { Screen } from '../../components/screen'
 import { colors, fontFamily } from '../../design/tokens'
 import { useConfidentialAccount } from '../../features/account/use-confidential-account'
 import { useAppStore } from '../../store/app-store'
 import { formatError } from '../../utils/format-error'
+import type { ScannedCode } from '../../utils/parse-scanned-code'
 
 export default function Send() {
   const router = useRouter()
@@ -22,6 +23,7 @@ export default function Send() {
   const [addressText, setAddressText] = useState('')
   const [isChecking, setIsChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isScanning, setIsScanning] = useState(false)
 
   const trimmed = addressText.trim()
   const looksValid = trimmed.length > 0 && isAddress(trimmed)
@@ -30,6 +32,16 @@ export default function Send() {
   async function handlePaste() {
     const clipboardText = await Clipboard.getStringAsync()
     if (clipboardText) setAddressText(clipboardText.trim())
+  }
+
+  function handleScanned(code: ScannedCode) {
+    setIsScanning(false)
+    setError(null)
+    if (code.kind === 'pot') {
+      router.push({ pathname: '/pot/[potPda]', params: { potPda: code.potPda } })
+      return
+    }
+    setAddressText(code.address)
   }
 
   async function handleContinue() {
@@ -69,15 +81,18 @@ export default function Send() {
             setAddressText(text)
             setError(null)
           }}
-          placeholder="Paste or type an address"
+          placeholder="Paste, scan, or type an address"
           placeholderTextColor={colors.mute[600]}
           autoCapitalize="none"
           autoCorrect={false}
           className="flex-1 text-paper-500 py-4"
           style={{ fontFamily: fontFamily.ui, fontSize: 15 }}
         />
-        <Pressable onPress={() => void handlePaste()} hitSlop={8}>
+        <Pressable onPress={() => void handlePaste()} hitSlop={8} accessibilityLabel="Paste address">
           <Feather name="clipboard" size={18} color={colors.mute[500]} />
+        </Pressable>
+        <Pressable onPress={() => setIsScanning(true)} hitSlop={8} className="ml-4" accessibilityLabel="Scan QR code">
+          <Feather name="maximize" size={18} color={colors.mute[500]} />
         </Pressable>
       </View>
 
@@ -100,6 +115,8 @@ export default function Send() {
           busy={isChecking}
         />
       </View>
+
+      <QrScanner visible={isScanning} onScanned={handleScanned} onClose={() => setIsScanning(false)} />
     </Screen>
   )
 }
