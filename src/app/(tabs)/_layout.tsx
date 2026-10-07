@@ -12,7 +12,7 @@ const TAB_ICONS = {
   send: 'arrow-up-right',
   receive: 'arrow-down-left',
   pots: 'archive',
-  stake: 'trending-up',
+  stake: 'award',
   notifications: 'bell',
 } as const
 

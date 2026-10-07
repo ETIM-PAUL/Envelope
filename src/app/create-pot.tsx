@@ -1,16 +1,22 @@
 // Phase 15: name + close date → derive pot key → create + configure pot account → create_pot,
 // all behind useCreatePot's one call. Cover image is explicitly out of scope here (the plan
 // calls it "local only" — a later, purely cosmetic addition, not load-bearing for the feature).
-import { useRouter } from 'expo-router'
+import { useQuery } from '@tanstack/react-query'
+import { useMobileWallet } from '@wallet-ui/react-native-kit'
+import type { GetProgramAccountsApi, Rpc } from '@solana/kit'
+import { Link, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Text, TextInput, View } from 'react-native'
-import { AssetChips } from '../components/asset-picker'
+import { AssetChips, AssetToggle } from '../components/asset-picker'
 import { BackButton } from '../components/back-button'
 import { Button } from '../components/button'
 import { Screen } from '../components/screen'
 import { colors, fontFamily } from '../design/tokens'
 import { availableAssetIds, type AssetId } from '../config/assets'
 import { useCreatePot } from '../features/pots/use-create-pot'
+import { syncPotSummaries } from '../features/pots/pot-store'
+import { useTier } from '../features/account/use-tier'
+import { useAppStore } from '../store/app-store'
 import { formatError } from '../utils/format-error'
 
 const DAY_SECONDS = 24 * 60 * 60
@@ -18,6 +24,16 @@ const DAY_SECONDS = 24 * 60 * 60
 export default function CreatePot() {
   const router = useRouter()
   const { createPot } = useCreatePot()
+  const { client } = useMobileWallet()
+  const walletAddress = useAppStore((s) => s.walletAddress)
+  const { data: tierInfo } = useTier(walletAddress)
+  const perks = tierInfo?.perks
+  const { data: openPots } = useQuery({
+    queryKey: ['open-pots', walletAddress],
+    enabled: Boolean(walletAddress),
+    queryFn: () => syncPotSummaries(client.rpc as unknown as Rpc<GetProgramAccountsApi>, walletAddress!),
+  })
+  const atPotLimit = perks?.maxOpenPots != null && openPots !== undefined && openPots.length >= perks.maxOpenPots
   const [name, setName] = useState('')
   const [daysText, setDaysText] = useState('7')
   // Which tokens guests can contribute; the pot gets a private account for each.
@@ -87,17 +103,37 @@ export default function CreatePot() {
           <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.uiSemibold }}>
             Guests can give
           </Text>
-          <AssetChips selected={assets} onChange={setAssets} />
+          {perks?.multiTokenPots === false ? (
+            <>
+              <View className="items-start">
+                <AssetToggle value={assets[0]!} onChange={(asset) => setAssets([asset])} />
+              </View>
+              <Text className="text-mute-600 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
+                Members can accept dollars and SKR in one pot.
+              </Text>
+            </>
+          ) : (
+            <AssetChips selected={assets} onChange={setAssets} />
+          )}
         </View>
       ) : (
         <View className="mb-5" />
       )}
 
+      {atPotLimit ? (
+        <Text className="text-paper-400 text-sm mb-4 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
+          Your plan allows {perks?.maxOpenPots} open pot{perks?.maxOpenPots === 1 ? '' : 's'} at a time — close one, or{' '}
+          <Link href="/(tabs)/stake" className="text-seal-400" style={{ fontFamily: fontFamily.uiSemibold }}>
+            upgrade your membership
+          </Link>
+          .
+        </Text>
+      ) : null}
       <View className="w-full max-w-xs">
         <Button
-          label={isBusy ? 'Creating…' : 'Create pot'}
+          label={isBusy ? 'Creating…' : atPotLimit ? 'Pot limit reached' : 'Create pot'}
           onPress={() => void handleCreate()}
-          disabled={!name.trim() || !validDays}
+          disabled={!name.trim() || !validDays || atPotLimit}
           busy={isBusy}
         />
       </View>

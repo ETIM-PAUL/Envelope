@@ -31,6 +31,7 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyAccount,
+  type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
   type WritableSignerAccount,
@@ -56,10 +57,12 @@ export function getWrapDiscriminatorBytes(): ReadonlyUint8Array {
 export type WrapInstruction<
   TProgram extends string = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
   TAccountUser extends string | AccountMeta<string> = string,
+  TAccountPayer extends string | AccountMeta<string> = string,
   TAccountConfig extends string | AccountMeta<string> = string,
   TAccountVaultAuthority extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountStakePosition extends string | AccountMeta<string> = string,
+  TAccountPass extends string | AccountMeta<string> = string,
   TAccountUserDaily extends string | AccountMeta<string> = string,
   TAccountUserUsdc extends string | AccountMeta<string> = string,
   TAccountVaultUsdc extends string | AccountMeta<string> = string,
@@ -74,12 +77,16 @@ export type WrapInstruction<
   InstructionWithAccounts<
     [
       TAccountUser extends string
-        ? WritableSignerAccount<TAccountUser> & AccountSignerMeta<TAccountUser>
+        ? ReadonlySignerAccount<TAccountUser> & AccountSignerMeta<TAccountUser>
         : TAccountUser,
+      TAccountPayer extends string
+        ? WritableSignerAccount<TAccountPayer> & AccountSignerMeta<TAccountPayer>
+        : TAccountPayer,
       TAccountConfig extends string ? ReadonlyAccount<TAccountConfig> : TAccountConfig,
       TAccountVaultAuthority extends string ? ReadonlyAccount<TAccountVaultAuthority> : TAccountVaultAuthority,
       TAccountPool extends string ? ReadonlyAccount<TAccountPool> : TAccountPool,
       TAccountStakePosition extends string ? ReadonlyAccount<TAccountStakePosition> : TAccountStakePosition,
+      TAccountPass extends string ? ReadonlyAccount<TAccountPass> : TAccountPass,
       TAccountUserDaily extends string ? WritableAccount<TAccountUserDaily> : TAccountUserDaily,
       TAccountUserUsdc extends string ? WritableAccount<TAccountUserUsdc> : TAccountUserUsdc,
       TAccountVaultUsdc extends string ? WritableAccount<TAccountVaultUsdc> : TAccountVaultUsdc,
@@ -119,10 +126,12 @@ export function getWrapInstructionDataCodec(): FixedSizeCodec<WrapInstructionDat
 
 export type WrapAsyncInput<
   TAccountUser extends InstructionSignerInput = InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
   TAccountConfig extends InstructionAccountInput = InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountStakePosition extends InstructionAccountInput = InstructionAccountInput,
+  TAccountPass extends InstructionAccountInput = InstructionAccountInput,
   TAccountUserDaily extends InstructionAccountInput = InstructionAccountInput,
   TAccountUserUsdc extends InstructionAccountInput = InstructionAccountInput,
   TAccountVaultUsdc extends InstructionAccountInput = InstructionAccountInput,
@@ -133,6 +142,11 @@ export type WrapAsyncInput<
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
   user: TAccountUser
+  /**
+   * Pays the daily-limit record's rent the first time: the user's own wallet, or (SKR fuel)
+   * their gas tank.
+   */
+  payer: TAccountPayer
   config?: TAccountConfig
   vaultAuthority?: TAccountVaultAuthority
   /**
@@ -150,6 +164,12 @@ export type WrapAsyncInput<
    * isn't empty; the `seeds`/`seeds::program` constraint below additionally pins the address.
    */
   stakePosition?: TAccountStakePosition
+  /**
+   * `stake_position`: absent (never bought) is ordinary Free, so it's an `UncheckedAccount`
+   * whose owner and `user` field the handler verifies whenever it isn't empty; the seeds pin
+   * the address.
+   */
+  pass?: TAccountPass
   userDaily?: TAccountUserDaily
   userUsdc: TAccountUserUsdc
   vaultUsdc: TAccountVaultUsdc
@@ -163,10 +183,12 @@ export type WrapAsyncInput<
 
 export async function getWrapInstructionAsync<
   TAccountUser extends InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput,
   TAccountConfig extends InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountStakePosition extends InstructionAccountInput,
+  TAccountPass extends InstructionAccountInput,
   TAccountUserDaily extends InstructionAccountInput,
   TAccountUserUsdc extends InstructionAccountInput,
   TAccountVaultUsdc extends InstructionAccountInput,
@@ -179,10 +201,12 @@ export async function getWrapInstructionAsync<
 >(
   input: WrapAsyncInput<
     TAccountUser,
+    TAccountPayer,
     TAccountConfig,
     TAccountVaultAuthority,
     TAccountPool,
     TAccountStakePosition,
+    TAccountPass,
     TAccountUserDaily,
     TAccountUserUsdc,
     TAccountVaultUsdc,
@@ -197,10 +221,12 @@ export async function getWrapInstructionAsync<
   WrapInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountUser, InstructionAccountInputAddress<TAccountUser>>,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
     ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
     ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
     ResolvedInstructionAccountMeta<TAccountPool, InstructionAccountInputAddress<TAccountPool>>,
     ResolvedInstructionAccountMeta<TAccountStakePosition, InstructionAccountInputAddress<TAccountStakePosition>>,
+    ResolvedInstructionAccountMeta<TAccountPass, InstructionAccountInputAddress<TAccountPass>>,
     ResolvedInstructionAccountMeta<TAccountUserDaily, InstructionAccountInputAddress<TAccountUserDaily>>,
     ResolvedInstructionAccountMeta<TAccountUserUsdc, InstructionAccountInputAddress<TAccountUserUsdc>>,
     ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
@@ -219,11 +245,13 @@ export async function getWrapInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    user: { value: input.user ?? null, isSigner: true, isWritable: true },
+    user: { value: input.user ?? null, isSigner: true, isWritable: false },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
     config: { value: input.config ?? null, isSigner: false, isWritable: false },
     vaultAuthority: { value: input.vaultAuthority ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: false },
     stakePosition: { value: input.stakePosition ?? null, isSigner: false, isWritable: false },
+    pass: { value: input.pass ?? null, isSigner: false, isWritable: false },
     userDaily: { value: input.userDaily ?? null, isSigner: false, isWritable: true },
     userUsdc: { value: input.userUsdc ?? null, isSigner: false, isWritable: true },
     vaultUsdc: { value: input.vaultUsdc ?? null, isSigner: false, isWritable: true },
@@ -262,6 +290,16 @@ export async function getWrapInstructionAsync<
       ],
     })
   }
+  if (!accounts.pass.value) {
+    accounts.pass.value = await getProgramDerivedAddress({
+      programAddress:
+        '331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx' as Address<'331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx'>,
+      seeds: [
+        getBytesEncoder().encode(new Uint8Array([112, 97, 115, 115])),
+        getAddressEncoder().encode(getAddressFromResolvedInstructionAccount('user', accounts.user.value)),
+      ],
+    })
+  }
   if (!accounts.userDaily.value) {
     accounts.userDaily.value = await findUserDailyPda(
       { user: getAddressFromResolvedInstructionAccount('user', accounts.user.value) },
@@ -283,10 +321,12 @@ export async function getWrapInstructionAsync<
   return Object.freeze({
     accounts: [
       getAccountMeta('user', accounts.user),
+      getAccountMeta('payer', accounts.payer),
       getAccountMeta('config', accounts.config),
       getAccountMeta('vaultAuthority', accounts.vaultAuthority),
       getAccountMeta('pool', accounts.pool),
       getAccountMeta('stakePosition', accounts.stakePosition),
+      getAccountMeta('pass', accounts.pass),
       getAccountMeta('userDaily', accounts.userDaily),
       getAccountMeta('userUsdc', accounts.userUsdc),
       getAccountMeta('vaultUsdc', accounts.vaultUsdc),
@@ -301,10 +341,12 @@ export async function getWrapInstructionAsync<
   } as WrapInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountUser, InstructionAccountInputAddress<TAccountUser>>,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
     ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
     ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
     ResolvedInstructionAccountMeta<TAccountPool, InstructionAccountInputAddress<TAccountPool>>,
     ResolvedInstructionAccountMeta<TAccountStakePosition, InstructionAccountInputAddress<TAccountStakePosition>>,
+    ResolvedInstructionAccountMeta<TAccountPass, InstructionAccountInputAddress<TAccountPass>>,
     ResolvedInstructionAccountMeta<TAccountUserDaily, InstructionAccountInputAddress<TAccountUserDaily>>,
     ResolvedInstructionAccountMeta<TAccountUserUsdc, InstructionAccountInputAddress<TAccountUserUsdc>>,
     ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
@@ -318,10 +360,12 @@ export async function getWrapInstructionAsync<
 
 export type WrapInput<
   TAccountUser extends InstructionSignerInput = InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
   TAccountConfig extends InstructionAccountInput = InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountStakePosition extends InstructionAccountInput = InstructionAccountInput,
+  TAccountPass extends InstructionAccountInput = InstructionAccountInput,
   TAccountUserDaily extends InstructionAccountInput = InstructionAccountInput,
   TAccountUserUsdc extends InstructionAccountInput = InstructionAccountInput,
   TAccountVaultUsdc extends InstructionAccountInput = InstructionAccountInput,
@@ -332,6 +376,11 @@ export type WrapInput<
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
   user: TAccountUser
+  /**
+   * Pays the daily-limit record's rent the first time: the user's own wallet, or (SKR fuel)
+   * their gas tank.
+   */
+  payer: TAccountPayer
   config: TAccountConfig
   vaultAuthority: TAccountVaultAuthority
   /**
@@ -349,6 +398,12 @@ export type WrapInput<
    * isn't empty; the `seeds`/`seeds::program` constraint below additionally pins the address.
    */
   stakePosition: TAccountStakePosition
+  /**
+   * `stake_position`: absent (never bought) is ordinary Free, so it's an `UncheckedAccount`
+   * whose owner and `user` field the handler verifies whenever it isn't empty; the seeds pin
+   * the address.
+   */
+  pass: TAccountPass
   userDaily: TAccountUserDaily
   userUsdc: TAccountUserUsdc
   vaultUsdc: TAccountVaultUsdc
@@ -362,10 +417,12 @@ export type WrapInput<
 
 export function getWrapInstruction<
   TAccountUser extends InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput,
   TAccountConfig extends InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountStakePosition extends InstructionAccountInput,
+  TAccountPass extends InstructionAccountInput,
   TAccountUserDaily extends InstructionAccountInput,
   TAccountUserUsdc extends InstructionAccountInput,
   TAccountVaultUsdc extends InstructionAccountInput,
@@ -378,10 +435,12 @@ export function getWrapInstruction<
 >(
   input: WrapInput<
     TAccountUser,
+    TAccountPayer,
     TAccountConfig,
     TAccountVaultAuthority,
     TAccountPool,
     TAccountStakePosition,
+    TAccountPass,
     TAccountUserDaily,
     TAccountUserUsdc,
     TAccountVaultUsdc,
@@ -395,10 +454,12 @@ export function getWrapInstruction<
 ): WrapInstruction<
   TProgramAddress,
   ResolvedInstructionAccountMeta<TAccountUser, InstructionAccountInputAddress<TAccountUser>>,
+  ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
   ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
   ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
   ResolvedInstructionAccountMeta<TAccountPool, InstructionAccountInputAddress<TAccountPool>>,
   ResolvedInstructionAccountMeta<TAccountStakePosition, InstructionAccountInputAddress<TAccountStakePosition>>,
+  ResolvedInstructionAccountMeta<TAccountPass, InstructionAccountInputAddress<TAccountPass>>,
   ResolvedInstructionAccountMeta<TAccountUserDaily, InstructionAccountInputAddress<TAccountUserDaily>>,
   ResolvedInstructionAccountMeta<TAccountUserUsdc, InstructionAccountInputAddress<TAccountUserUsdc>>,
   ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
@@ -416,11 +477,13 @@ export function getWrapInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    user: { value: input.user ?? null, isSigner: true, isWritable: true },
+    user: { value: input.user ?? null, isSigner: true, isWritable: false },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
     config: { value: input.config ?? null, isSigner: false, isWritable: false },
     vaultAuthority: { value: input.vaultAuthority ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: false },
     stakePosition: { value: input.stakePosition ?? null, isSigner: false, isWritable: false },
+    pass: { value: input.pass ?? null, isSigner: false, isWritable: false },
     userDaily: { value: input.userDaily ?? null, isSigner: false, isWritable: true },
     userUsdc: { value: input.userUsdc ?? null, isSigner: false, isWritable: true },
     vaultUsdc: { value: input.vaultUsdc ?? null, isSigner: false, isWritable: true },
@@ -451,10 +514,12 @@ export function getWrapInstruction<
   return Object.freeze({
     accounts: [
       getAccountMeta('user', accounts.user),
+      getAccountMeta('payer', accounts.payer),
       getAccountMeta('config', accounts.config),
       getAccountMeta('vaultAuthority', accounts.vaultAuthority),
       getAccountMeta('pool', accounts.pool),
       getAccountMeta('stakePosition', accounts.stakePosition),
+      getAccountMeta('pass', accounts.pass),
       getAccountMeta('userDaily', accounts.userDaily),
       getAccountMeta('userUsdc', accounts.userUsdc),
       getAccountMeta('vaultUsdc', accounts.vaultUsdc),
@@ -469,10 +534,12 @@ export function getWrapInstruction<
   } as WrapInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountUser, InstructionAccountInputAddress<TAccountUser>>,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
     ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
     ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
     ResolvedInstructionAccountMeta<TAccountPool, InstructionAccountInputAddress<TAccountPool>>,
     ResolvedInstructionAccountMeta<TAccountStakePosition, InstructionAccountInputAddress<TAccountStakePosition>>,
+    ResolvedInstructionAccountMeta<TAccountPass, InstructionAccountInputAddress<TAccountPass>>,
     ResolvedInstructionAccountMeta<TAccountUserDaily, InstructionAccountInputAddress<TAccountUserDaily>>,
     ResolvedInstructionAccountMeta<TAccountUserUsdc, InstructionAccountInputAddress<TAccountUserUsdc>>,
     ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
@@ -491,15 +558,20 @@ export type ParsedWrapInstruction<
   programAddress: Address<TProgram>
   accounts: {
     user: TAccountMetas[0]
-    config: TAccountMetas[1]
-    vaultAuthority: TAccountMetas[2]
+    /**
+     * Pays the daily-limit record's rent the first time: the user's own wallet, or (SKR fuel)
+     * their gas tank.
+     */
+    payer: TAccountMetas[1]
+    config: TAccountMetas[2]
+    vaultAuthority: TAccountMetas[3]
     /**
      * The stake pool singleton — read-only, for tier thresholds. `envelope_stake` is a real
      * dependency (not a mirror), so `Account<'info, Pool>`'s built-in owner check already
      * requires ownership by `envelope_stake::ID` correctly; `seeds::program` only needs to
      * override which program the PDA is *derived* against (it defaults to this program's ID).
      */
-    pool: TAccountMetas[3]
+    pool: TAccountMetas[4]
     /**
      * who has never staked has no such account yet (envelope_stake's `stake` creates it on
      * first use), and that's an ordinary Free-tier caller, not an error — so this is read as
@@ -507,15 +579,21 @@ export type ParsedWrapInstruction<
      * verifies ownership (`envelope_stake::ID`) and the account's own `user` field whenever it
      * isn't empty; the `seeds`/`seeds::program` constraint below additionally pins the address.
      */
-    stakePosition: TAccountMetas[4]
-    userDaily: TAccountMetas[5]
-    userUsdc: TAccountMetas[6]
-    vaultUsdc: TAccountMetas[7]
-    cusdcMint: TAccountMetas[8]
-    userCusdc: TAccountMetas[9]
-    tokenProgram: TAccountMetas[10]
-    token2022Program: TAccountMetas[11]
-    systemProgram: TAccountMetas[12]
+    stakePosition: TAccountMetas[5]
+    /**
+     * `stake_position`: absent (never bought) is ordinary Free, so it's an `UncheckedAccount`
+     * whose owner and `user` field the handler verifies whenever it isn't empty; the seeds pin
+     * the address.
+     */
+    pass: TAccountMetas[6]
+    userDaily: TAccountMetas[7]
+    userUsdc: TAccountMetas[8]
+    vaultUsdc: TAccountMetas[9]
+    cusdcMint: TAccountMetas[10]
+    userCusdc: TAccountMetas[11]
+    tokenProgram: TAccountMetas[12]
+    token2022Program: TAccountMetas[13]
+    systemProgram: TAccountMetas[14]
   }
   data: WrapInstructionData
 }
@@ -523,10 +601,10 @@ export type ParsedWrapInstruction<
 export function parseWrapInstruction<TProgram extends string, TAccountMetas extends readonly AccountMeta[]>(
   instruction: Instruction<TProgram> & InstructionWithAccounts<TAccountMetas> & InstructionWithData<ReadonlyUint8Array>,
 ): ParsedWrapInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 13) {
+  if (instruction.accounts.length < 15) {
     throw new SolanaError(SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS, {
       actualAccountMetas: instruction.accounts.length,
-      expectedAccountMetas: 13,
+      expectedAccountMetas: 15,
     })
   }
   let accountIndex = 0
@@ -539,10 +617,12 @@ export function parseWrapInstruction<TProgram extends string, TAccountMetas exte
     programAddress: instruction.programAddress,
     accounts: {
       user: getNextAccount(),
+      payer: getNextAccount(),
       config: getNextAccount(),
       vaultAuthority: getNextAccount(),
       pool: getNextAccount(),
       stakePosition: getNextAccount(),
+      pass: getNextAccount(),
       userDaily: getNextAccount(),
       userUsdc: getNextAccount(),
       vaultUsdc: getNextAccount(),

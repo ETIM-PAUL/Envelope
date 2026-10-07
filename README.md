@@ -21,7 +21,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 - **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
 - **Withdraw** — turn private cUSDC or cSKR back into spendable USDC or SKR in one approval.
 - **Ask for the token you want** — your Receive code says whether you take dollars, SKR, or both; the payer's app only offers those.
-- **Staking tiers** — stake SKR to raise your daily limit and drop the send fee.
+- **Membership in SKR** — a pass bought with SKR (not staked) raises limits, removes fees, and covers every network fee: with Envelope you never need SOL.
 - **Notifications** — every movement of your funds, decrypted on-device: deposits, withdrawals, transfers, pot activity.
 - **Biometric unlock** — reopening the app restores your keys behind your fingerprint, with no new wallet prompt.
 - **Restore on any phone** — keys are re-derived from your wallet, and your open pots are found on-chain, so a reinstall or a new device picks up where you left off.
@@ -40,7 +40,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
     <td align="center"><img src="docs/screenshots/pots.png" width="200" alt="Event pots" /><br /><sub><b>Pots</b> — sealed group gifts</sub></td>
     <td align="center"><img src="docs/screenshots/pot-detail.png" width="200" alt="An event pot: total raised, contributors, invite QR code" /><br /><sub><b>Pot</b> — host sees the total; guests see only their own</sub></td>
     <td align="center"><img src="docs/screenshots/withdraw.png" width="200" alt="Withdraw private cUSDC back to USDC" /><br /><sub><b>Withdraw</b> — back to regular USDC in one approval</sub></td>
-    <td align="center"><img src="docs/screenshots/stake.png" width="200" alt="Stake SKR for tiers" /><br /><sub><b>Stake</b> — SKR tiers and perks</sub></td>
+    <td align="center"><img src="docs/screenshots/stake.png" width="200" alt="Membership plans paid in SKR" /><br /><sub><b>Membership</b> — plans paid in SKR</sub></td>
   </tr>
 </table>
 
@@ -60,7 +60,7 @@ flowchart LR
     CT["Token-2022<br/>Confidential Transfers"]
     ZK["ZK ElGamal<br/>Proof program"]
     Vault["envelope_vault<br/>USDC ⇄ cUSDC, SKR ⇄ cSKR, pots"]
-    Stake["envelope_stake<br/>SKR tiers"]
+    Stake["envelope_stake<br/>SKR membership passes"]
   end
   App --> Relayer
   App --> Solana
@@ -71,7 +71,7 @@ flowchart LR
 2. **Proofs on the phone.** Confidential transfers need zero-knowledge proofs (equality, ciphertext validity, range). Envelope generates them on-device with Solana's `zk-sdk` compiled to WebAssembly, running in a locked-down WebView (React Native's JS engine has no WebAssembly).
 3. **Your wallet signs, nothing more.** Every transaction is signed in your own wallet through Mobile Wallet Adapter. Envelope never holds a wallet private key.
 4. **A relayer pays the gas.** Private sends are relayed: the relayer co-signs as fee payer only after checking every instruction against a strict policy, so it can't be drained or tricked into moving its own funds.
-5. **Programs enforce the rules.** `envelope_vault` wraps USDC into cUSDC and SKR into cSKR 1:1, enforces daily dollar limits by tier, and runs event pots; `envelope_stake` holds SKR stakes and computes tiers that both the vault and the relayer read.
+5. **Programs enforce the rules.** `envelope_vault` wraps USDC into cUSDC and SKR into cSKR 1:1, enforces daily dollar limits by tier, and runs event pots; `envelope_stake` sells SKR membership passes (and still honors older stakes) and computes the tier both the vault and the relayer read.
 
 ## Privacy, honestly
 
@@ -87,17 +87,19 @@ flowchart LR
 
 Wallet addresses and the fact that a transfer happened are public; only amounts and balances are hidden. The full analysis — relayer trust, linkability, key storage, and audit findings — is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
-## Tiers
+## Membership and SKR fuel
 
-Stake SKR to unlock more. Tiers are computed on-chain from your stake and enforced by both the vault program and the relayer.
+SKR runs Envelope. A **membership pass** is bought with SKR — spent, not staked — and the tier is enforced on-chain by the vault (daily limits) and by the relayer (fees, batch size).
 
-| Tier     | SKR staked | Add to private balance | Private sends            |
-| -------- | ---------- | ---------------------- | ------------------------ |
-| Free     | —          | 100 USDC / day         | 0.001 SKR fee to relayer |
-| Member   | 1,000      | 10,000 USDC / day      | No fee                   |
-| Business | 5,000      | Unlimited              | No fee                   |
+| Plan     | Price             | Network fees and rent            | Add dollars a day | Send fee  | Batch send | Open pots | Pots in dollars + SKR |
+| -------- | ----------------- | -------------------------------- | ----------------- | --------- | ---------- | --------- | --------------------- |
+| Free     | —                 | 2 SKR per refill (first is free) | 100 USDC          | 0.001 SKR | 3 people   | 1         | —                     |
+| Member   | 100 SKR / 30 days | Included                         | 10,000 USDC       | None      | 10 people  | 5         | ✓                     |
+| Business | 500 SKR / 30 days | Included                         | Unlimited         | None      | 25 people  | Unlimited | ✓                     |
 
-On devnet, the Stake tab has a test-SKR faucet (500 SKR a day, up to 6,000 held).
+**You never need SOL.** Each device has a gas tank — a keypair derived from your wallet, like your encryption keys — that pays rent and network fees for account setup, deposits, withdrawals, pots and passes. When it runs low, the relayer refuels it with SOL: free for members, 2 SKR otherwise, and every wallet's first refill is on the house so a new user can start with nothing. Private sends are paid by the relayer directly. Wallets that hold SOL can still top the tank up themselves.
+
+On devnet, the Membership tab has a test-SKR faucet (500 SKR a day, up to 6,000 held). Older SKR stakes still count toward the tier until withdrawn.
 
 ## Deployed on devnet
 
@@ -193,7 +195,7 @@ The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and 
 │   └── rn-confidential/     React Native host for the bridge (<CBridgeHost>, useCBridge)
 ├── anchor/programs/
 │   ├── envelope_vault/      USDC ⇄ cUSDC wrap/unwrap, daily limits by tier, event pots
-│   └── envelope_stake/      SKR staking and tier computation
+│   └── envelope_stake/      SKR membership passes and tier computation
 ├── relayer/                 fee-payer service: transaction policy, tiers, push webhooks, devnet SKR faucet (Dockerfile)
 ├── scripts/                 devnet setup and end-to-end round-trip scripts
 └── config/devnet.json       public devnet addresses (programs, mints, wallets)
@@ -201,21 +203,22 @@ The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and 
 
 ## Useful commands
 
-| Command                                | What it does                                                                             |
-| -------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `npm run dev`                          | Start Metro for the dev client                                                           |
-| `npm run relayer:dev`                  | Run the relayer locally (port 8787)                                                      |
-| `npm run android:apk`                  | Build and sign a standalone release APK → `dist/envelope.apk`                            |
-| `npm run cbridge:build`                | Rebuild the proof bridge bundle after changing `packages/cbridge`                        |
-| `npm run devnet:roundtrip`             | CLI confidential transfer round trip on devnet                                           |
-| `npm run devnet:withdraw-roundtrip`    | Wrap → confidential → withdraw → unwrap, checking supply invariants                      |
-| `npm run devnet:pot-roundtrip`         | Event pot lifecycle, including a guest-privacy negative check                            |
-| `npm run devnet:cskr-roundtrip`        | SKR → cSKR → private transfer → withdraw → SKR, with supply checks                       |
-| `npm run devnet:bridge-e2e`            | The shipped bridge bundle end to end: cSKR withdraw, a dollars-and-SKR pot, a batch send |
-| `npm run relayer:test-policy`          | Check the relayer rejects a malicious tx and relays a valid one                          |
-| `npm run anchor:build` / `anchor:test` | Build / test the Anchor programs                                                         |
-| `npm run codama:js`                    | Regenerate the typed program clients from the IDLs                                       |
-| `npm run ci`                           | Typecheck, lint, format check, and Android prebuild                                      |
+| Command                                | What it does                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `npm run dev`                          | Start Metro for the dev client                                                                  |
+| `npm run relayer:dev`                  | Run the relayer locally (port 8787)                                                             |
+| `npm run android:apk`                  | Build and sign a standalone release APK → `dist/envelope.apk`                                   |
+| `npm run cbridge:build`                | Rebuild the proof bridge bundle after changing `packages/cbridge`                               |
+| `npm run devnet:roundtrip`             | CLI confidential transfer round trip on devnet                                                  |
+| `npm run devnet:withdraw-roundtrip`    | Wrap → confidential → withdraw → unwrap, checking supply invariants                             |
+| `npm run devnet:pot-roundtrip`         | Event pot lifecycle, including a guest-privacy negative check                                   |
+| `npm run devnet:pass`                  | Initialize membership pass pricing (admin, once)                                                |
+| `npm run devnet:cskr-roundtrip`        | SKR → cSKR → private transfer → withdraw → SKR, with supply checks                              |
+| `npm run devnet:bridge-e2e`            | The shipped bridge end to end: cSKR withdraw, pots, batch send, and a zero-SOL user on SKR fuel |
+| `npm run relayer:test-policy`          | Check the relayer rejects a malicious tx and relays a valid one                                 |
+| `npm run anchor:build` / `anchor:test` | Build / test the Anchor programs                                                                |
+| `npm run codama:js`                    | Regenerate the typed program clients from the IDLs                                              |
+| `npm run ci`                           | Typecheck, lint, format check, and Android prebuild                                             |
 
 ## Design decisions
 

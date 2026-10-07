@@ -17,6 +17,7 @@ import {
   SOLANA_ERROR__PROGRAM_CLIENTS__UNRECOGNIZED_INSTRUCTION_TYPE,
   SolanaError,
   type Address,
+  type ClientWithPayer,
   type ClientWithRpc,
   type ClientWithTransactionPlanning,
   type ClientWithTransactionSending,
@@ -308,7 +309,9 @@ export type EnvelopeVaultPluginAccounts = {
 
 export type EnvelopeVaultPluginInstructions = {
   closePot: (input: ClosePotAsyncInput) => ReturnType<typeof getClosePotInstructionAsync> & SelfPlanAndSendFunctions
-  createPot: (input: CreatePotAsyncInput) => ReturnType<typeof getCreatePotInstructionAsync> & SelfPlanAndSendFunctions
+  createPot: (
+    input: MakeOptional<CreatePotAsyncInput, 'payer'>,
+  ) => ReturnType<typeof getCreatePotInstructionAsync> & SelfPlanAndSendFunctions
   initialize: (
     input: InitializeAsyncInput,
   ) => ReturnType<typeof getInitializeInstructionAsync> & SelfPlanAndSendFunctions
@@ -319,7 +322,9 @@ export type EnvelopeVaultPluginInstructions = {
   unwrapAsset: (
     input: UnwrapAssetAsyncInput,
   ) => ReturnType<typeof getUnwrapAssetInstructionAsync> & SelfPlanAndSendFunctions
-  wrap: (input: WrapAsyncInput) => ReturnType<typeof getWrapInstructionAsync> & SelfPlanAndSendFunctions
+  wrap: (
+    input: MakeOptional<WrapAsyncInput, 'payer'>,
+  ) => ReturnType<typeof getWrapInstructionAsync> & SelfPlanAndSendFunctions
   wrapAsset: (input: WrapAssetAsyncInput) => ReturnType<typeof getWrapAssetInstructionAsync> & SelfPlanAndSendFunctions
 }
 
@@ -332,6 +337,7 @@ export type EnvelopeVaultPluginPdas = {
 }
 
 export type EnvelopeVaultPluginRequirements = ClientWithRpc<GetAccountInfoApi & GetMultipleAccountsApi> &
+  ClientWithPayer &
   ClientWithTransactionPlanning &
   ClientWithTransactionSending
 
@@ -349,12 +355,20 @@ export function envelopeVaultProgram() {
         },
         instructions: {
           closePot: (input) => addSelfPlanAndSendFunctions(client, getClosePotInstructionAsync(input)),
-          createPot: (input) => addSelfPlanAndSendFunctions(client, getCreatePotInstructionAsync(input)),
+          createPot: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCreatePotInstructionAsync({ ...input, payer: input.payer ?? client.payer }),
+            ),
           initialize: (input) => addSelfPlanAndSendFunctions(client, getInitializeInstructionAsync(input)),
           initializeAsset: (input) => addSelfPlanAndSendFunctions(client, getInitializeAssetInstructionAsync(input)),
           unwrap: (input) => addSelfPlanAndSendFunctions(client, getUnwrapInstructionAsync(input)),
           unwrapAsset: (input) => addSelfPlanAndSendFunctions(client, getUnwrapAssetInstructionAsync(input)),
-          wrap: (input) => addSelfPlanAndSendFunctions(client, getWrapInstructionAsync(input)),
+          wrap: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getWrapInstructionAsync({ ...input, payer: input.payer ?? client.payer }),
+            ),
           wrapAsset: (input) => addSelfPlanAndSendFunctions(client, getWrapAssetInstructionAsync(input)),
         },
         pdas: {
@@ -371,3 +385,5 @@ export function envelopeVaultProgram() {
     })
   }
 }
+
+type MakeOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>

@@ -3,9 +3,9 @@ import { type Address, type KeyPairSigner } from '@solana/kit'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { envelopeStake } from '../src'
 import { createFundedSigner } from './create-funded-signer'
-import { COOLDOWN_SECS } from './lib/constants'
+import { COOLDOWN_SECS, PASS_BUSINESS_PRICE, PASS_MEMBER_PRICE, PASS_PERIOD_SECS } from './lib/constants'
 import { mintTo } from './lib/mints'
-import { ensureStakePool } from './lib/setup-stake-pool'
+import { ensurePassConfig, ensureStakePool } from './lib/setup-stake-pool'
 import { testAdminSigner } from './lib/test-admin'
 import { createTestClients, sendInstructions } from './send-instruction'
 
@@ -146,4 +146,105 @@ describe('envelope_stake', () => {
     expect(afterWithdraw.data.amount).toEqual(0n)
     expect(afterWithdraw.data.unlockRequestedAt).toEqual(0n)
   }, 30_000)
+  describe('membership pass', () => {
+    let treasury: Address
+
+    beforeAll(async () => {
+      ;({ treasury } = await ensurePassConfig(clients, admin, skrMint))
+    })
+
+    async function passUser(skrAmount: bigint) {
+      const user = await createFundedSigner({ rpc, rpcSubscriptions })
+      await mintTo(clients, admin, skrMint, user.address, skrAmount)
+      return user
+    }
+
+    async function buyPass(user: KeyPairSigner, tier: number, periods: number, payer: KeyPairSigner = user) {
+      await sendInstructions({
+        instructions: await envelopeStake.getBuyPassInstructionAsync({
+          user,
+          payer,
+          userSkr: await userSkrAddress(user),
+          treasury,
+          tier,
+          periods,
+        }),
+        payer,
+        rpc,
+        sendAndConfirm,
+      })
+    }
+
+    async function passOf(user: KeyPairSigner) {
+      const [passAddress] = await envelopeStake.findPassPda({ user: user.address })
+      return (await envelopeStake.fetchPass(rpc, passAddress)).data
+    }
+
+    const balance = async (account: Address) => BigInt((await rpc.getTokenAccountBalance(account).send()).value.amount)
+    const nowSecs = () => BigInt(Math.floor(Date.now() / 1000))
+
+    it('buys a Member pass: SKR goes to the treasury, the pass runs one period', async () => {
+      const user = await passUser(PASS_MEMBER_PRICE * 2n)
+      const treasuryBefore = await balance(treasury)
+      await buyPass(user, 1, 1)
+      expect((await balance(treasury)) - treasuryBefore).toEqual(PASS_MEMBER_PRICE)
+      expect(await balance(await userSkrAddress(user))).toEqual(PASS_MEMBER_PRICE)
+      const pass = await passOf(user)
+      expect(pass.tier).toEqual(1)
+      expect(pass.user).toEqual(user.address)
+      expect(pass.expiresAt).toBeGreaterThan(nowSecs())
+      expect(pass.expiresAt).toBeLessThanOrEqual(nowSecs() + PASS_PERIOD_SECS + 2n)
+    })
+
+    it('extends an active pass of the same tier from its expiry', async () => {
+      const user = await passUser(PASS_MEMBER_PRICE * 3n)
+      await buyPass(user, 1, 1)
+      const first = (await passOf(user)).expiresAt
+      await buyPass(user, 1, 2)
+      expect((await passOf(user)).expiresAt).toEqual(first + 2n * PASS_PERIOD_SECS)
+    })
+
+    it('upgrades to Business from now; refuses a downgrade while Business is active', async () => {
+      const user = await passUser(PASS_MEMBER_PRICE + PASS_BUSINESS_PRICE * 2n)
+      await buyPass(user, 1, 1)
+      await buyPass(user, 2, 1)
+      expect((await passOf(user)).tier).toEqual(2)
+      await expect(buyPass(user, 1, 1)).rejects.toThrow()
+    })
+
+    it('lets a separate payer cover the pass account rent', async () => {
+      const user = await passUser(PASS_MEMBER_PRICE)
+      const payer = await createFundedSigner({ rpc, rpcSubscriptions })
+      const userLamportsBefore = (await rpc.getBalance(user.address).send()).value
+      await buyPass(user, 1, 1, payer)
+      expect((await passOf(user)).tier).toEqual(1)
+      expect((await rpc.getBalance(user.address).send()).value).toEqual(userLamportsBefore)
+    })
+
+    it('rejects an invalid tier, zero periods, and more than 12 periods', async () => {
+      const user = await passUser(PASS_BUSINESS_PRICE * 13n)
+      await expect(buyPass(user, 3, 1)).rejects.toThrow()
+      await expect(buyPass(user, 1, 0)).rejects.toThrow()
+      await expect(buyPass(user, 1, 13)).rejects.toThrow()
+    })
+
+    it('rejects a pass the user cannot pay for', async () => {
+      const user = await passUser(PASS_MEMBER_PRICE - 1n)
+      await expect(buyPass(user, 1, 1)).rejects.toThrow()
+    })
+
+    it('rejects initialize_pass_config from anyone but the admin', async () => {
+      const outsider = await createFundedSigner({ rpc, rpcSubscriptions })
+      const instruction = await envelopeStake.getInitializePassConfigInstructionAsync({
+        admin: outsider,
+        treasury,
+        memberPrice: 1n,
+        businessPrice: 1n,
+        periodSecs: 1n,
+      })
+      await expect(
+        sendInstructions({ instructions: instruction, payer: outsider, rpc, sendAndConfirm }),
+      ).rejects.toThrow()
+    })
+  })
 })

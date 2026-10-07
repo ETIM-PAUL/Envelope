@@ -17,10 +17,10 @@ import {
   getCompiledTransactionMessageDecoder,
   getSignersFromTransactionMessage,
   getTransactionDecoder,
+  partiallySignTransaction,
   isTransactionModifyingSigner,
   isSolanaError,
   sequentialInstructionPlan,
-  setTransactionMessageFeePayerSigner,
   singleInstructionPlan,
   SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND,
   some,
@@ -51,6 +51,7 @@ import {
 } from '@solana-program/token-2022'
 import {
   findAssociatedTokenPda as findClassicAssociatedTokenPda,
+  getCreateAssociatedTokenIdempotentInstruction as getCreateClassicAtaIdempotentInstruction,
   getTransferInstruction as getClassicTransferInstruction,
   TOKEN_PROGRAM_ADDRESS,
 } from '@solana-program/token'
@@ -81,6 +82,10 @@ import type {
   ApplyPendingBalanceParams,
   ApplyPendingBalanceResult,
   BuildBatchTransferPlanParams,
+  CosignWithGasTankParams,
+  CosignWithGasTankResult,
+  GasTankAddressParams,
+  GasTankAddressResult,
   BuildBatchTransferPlanResult,
   BuildTransferPlanParams,
   BuildTransferPlanResult,
@@ -662,6 +667,31 @@ channel.on('applyPendingBalance', async (params) => {
   return { signedTransactions } satisfies ApplyPendingBalanceResult
 })
 
+// The wallet's gas tank address, so the app can check its balance and ask the relayer to refuel
+// it with SKR (POST /fuel).
+channel.on('gasTankAddress', async (params) => {
+  const { owner } = params as GasTankAddressParams
+  const gasTank = gasTanks.get(owner)
+  if (!gasTank) throw new Error(`call deriveKeys("${owner}") before gasTankAddress`)
+  return { address: gasTank.address } satisfies GasTankAddressResult
+})
+
+// Adds the gas tank's signature to transactions the app built with the tank as fee payer and/or
+// rent payer (deposits, membership passes) — after the wallet has signed, since wallets can
+// rewrite the message they sign (Solflare adds compute-budget instructions).
+channel.on('cosignWithGasTank', async (params) => {
+  const { owner, transactionsBase64 } = params as CosignWithGasTankParams
+  const gasTank = gasTanks.get(owner)
+  if (!gasTank) throw new Error(`call deriveKeys("${owner}") before cosignWithGasTank`)
+  const signed = await Promise.all(
+    transactionsBase64.map(async (base64) => {
+      const transaction = getTransactionDecoder().decode(base64ToBytes(base64))
+      return getBase64EncodedWireTransaction(await partiallySignTransaction([gasTank.keyPair], transaction))
+    }),
+  )
+  return { transactionsBase64: signed } satisfies CosignWithGasTankResult
+})
+
 channel.on('ensureGasTank', async (params) => {
   const { rpcUrl, owner } = params as EnsureGasTankParams
   const gasTank = gasTanks.get(owner)
@@ -768,17 +798,23 @@ channel.on('buildWithdrawPlan', async (params) => {
         })
       })()
   const unwrapInstructions = [
+    // The wallet may never have held the underlying token (someone who only ever *received* cSKR,
+    // say): create its account if missing, paid by the gas tank.
+    getCreateClassicAtaIdempotentInstruction({
+      payer: gasTank,
+      ata: userUnderlying,
+      owner: ownerAddress,
+      mint: underlyingMintAddress,
+    }),
     getApproveInstruction(
       { source: token, delegate: vaultAuthority, owner: signer, amount: BigInt(amount) },
       { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
     ),
     unwrapInstruction,
   ]
-  // The final transaction is the one the wallet approves, so the wallet pays for it like any
-  // other transaction it signs (the gas tank still signs it too, to close the proof contexts).
-  const finalMessages = messages
-    .slice(withdrawIndex)
-    .map((message) => setTransactionMessageFeePayerSigner(signer, message))
+  // The final transaction is the one the wallet approves; the gas tank pays its fee too (it also
+  // signs to close the proof contexts), so a withdraw needs no SOL in the wallet (SKR fuel).
+  const finalMessages = messages.slice(withdrawIndex)
   finalMessages[0] = appendTransactionMessageInstructions(unwrapInstructions, finalMessages[0]!)
 
   const continuationId = `withdraw-${owner}-${Date.now()}`
@@ -858,7 +894,7 @@ async function buildEnsureAccountReadySteps(
 }
 
 channel.on('ensureAccountReady', async (params) => {
-  const { rpcUrl, mint, extraMints, owner, payer } = params as EnsureAccountReadyParams
+  const { rpcUrl, mint, extraMints, owner, payer, payWithGasTank } = params as EnsureAccountReadyParams
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before ensureAccountReady`)
@@ -866,7 +902,10 @@ channel.on('ensureAccountReady', async (params) => {
   const rpc = createSolanaRpc(rpcUrl)
   const ownerAddress = address(owner)
   const signer = createHostTransactionSigner(ownerAddress)
-  const payerSigner = payer ? createHostTransactionSigner(address(payer)) : signer
+  const gasTank = gasTanks.get(owner)
+  if (payWithGasTank && !gasTank) throw new Error(`call deriveKeys("${owner}") before ensureAccountReady`)
+  // SKR fuel: the gas tank pays the accounts' rent and the fees; the wallet only authorizes.
+  const payerSigner = payWithGasTank ? gasTank! : payer ? createHostTransactionSigner(address(payer)) : signer
 
   // Every token's setup in one plan, so the wallet approves them all in a single request.
   const steps = []
@@ -1247,8 +1286,11 @@ channel.on('createPot', async (params) => {
     steps.push(...(await buildEnsureAccountReadySteps(rpc, potMint, potSigner, gasTank, keys)).steps)
   }
 
+  // The gas tank pays the pot record's rent and the transaction fee (SKR fuel keeps it topped
+  // up), so the wallet only signs as host and never needs SOL for a pot.
   const createPotInstruction = await envelopeVault.getCreatePotInstructionAsync({
     host: hostSigner,
+    payer: gasTank,
     potId: BigInt(potId),
     name: encodePotName(name),
     closeTs: BigInt(closeTs),
@@ -1258,7 +1300,7 @@ channel.on('createPot', async (params) => {
 
   const signedTransactions = await signPlannedMessages(
     [
-      ...(await planMessages(singleInstructionPlan(createPotInstruction), hostSigner)),
+      ...(await planMessages(singleInstructionPlan(createPotInstruction), gasTank)),
       ...(steps.length > 0 ? await planMessages(sequentialInstructionPlan(steps), gasTank) : []),
     ],
     rpc,
@@ -1295,7 +1337,7 @@ channel.on('closePot', async (params) => {
   // The wallet signs only close_pot; each sweep back to the host is authorized by the pot's own
   // keypair and paid for by the gas tank, so its proof transactions need no approval and are
   // signed with a fresh blockhash right after the wallet returns.
-  const messages = await planMessages(singleInstructionPlan(closePotInstruction), hostSigner)
+  const messages = await planMessages(singleInstructionPlan(closePotInstruction), gasTank)
 
   for (const mint of mints) {
     const mintAddress = address(mint)

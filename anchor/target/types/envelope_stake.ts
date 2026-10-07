@@ -14,6 +14,128 @@ export type EnvelopeStake = {
   },
   "instructions": [
     {
+      "name": "buyPass",
+      "docs": [
+        "Buys or extends a membership pass with SKR: tier 1 (Member) or 2 (Business), for",
+        "`periods` periods. Spent, not staked."
+      ],
+      "discriminator": [
+        57,
+        144,
+        218,
+        182,
+        67,
+        42,
+        234,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "docs": [
+            "Pays the SKR and owns the pass."
+          ],
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the pass account's rent — the user's own wallet, or (SKR fuel) their gas tank, so a",
+            "membership never needs SOL from the wallet. Never the relayer: it isn't allowed to fund",
+            "accounts other people can later close."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "passConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pass",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "userSkr",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "tier",
+          "type": "u8"
+        },
+        {
+          "name": "periods",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "initialize",
       "docs": [
         "Admin-only, once. Records the SKR mint, the pool's vault ATA, and the tier thresholds +",
@@ -163,6 +285,94 @@ export type EnvelopeStake = {
         },
         {
           "name": "cooldownSecs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "initializePassConfig",
+      "docs": [
+        "Admin-only, once. Membership pass prices (per period, SKR base units) and the treasury."
+      ],
+      "discriminator": [
+        126,
+        0,
+        45,
+        229,
+        16,
+        190,
+        136,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "address": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1"
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "passConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Receives pass payments: must hold SKR."
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "memberPrice",
+          "type": "u64"
+        },
+        {
+          "name": "businessPrice",
+          "type": "u64"
+        },
+        {
+          "name": "periodSecs",
           "type": "i64"
         }
       ]
@@ -405,6 +615,32 @@ export type EnvelopeStake = {
   ],
   "accounts": [
     {
+      "name": "pass",
+      "discriminator": [
+        40,
+        247,
+        140,
+        113,
+        56,
+        14,
+        57,
+        44
+      ]
+    },
+    {
+      "name": "passConfig",
+      "discriminator": [
+        158,
+        22,
+        122,
+        114,
+        244,
+        64,
+        138,
+        202
+      ]
+    },
+    {
       "name": "pool",
       "discriminator": [
         241,
@@ -481,9 +717,92 @@ export type EnvelopeStake = {
       "code": 6009,
       "name": "invalidCooldown",
       "msg": "cooldown_secs must be >= 0"
+    },
+    {
+      "code": 6010,
+      "name": "invalidPassTier",
+      "msg": "A pass is Member (1) or Business (2)"
+    },
+    {
+      "code": 6011,
+      "name": "invalidPassPeriods",
+      "msg": "A pass is bought for 1 to 12 periods"
+    },
+    {
+      "code": 6012,
+      "name": "passDowngrade",
+      "msg": "Your higher-tier pass is still active"
+    },
+    {
+      "code": 6013,
+      "name": "invalidPassConfig",
+      "msg": "Pass prices and period must be greater than zero"
     }
   ],
   "types": [
+    {
+      "name": "pass",
+      "docs": [
+        "A user's membership pass: `tier` (see `tier::Tier`, as u8) until `expires_at`, bought with",
+        "`buy_pass`. Read by `envelope_vault`'s `wrap` and by the relayer alongside the stake position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "expiresAt",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "passConfig",
+      "docs": [
+        "Membership pricing, set once by the admin (`initialize_pass_config`): what a pass costs per",
+        "period for each tier, and where the SKR goes. A pass is *spent* SKR, not staked."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "memberPrice",
+            "type": "u64"
+          },
+          {
+            "name": "businessPrice",
+            "type": "u64"
+          },
+          {
+            "name": "periodSecs",
+            "type": "i64"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "SKR token account that receives pass payments."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
     {
       "name": "pool",
       "type": {
@@ -546,6 +865,16 @@ export type EnvelopeStake = {
     }
   ],
   "constants": [
+    {
+      "name": "passConfigSeed",
+      "type": "bytes",
+      "value": "[112, 97, 115, 115, 95, 99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "passSeed",
+      "type": "bytes",
+      "value": "[112, 97, 115, 115]"
+    },
     {
       "name": "poolAuthSeed",
       "type": "bytes",

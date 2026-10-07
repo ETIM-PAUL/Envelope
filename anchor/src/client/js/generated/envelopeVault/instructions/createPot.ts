@@ -33,6 +33,7 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyAccount,
+  type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
   type WritableSignerAccount,
@@ -59,6 +60,7 @@ export function getCreatePotDiscriminatorBytes(): ReadonlyUint8Array {
 export type CreatePotInstruction<
   TProgram extends string = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
   TAccountHost extends string | AccountMeta<string> = string,
+  TAccountPayer extends string | AccountMeta<string> = string,
   TAccountPot extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> = '11111111111111111111111111111111',
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -67,8 +69,11 @@ export type CreatePotInstruction<
   InstructionWithAccounts<
     [
       TAccountHost extends string
-        ? WritableSignerAccount<TAccountHost> & AccountSignerMeta<TAccountHost>
+        ? ReadonlySignerAccount<TAccountHost> & AccountSignerMeta<TAccountHost>
         : TAccountHost,
+      TAccountPayer extends string
+        ? WritableSignerAccount<TAccountPayer> & AccountSignerMeta<TAccountPayer>
+        : TAccountPayer,
       TAccountPot extends string ? WritableAccount<TAccountPot> : TAccountPot,
       TAccountSystemProgram extends string ? ReadonlyAccount<TAccountSystemProgram> : TAccountSystemProgram,
       ...TRemainingAccounts,
@@ -126,10 +131,13 @@ export function getCreatePotInstructionDataCodec(): FixedSizeCodec<
 
 export type CreatePotAsyncInput<
   TAccountHost extends InstructionSignerInput = InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
   TAccountPot extends InstructionAccountInput = InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
   host: TAccountHost
+  /** Pays the pot record's rent: the host's own wallet, or (SKR fuel) the host's gas tank. */
+  payer: TAccountPayer
   pot?: TAccountPot
   systemProgram?: TAccountSystemProgram
   potId: CreatePotInstructionDataArgs['potId']
@@ -141,16 +149,18 @@ export type CreatePotAsyncInput<
 
 export async function getCreatePotInstructionAsync<
   TAccountHost extends InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput,
   TAccountPot extends InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
 >(
-  input: CreatePotAsyncInput<TAccountHost, TAccountPot, TAccountSystemProgram>,
+  input: CreatePotAsyncInput<TAccountHost, TAccountPayer, TAccountPot, TAccountSystemProgram>,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
   CreatePotInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountHost, InstructionAccountInputAddress<TAccountHost>>,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
     ResolvedInstructionAccountMeta<TAccountPot, InstructionAccountInputAddress<TAccountPot>>,
     ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
   >
@@ -163,7 +173,8 @@ export async function getCreatePotInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    host: { value: input.host ?? null, isSigner: true, isWritable: true },
+    host: { value: input.host ?? null, isSigner: true, isWritable: false },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
     pot: { value: input.pot ?? null, isSigner: false, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isSigner: false, isWritable: false },
   }
@@ -189,6 +200,7 @@ export async function getCreatePotInstructionAsync<
   return Object.freeze({
     accounts: [
       getAccountMeta('host', accounts.host),
+      getAccountMeta('payer', accounts.payer),
       getAccountMeta('pot', accounts.pot),
       getAccountMeta('systemProgram', accounts.systemProgram),
     ],
@@ -197,6 +209,7 @@ export async function getCreatePotInstructionAsync<
   } as CreatePotInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountHost, InstructionAccountInputAddress<TAccountHost>>,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
     ResolvedInstructionAccountMeta<TAccountPot, InstructionAccountInputAddress<TAccountPot>>,
     ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
   >)
@@ -204,10 +217,13 @@ export async function getCreatePotInstructionAsync<
 
 export type CreatePotInput<
   TAccountHost extends InstructionSignerInput = InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
   TAccountPot extends InstructionAccountInput = InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
   host: TAccountHost
+  /** Pays the pot record's rent: the host's own wallet, or (SKR fuel) the host's gas tank. */
+  payer: TAccountPayer
   pot: TAccountPot
   systemProgram?: TAccountSystemProgram
   potId: CreatePotInstructionDataArgs['potId']
@@ -219,15 +235,17 @@ export type CreatePotInput<
 
 export function getCreatePotInstruction<
   TAccountHost extends InstructionSignerInput,
+  TAccountPayer extends InstructionSignerInput,
   TAccountPot extends InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
 >(
-  input: CreatePotInput<TAccountHost, TAccountPot, TAccountSystemProgram>,
+  input: CreatePotInput<TAccountHost, TAccountPayer, TAccountPot, TAccountSystemProgram>,
   config?: { programAddress?: TProgramAddress },
 ): CreatePotInstruction<
   TProgramAddress,
   ResolvedInstructionAccountMeta<TAccountHost, InstructionAccountInputAddress<TAccountHost>>,
+  ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
   ResolvedInstructionAccountMeta<TAccountPot, InstructionAccountInputAddress<TAccountPot>>,
   ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
 > {
@@ -239,7 +257,8 @@ export function getCreatePotInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    host: { value: input.host ?? null, isSigner: true, isWritable: true },
+    host: { value: input.host ?? null, isSigner: true, isWritable: false },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
     pot: { value: input.pot ?? null, isSigner: false, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isSigner: false, isWritable: false },
   }
@@ -256,6 +275,7 @@ export function getCreatePotInstruction<
   return Object.freeze({
     accounts: [
       getAccountMeta('host', accounts.host),
+      getAccountMeta('payer', accounts.payer),
       getAccountMeta('pot', accounts.pot),
       getAccountMeta('systemProgram', accounts.systemProgram),
     ],
@@ -264,6 +284,7 @@ export function getCreatePotInstruction<
   } as CreatePotInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountHost, InstructionAccountInputAddress<TAccountHost>>,
+    ResolvedInstructionAccountMeta<TAccountPayer, InstructionAccountInputAddress<TAccountPayer>>,
     ResolvedInstructionAccountMeta<TAccountPot, InstructionAccountInputAddress<TAccountPot>>,
     ResolvedInstructionAccountMeta<TAccountSystemProgram, InstructionAccountInputAddress<TAccountSystemProgram>>
   >)
@@ -276,8 +297,10 @@ export type ParsedCreatePotInstruction<
   programAddress: Address<TProgram>
   accounts: {
     host: TAccountMetas[0]
-    pot: TAccountMetas[1]
-    systemProgram: TAccountMetas[2]
+    /** Pays the pot record's rent: the host's own wallet, or (SKR fuel) the host's gas tank. */
+    payer: TAccountMetas[1]
+    pot: TAccountMetas[2]
+    systemProgram: TAccountMetas[3]
   }
   data: CreatePotInstructionData
 }
@@ -285,10 +308,10 @@ export type ParsedCreatePotInstruction<
 export function parseCreatePotInstruction<TProgram extends string, TAccountMetas extends readonly AccountMeta[]>(
   instruction: Instruction<TProgram> & InstructionWithAccounts<TAccountMetas> & InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCreatePotInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 4) {
     throw new SolanaError(SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS, {
       actualAccountMetas: instruction.accounts.length,
-      expectedAccountMetas: 3,
+      expectedAccountMetas: 4,
     })
   }
   let accountIndex = 0
@@ -299,7 +322,12 @@ export function parseCreatePotInstruction<TProgram extends string, TAccountMetas
   }
   return {
     programAddress: instruction.programAddress,
-    accounts: { host: getNextAccount(), pot: getNextAccount(), systemProgram: getNextAccount() },
+    accounts: {
+      host: getNextAccount(),
+      payer: getNextAccount(),
+      pot: getNextAccount(),
+      systemProgram: getNextAccount(),
+    },
     data: getCreatePotInstructionDataDecoder().decode(instruction.data),
   }
 }

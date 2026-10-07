@@ -14,7 +14,8 @@ import { useConfidentialAccount } from './use-confidential-account'
 import { fetchTierInfo } from './use-tier'
 import type { SendStep } from './use-send-privately'
 
-export const MAX_BATCH_RECIPIENTS = 10
+// The most any tier allows (Business); each tier's own cap comes from the relayer (TierPerks).
+export const MAX_BATCH_RECIPIENTS = 25
 
 export type BatchRecipient = { address: string; amount: bigint }
 
@@ -45,6 +46,9 @@ export function useSendBatch() {
         }
 
         const tierInfo = await fetchTierInfo(walletAddress)
+        if (recipients.length > tierInfo.perks.maxBatchRecipients) {
+          throw new Error(`your plan can send to ${tierInfo.perks.maxBatchRecipients} people at once`)
+        }
 
         setStep('preparing-proofs')
         const { signedTransactions: proofSetup, continuationId } = await bridge.call('buildBatchTransferPlan', {

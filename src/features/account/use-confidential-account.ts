@@ -9,11 +9,13 @@ import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
+import { useGasTank } from '../wallet/use-gas-tank'
 
 export function useConfidentialAccount() {
   const bridge = useCBridge()
   const { client } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
+  const { ensureGasTank } = useGasTank()
 
   // Idempotent: safe to call every time "Enable private balance" runs, or speculatively before
   // Send — an already-ready account costs one read-only bridge call and nothing to sign or send.
@@ -25,6 +27,19 @@ export function useConfidentialAccount() {
       const [mint, ...extraMints] = (Array.isArray(assets) ? assets : [assets]).map(
         (asset) => getAsset(asset).confidentialMint,
       )
+      const { ready: alreadyReady } = await bridge.call('isAccountReady', {
+        rpcUrl: DEVNET_RPC_URL,
+        mint: mint!,
+        owner: walletAddress,
+      })
+      const extraReady = await Promise.all(
+        extraMints.map((extra) =>
+          bridge.call('isAccountReady', { rpcUrl: DEVNET_RPC_URL, mint: extra, owner: walletAddress }),
+        ),
+      )
+      if (alreadyReady && extraReady.every((r) => r.ready)) return
+      // The gas tank pays the accounts' rent and fees (SKR fuel), so the wallet needs no SOL.
+      await ensureGasTank()
 
       await retryOnExpiry(async () => {
         const { signedTransactions } = await bridge.call('ensureAccountReady', {
@@ -32,6 +47,7 @@ export function useConfidentialAccount() {
           mint: mint!,
           extraMints,
           owner: walletAddress,
+          payWithGasTank: true,
         })
         if (signedTransactions.length > 0) {
           await sendSignedTransactions(
@@ -41,7 +57,7 @@ export function useConfidentialAccount() {
         }
       })
     },
-    [bridge, walletAddress, client],
+    [bridge, walletAddress, client, ensureGasTank],
   )
 
   // Used by Send before building a transfer — no session keys or signature needed, it's someone

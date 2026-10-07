@@ -8,7 +8,6 @@ import { findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from '@solana-program/t
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import { address } from '@solana/kit'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { requireMints } from '../../config/devnet-config'
 import { useAppStore, type Tier } from '../../store/app-store'
 
@@ -37,7 +36,6 @@ export function tierForStake(
 export function useStakeInfo() {
   const { client } = useMobileWallet()
   const walletAddress = useAppStore((s) => s.walletAddress)
-  const setTier = useAppStore((s) => s.setTier)
 
   const query = useQuery({
     queryKey: ['stake-info', walletAddress],
@@ -76,9 +74,7 @@ export function useStakeInfo() {
     },
   })
 
-  useEffect(() => {
-    if (query.data) setTier(query.data.tier)
-  }, [query.data, setTier])
-
+  // Not the app's tier: that comes from the relayer (useTier), which counts membership passes
+  // as well as stakes — this `tier` is the stake's alone.
   return query
 }

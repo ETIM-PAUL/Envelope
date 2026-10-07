@@ -8,6 +8,10 @@
 
 import type { ReadonlyUint8Array } from '@solana/kit'
 
+export const PASS_CONFIG_SEED: ReadonlyUint8Array = new Uint8Array([112, 97, 115, 115, 95, 99, 111, 110, 102, 105, 103])
+
+export const PASS_SEED: ReadonlyUint8Array = new Uint8Array([112, 97, 115, 115])
+
 export const POOL_AUTH_SEED: ReadonlyUint8Array = new Uint8Array([
   112, 111, 111, 108, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121,
 ])

@@ -81,6 +81,19 @@ export const faucetConfig = {
   maxHeld: BigInt(process.env.SKR_FAUCET_MAX_HELD ?? '6000000000'), // never past 6,000 SKR held (incl. staked)
 }
 
+// SKR fuel (fuel.ts): the relayer refills a wallet's gas tank — the device-derived account that
+// pays rent and network fees — so the wallet itself never needs SOL. Members get refills
+// included; Free pays `priceSkr` per refill. Bounded either way: a refill only happens when the
+// tank is below `refillBelowLamports`, tops it up to `topUpToLamports`, and at most
+// `maxRefillsPerDay` times per wallet.
+export const fuelConfig = {
+  enabled: (process.env.FUEL_ENABLED ?? 'true') === 'true',
+  refillBelowLamports: BigInt(process.env.FUEL_REFILL_BELOW_LAMPORTS ?? '10000000'), // 0.01 SOL
+  topUpToLamports: BigInt(process.env.FUEL_TOP_UP_TO_LAMPORTS ?? '25000000'), // 0.025 SOL
+  priceSkr: BigInt(process.env.FUEL_PRICE_SKR ?? '2000000'), // 2 SKR (6 decimals), Free tier
+  maxRefillsPerDay: Number(process.env.FUEL_MAX_REFILLS_PER_DAY ?? 3),
+}
+
 export const policyConfig = {
   // Priority fees are capped, not fixed — this bounds how much of the relayer's own SOL a single
   // relayed transaction can spend on prioritization, regardless of what the client requests.
@@ -93,6 +106,29 @@ export const policyConfig = {
   // Requests per wallet per window, sliding.
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
   rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 10),
+}
+
+// What each tier gets beyond the vault's on-chain daily limits. The relayer enforces
+// maxBatchRecipients and sendFeeWaived itself; the app enforces the pot rules (they aren't
+// on-chain) and shows all of it on the Membership screen — /tier returns this table so the two
+// never disagree.
+export type TierPerks = {
+  maxBatchRecipients: number
+  maxOpenPots: number | null // null: unlimited
+  multiTokenPots: boolean // a pot can accept dollars and SKR together
+  sendFeeWaived: boolean
+  fuelIncluded: boolean // gas-tank refills (rent and network fees) without paying SKR
+}
+export const tierPerks: Record<'free' | 'member' | 'business', TierPerks> = {
+  free: { maxBatchRecipients: 3, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
+  member: { maxBatchRecipients: 10, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
+  business: {
+    maxBatchRecipients: 25,
+    maxOpenPots: null,
+    multiTokenPots: true,
+    sendFeeWaived: true,
+    fuelIncluded: true,
+  },
 }
 
 export const port = Number(process.env.PORT ?? 8787)

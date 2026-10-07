@@ -59,6 +59,10 @@ const CLOSE_CONTEXT_STATE_DISCRIMINATOR = 0
 // lamports or tokens, unlike a Token Transfer or System instruction naming the relayer as source.
 const CONFIDENTIAL_TRANSFER_VERIFY_DISCRIMINATORS = new Set([3, 12, 7])
 
+// Token-2022's ConfidentialTransferExtension instruction and its Transfer sub-instruction.
+const CONFIDENTIAL_TRANSFER_EXTENSION = 27
+const CONFIDENTIAL_TRANSFER_TRANSFER = 7
+
 export type PolicyViolation = { ok: false; reason: string }
 // `proofSetupOnly`: every instruction is proof-context setup — the relayer funding a ZK proof
 // context account (CreateAccount owned by the ZK proof program), a proof verification into one,
@@ -68,7 +72,18 @@ export type PolicyViolation = { ok: false; reason: string }
 // still has to carry the fee. Setup alone moves no one's funds; what a free-tier wallet gets for
 // it is the relayer paying transaction fees and temporarily funding context accounts it remains
 // the authority of (it can always close them and reclaim the rent) — bounded by the rate limit.
-export type PolicyResult = { ok: true; sawFreeTierFeeInstruction: boolean; proofSetupOnly: boolean } | PolicyViolation
+// `confidentialTransfers` / `freeTierFeePaid`: how many private transfers this transaction makes and
+// how much SKR fee it pays the relayer — index.ts sums them across a batch to enforce the tier's
+// batch size and one fee per transfer.
+export type PolicyResult =
+  | {
+      ok: true
+      sawFreeTierFeeInstruction: boolean
+      proofSetupOnly: boolean
+      confidentialTransfers: number
+      freeTierFeePaid: bigint
+    }
+  | PolicyViolation
 
 function violation(reason: string): PolicyViolation {
   return { ok: false, reason }
@@ -174,6 +189,8 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
 
   let sawFreeTierFeeInstruction = false
   let proofSetupOnly = true
+  let confidentialTransfers = 0
+  let freeTierFeePaid = 0n
   const [relayerSkrAta] = await findAssociatedTokenPda({
     owner: relayerAddress,
     mint: mints.skr,
@@ -187,6 +204,13 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
     }
 
     const data = instruction.data instanceof Uint8Array ? instruction.data : new Uint8Array(instruction.data ?? [])
+    if (
+      programAddress === TOKEN_2022_PROGRAM_ADDRESS &&
+      data[0] === CONFIDENTIAL_TRANSFER_EXTENSION &&
+      data[1] === CONFIDENTIAL_TRANSFER_TRANSFER
+    ) {
+      confidentialTransfers++
+    }
 
     const isProofSetupInstruction =
       programAddress === COMPUTE_BUDGET_PROGRAM_ADDRESS ||
@@ -226,6 +250,7 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
           ? getTransferInstructionDataDecoder().decode(data).amount
           : getTransferCheckedInstructionDataDecoder().decode(data).amount
       const destinationAccount = instruction.accounts?.[data[0] === TRANSFER_DISCRIMINATOR ? 1 : 2]
+      if (destinationAccount?.address === relayerSkrAta) freeTierFeePaid += amount
       if (destinationAccount?.address === relayerSkrAta && amount >= policyConfig.freeTierFeeAmount) {
         sawFreeTierFeeInstruction = true
       }
@@ -241,5 +266,5 @@ export async function validateTransaction(transaction: Transaction): Promise<Pol
     }
   }
 
-  return { ok: true, sawFreeTierFeeInstruction, proofSetupOnly }
+  return { ok: true, sawFreeTierFeeInstruction, proofSetupOnly, confidentialTransfers, freeTierFeePaid }
 }

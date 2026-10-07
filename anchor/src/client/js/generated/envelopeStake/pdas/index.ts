@@ -6,6 +6,8 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from './pass'
+export * from './passConfig'
 export * from './pool'
 export * from './poolAuthority'
 export * from './stakePosition'

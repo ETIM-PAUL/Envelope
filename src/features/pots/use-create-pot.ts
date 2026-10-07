@@ -3,14 +3,21 @@
 // everything), then remember it locally (there's no on-chain index of a host's pots).
 import { useCBridge } from '@envelope/rn-confidential'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
-import { address, type GetSignatureStatusesApi, type Rpc, type SendTransactionApi } from '@solana/kit'
+import {
+  address,
+  type GetProgramAccountsApi,
+  type GetSignatureStatusesApi,
+  type Rpc,
+  type SendTransactionApi,
+} from '@solana/kit'
 import { useCallback } from 'react'
 import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { useAppStore } from '../../store/app-store'
-import { addPotSummary, type PotSummary } from './pot-store'
+import { addPotSummary, syncPotSummaries, type PotSummary } from './pot-store'
+import { fetchTierInfo } from '../account/use-tier'
 import { findPotPda } from './pot-pda'
 import { usePotKeys } from './use-pot-keys'
 import { useGasTank } from '../wallet/use-gas-tank'
@@ -28,6 +35,20 @@ export function useCreatePot() {
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
       if (assets.length === 0) throw new Error('choose at least one token for the pot')
+      // Membership perks (the relayer's TierPerks): pot rules aren't on-chain, so they're applied here.
+      const { perks } = await fetchTierInfo(walletAddress)
+      if (assets.length > 1 && !perks.multiTokenPots) {
+        throw new Error('your plan accepts one token per pot — Membership adds dollars and SKR together')
+      }
+      if (perks.maxOpenPots !== null) {
+        const rpc = client.rpc as unknown as Rpc<GetProgramAccountsApi>
+        const open = await syncPotSummaries(rpc, walletAddress)
+        if (open.length >= perks.maxOpenPots) {
+          throw new Error(
+            `your plan allows ${perks.maxOpenPots} open pot${perks.maxOpenPots === 1 ? '' : 's'} at a time`,
+          )
+        }
+      }
       const [mainMint, ...extraMints] = assets.map((asset) => getAsset(asset).confidentialMint)
 
       const potId = BigInt(Date.now())

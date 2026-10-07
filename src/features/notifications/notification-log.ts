@@ -16,6 +16,7 @@ export type LoggedNotificationKind =
   | 'unstake-requested'
   | 'unstake-withdrawn'
   | 'faucet'
+  | 'pass'
 
 export type LoggedNotification = {
   id: string

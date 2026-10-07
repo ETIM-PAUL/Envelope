@@ -30,14 +30,32 @@ export const ENVELOPE_STAKE_ERROR__COOLDOWN_NOT_ELAPSED = 0x1775 // 6005
 export const ENVELOPE_STAKE_ERROR__NOTHING_STAKED = 0x1776 // 6006
 /** InvalidThresholds: member_threshold must be <= business_threshold */
 export const ENVELOPE_STAKE_ERROR__INVALID_THRESHOLDS = 0x1777 // 6007
+/** Unauthorized: Only the designated admin may call this instruction */
+export const ENVELOPE_STAKE_ERROR__UNAUTHORIZED = 0x1778 // 6008
+/** InvalidCooldown: cooldown_secs must be >= 0 */
+export const ENVELOPE_STAKE_ERROR__INVALID_COOLDOWN = 0x1779 // 6009
+/** InvalidPassTier: A pass is Member (1) or Business (2) */
+export const ENVELOPE_STAKE_ERROR__INVALID_PASS_TIER = 0x177a // 6010
+/** InvalidPassPeriods: A pass is bought for 1 to 12 periods */
+export const ENVELOPE_STAKE_ERROR__INVALID_PASS_PERIODS = 0x177b // 6011
+/** PassDowngrade: Your higher-tier pass is still active */
+export const ENVELOPE_STAKE_ERROR__PASS_DOWNGRADE = 0x177c // 6012
+/** InvalidPassConfig: Pass prices and period must be greater than zero */
+export const ENVELOPE_STAKE_ERROR__INVALID_PASS_CONFIG = 0x177d // 6013
 
 export type EnvelopeStakeError =
   | typeof ENVELOPE_STAKE_ERROR__CANNOT_STAKE_DURING_UNSTAKE
   | typeof ENVELOPE_STAKE_ERROR__COOLDOWN_NOT_ELAPSED
+  | typeof ENVELOPE_STAKE_ERROR__INVALID_COOLDOWN
+  | typeof ENVELOPE_STAKE_ERROR__INVALID_PASS_CONFIG
+  | typeof ENVELOPE_STAKE_ERROR__INVALID_PASS_PERIODS
+  | typeof ENVELOPE_STAKE_ERROR__INVALID_PASS_TIER
   | typeof ENVELOPE_STAKE_ERROR__INVALID_THRESHOLDS
   | typeof ENVELOPE_STAKE_ERROR__NOTHING_STAKED
   | typeof ENVELOPE_STAKE_ERROR__NO_UNSTAKE_REQUESTED
   | typeof ENVELOPE_STAKE_ERROR__OVERFLOW
+  | typeof ENVELOPE_STAKE_ERROR__PASS_DOWNGRADE
+  | typeof ENVELOPE_STAKE_ERROR__UNAUTHORIZED
   | typeof ENVELOPE_STAKE_ERROR__UNSTAKE_ALREADY_REQUESTED
   | typeof ENVELOPE_STAKE_ERROR__ZERO_AMOUNT
 
@@ -46,10 +64,16 @@ if (process.env['NODE_ENV'] !== 'production') {
   envelopeStakeErrorMessages = {
     [ENVELOPE_STAKE_ERROR__CANNOT_STAKE_DURING_UNSTAKE]: `Cannot stake more while an unstake request is pending — withdraw or wait it out first`,
     [ENVELOPE_STAKE_ERROR__COOLDOWN_NOT_ELAPSED]: `The cooldown period has not elapsed yet`,
+    [ENVELOPE_STAKE_ERROR__INVALID_COOLDOWN]: `cooldown_secs must be >= 0`,
+    [ENVELOPE_STAKE_ERROR__INVALID_PASS_CONFIG]: `Pass prices and period must be greater than zero`,
+    [ENVELOPE_STAKE_ERROR__INVALID_PASS_PERIODS]: `A pass is bought for 1 to 12 periods`,
+    [ENVELOPE_STAKE_ERROR__INVALID_PASS_TIER]: `A pass is Member (1) or Business (2)`,
     [ENVELOPE_STAKE_ERROR__INVALID_THRESHOLDS]: `member_threshold must be <= business_threshold`,
     [ENVELOPE_STAKE_ERROR__NOTHING_STAKED]: `Nothing staked to unstake`,
     [ENVELOPE_STAKE_ERROR__NO_UNSTAKE_REQUESTED]: `No unstake has been requested for this stake position`,
     [ENVELOPE_STAKE_ERROR__OVERFLOW]: `Arithmetic overflow`,
+    [ENVELOPE_STAKE_ERROR__PASS_DOWNGRADE]: `Your higher-tier pass is still active`,
+    [ENVELOPE_STAKE_ERROR__UNAUTHORIZED]: `Only the designated admin may call this instruction`,
     [ENVELOPE_STAKE_ERROR__UNSTAKE_ALREADY_REQUESTED]: `An unstake request is already pending for this stake position`,
     [ENVELOPE_STAKE_ERROR__ZERO_AMOUNT]: `Amount must be greater than zero`,
   }

@@ -30,24 +30,40 @@ export function tierForStake(
 const TIER_CACHE_TTL_MS = 30_000
 const tierCache = new Map<string, { tier: Tier; expiresAt: number }>()
 
-// Reads the wallet's on-chain StakePosition + the Pool singleton's thresholds and computes its
-// current tier. A wallet that has never staked (no StakePosition account yet) is Free.
-export async function getTierForWallet(
+// TS mirror of tier.rs's `tier_for_pass`: a pass grants its tier until `expiresAt`.
+export function tierForPass(tier: number, expiresAt: bigint, nowSecs: bigint): Tier {
+  if (nowSecs >= expiresAt) return 'free'
+  return tier === 2 ? 'business' : tier === 1 ? 'member' : 'free'
+}
+
+const TIER_RANK: Record<Tier, number> = { free: 0, member: 1, business: 2 }
+export function higherTier(a: Tier, b: Tier): Tier {
+  return TIER_RANK[a] >= TIER_RANK[b] ? a : b
+}
+
+export type Membership = {
+  tier: Tier
+  pass: { tier: Tier; expiresAt: number } | null // expiresAt: unix seconds; null if never bought
+}
+
+// Reads the wallet's on-chain StakePosition, membership Pass, and the Pool singleton's thresholds:
+// the tier is whichever of the two is higher — the same rule envelope_vault's `wrap` applies. A
+// wallet with neither is Free.
+export async function getMembership(
   rpc: Rpc<GetAccountInfoApi & GetMultipleAccountsApi>,
   owner: Address,
-): Promise<Tier> {
-  const cached = tierCache.get(owner)
-  if (cached && cached.expiresAt > Date.now()) return cached.tier
-
+): Promise<Membership> {
   const [poolAddress] = await envelopeStake.findPoolPda()
   const [stakePositionAddress] = await envelopeStake.findStakePositionPda({ user: owner })
+  const [passAddress] = await envelopeStake.findPassPda({ user: owner })
 
-  const [pool, stakePosition] = await Promise.all([
+  const [pool, stakePosition, pass] = await Promise.all([
     envelopeStake.fetchPool(rpc, poolAddress),
     envelopeStake.fetchMaybeStakePosition(rpc, stakePositionAddress),
+    envelopeStake.fetchMaybePass(rpc, passAddress),
   ])
 
-  const tier = stakePosition.exists
+  const stakeTier = stakePosition.exists
     ? tierForStake(
         stakePosition.data.amount,
         stakePosition.data.unlockRequestedAt,
@@ -55,7 +71,32 @@ export async function getTierForWallet(
         pool.data.businessThreshold,
       )
     : 'free'
+  const nowSecs = BigInt(Math.floor(Date.now() / 1000))
+  const passTier = pass.exists ? tierForPass(pass.data.tier, pass.data.expiresAt, nowSecs) : 'free'
 
+  return {
+    tier: higherTier(stakeTier, passTier),
+    pass: pass.exists
+      ? {
+          tier: pass.data.tier === 2 ? 'business' : 'member',
+          expiresAt: Number(pass.data.expiresAt),
+        }
+      : null,
+  }
+}
+
+export async function getTierForWallet(
+  rpc: Rpc<GetAccountInfoApi & GetMultipleAccountsApi>,
+  owner: Address,
+): Promise<Tier> {
+  const cached = tierCache.get(owner)
+  if (cached && cached.expiresAt > Date.now()) return cached.tier
+  const { tier } = await getMembership(rpc, owner)
   tierCache.set(owner, { tier, expiresAt: Date.now() + TIER_CACHE_TTL_MS })
   return tier
+}
+
+// A purchase changes the tier right away; drop the cached one so the next request sees it.
+export function forgetCachedTier(owner: string): void {
+  tierCache.delete(owner)
 }

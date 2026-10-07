@@ -41,6 +41,7 @@ import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { PLACEHOLDER_LIFETIME, useWalletSigning } from '../wallet/use-wallet-signing'
 import { useConfidentialAccount } from './use-confidential-account'
+import { useGasTank } from '../wallet/use-gas-tank'
 import { recordNotification } from '../notifications/notification-log'
 
 export function useAddToPrivateBalance() {
@@ -49,6 +50,7 @@ export function useAddToPrivateBalance() {
   const { signTransactions } = useWalletSigning()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { ensureAccountReady } = useConfidentialAccount()
+  const { ensureGasTank } = useGasTank()
 
   const addToPrivateBalance = useCallback(
     async (amount: bigint, assetId: AssetId = 'usdc'): Promise<void> => {
@@ -61,6 +63,10 @@ export function useAddToPrivateBalance() {
       // simulation with no indication why: Deposit requires the account to already have the
       // ConfidentialTransferAccount extension configured.
       await ensureAccountReady(assetId)
+      // The gas tank pays this transaction's fee and, the first time, the daily-limit record's rent
+      // (SKR fuel) — the wallet only authorizes.
+      await ensureGasTank()
+      const { address: tankAddress } = await bridge.call('gasTankAddress', { owner: walletAddress })
 
       const owner = address(walletAddress)
       const asset = getAsset(assetId)
@@ -101,11 +107,13 @@ export function useAddToPrivateBalance() {
         // Only the address matters while building: the wallet itself signs the compiled
         // transaction below, as the authority on every instruction and the fee payer.
         const authority = createNoopSigner(owner)
+        const gasTank = createNoopSigner(address(tankAddress))
 
         const wrapInstruction =
           assetId === 'usdc'
             ? await envelopeVault.getWrapInstructionAsync({
                 user: authority,
+                payer: gasTank,
                 userUsdc: userUnderlying,
                 vaultUsdc: vaultTokenAccount,
                 cusdcMint: confidentialMint,
@@ -141,13 +149,20 @@ export function useAddToPrivateBalance() {
           pipe(
             createTransactionMessage({ version: 0 }),
             (m) => appendTransactionMessageInstructions([wrapInstruction, depositInstruction, applyInstruction], m),
-            (m) => setTransactionMessageFeePayerSigner(authority, m),
+            (m) => setTransactionMessageFeePayerSigner(gasTank, m),
             (m) => setTransactionMessageLifetimeUsingBlockhash(PLACEHOLDER_LIFETIME, m),
           ),
         )
         const [signed] = await signTransactions([transaction])
+        // The tank signs after the wallet: the wallet may have rewritten the message it signed.
+        const {
+          transactionsBase64: [cosigned],
+        } = await bridge.call('cosignWithGasTank', {
+          owner: walletAddress,
+          transactionsBase64: [getBase64EncodedWireTransaction(signed!)],
+        })
         await sendSignedTransactions(client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>, [
-          getBase64EncodedWireTransaction(signed!),
+          cosigned!,
         ])
       })
 
@@ -158,7 +173,7 @@ export function useAddToPrivateBalance() {
         asset: assetId,
       })
     },
-    [bridge, walletAddress, client, signTransactions, ensureAccountReady],
+    [bridge, walletAddress, client, signTransactions, ensureAccountReady, ensureGasTank],
   )
 
   return { addToPrivateBalance }

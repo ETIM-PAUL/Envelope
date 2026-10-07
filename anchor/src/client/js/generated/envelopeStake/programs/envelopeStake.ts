@@ -17,6 +17,7 @@ import {
   SOLANA_ERROR__PROGRAM_CLIENTS__UNRECOGNIZED_INSTRUCTION_TYPE,
   SolanaError,
   type Address,
+  type ClientWithPayer,
   type ClientWithRpc,
   type ClientWithTransactionPlanning,
   type ClientWithTransactionSending,
@@ -34,24 +35,38 @@ import {
   type SelfPlanAndSendFunctions,
 } from '@solana/kit/program-client-core'
 import {
+  getPassCodec,
+  getPassConfigCodec,
   getPoolCodec,
   getStakePositionCodec,
+  type Pass,
+  type PassArgs,
+  type PassConfig,
+  type PassConfigArgs,
   type Pool,
   type PoolArgs,
   type StakePosition,
   type StakePositionArgs,
 } from '../accounts'
 import {
+  getBuyPassInstructionAsync,
   getInitializeInstructionAsync,
+  getInitializePassConfigInstructionAsync,
   getRequestUnstakeInstructionAsync,
   getStakeInstructionAsync,
   getWithdrawUnstakedInstructionAsync,
+  parseBuyPassInstruction,
   parseInitializeInstruction,
+  parseInitializePassConfigInstruction,
   parseRequestUnstakeInstruction,
   parseStakeInstruction,
   parseWithdrawUnstakedInstruction,
+  type BuyPassAsyncInput,
   type InitializeAsyncInput,
+  type InitializePassConfigAsyncInput,
+  type ParsedBuyPassInstruction,
   type ParsedInitializeInstruction,
+  type ParsedInitializePassConfigInstruction,
   type ParsedRequestUnstakeInstruction,
   type ParsedStakeInstruction,
   type ParsedWithdrawUnstakedInstruction,
@@ -59,12 +74,14 @@ import {
   type StakeAsyncInput,
   type WithdrawUnstakedAsyncInput,
 } from '../instructions'
-import { findPoolAuthorityPda, findPoolPda, findStakePositionPda } from '../pdas'
+import { findPassConfigPda, findPassPda, findPoolAuthorityPda, findPoolPda, findStakePositionPda } from '../pdas'
 
 export const ENVELOPE_STAKE_PROGRAM_ADDRESS =
   '331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx' as Address<'331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx'>
 
 export enum EnvelopeStakeAccount {
+  Pass,
+  PassConfig,
   Pool,
   StakePosition,
 }
@@ -73,6 +90,24 @@ export function identifyEnvelopeStakeAccount(
   account: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
 ): EnvelopeStakeAccount {
   const data = 'data' in account ? account.data : account
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([40, 247, 140, 113, 56, 14, 57, 44])),
+      0,
+    )
+  ) {
+    return EnvelopeStakeAccount.Pass
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([158, 22, 122, 114, 244, 64, 138, 202])),
+      0,
+    )
+  ) {
+    return EnvelopeStakeAccount.PassConfig
+  }
   if (
     containsBytes(
       data,
@@ -98,7 +133,9 @@ export function identifyEnvelopeStakeAccount(
 }
 
 export enum EnvelopeStakeInstruction {
+  BuyPass,
   Initialize,
+  InitializePassConfig,
   RequestUnstake,
   Stake,
   WithdrawUnstaked,
@@ -111,11 +148,29 @@ export function identifyEnvelopeStakeInstruction(
   if (
     containsBytes(
       data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([57, 144, 218, 182, 67, 42, 234, 124])),
+      0,
+    )
+  ) {
+    return EnvelopeStakeInstruction.BuyPass
+  }
+  if (
+    containsBytes(
+      data,
       fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([175, 175, 109, 31, 13, 152, 155, 237])),
       0,
     )
   ) {
     return EnvelopeStakeInstruction.Initialize
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([126, 0, 45, 229, 16, 190, 136, 33])),
+      0,
+    )
+  ) {
+    return EnvelopeStakeInstruction.InitializePassConfig
   }
   if (
     containsBytes(
@@ -151,7 +206,11 @@ export function identifyEnvelopeStakeInstruction(
 }
 
 export type ParsedEnvelopeStakeInstruction<TProgram extends string = '331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx'> =
+  | ({ instructionType: EnvelopeStakeInstruction.BuyPass } & ParsedBuyPassInstruction<TProgram>)
   | ({ instructionType: EnvelopeStakeInstruction.Initialize } & ParsedInitializeInstruction<TProgram>)
+  | ({
+      instructionType: EnvelopeStakeInstruction.InitializePassConfig
+    } & ParsedInitializePassConfigInstruction<TProgram>)
   | ({ instructionType: EnvelopeStakeInstruction.RequestUnstake } & ParsedRequestUnstakeInstruction<TProgram>)
   | ({ instructionType: EnvelopeStakeInstruction.Stake } & ParsedStakeInstruction<TProgram>)
   | ({ instructionType: EnvelopeStakeInstruction.WithdrawUnstaked } & ParsedWithdrawUnstakedInstruction<TProgram>)
@@ -161,9 +220,20 @@ export function parseEnvelopeStakeInstruction<TProgram extends string>(
 ): ParsedEnvelopeStakeInstruction<TProgram> {
   const instructionType = identifyEnvelopeStakeInstruction(instruction)
   switch (instructionType) {
+    case EnvelopeStakeInstruction.BuyPass: {
+      assertIsInstructionWithAccounts(instruction)
+      return { instructionType: EnvelopeStakeInstruction.BuyPass, ...parseBuyPassInstruction(instruction) }
+    }
     case EnvelopeStakeInstruction.Initialize: {
       assertIsInstructionWithAccounts(instruction)
       return { instructionType: EnvelopeStakeInstruction.Initialize, ...parseInitializeInstruction(instruction) }
+    }
+    case EnvelopeStakeInstruction.InitializePassConfig: {
+      assertIsInstructionWithAccounts(instruction)
+      return {
+        instructionType: EnvelopeStakeInstruction.InitializePassConfig,
+        ...parseInitializePassConfigInstruction(instruction),
+      }
     }
     case EnvelopeStakeInstruction.RequestUnstake: {
       assertIsInstructionWithAccounts(instruction)
@@ -201,14 +271,22 @@ export type EnvelopeStakePlugin = {
 }
 
 export type EnvelopeStakePluginAccounts = {
+  pass: ReturnType<typeof getPassCodec> & SelfFetchFunctions<PassArgs, Pass>
+  passConfig: ReturnType<typeof getPassConfigCodec> & SelfFetchFunctions<PassConfigArgs, PassConfig>
   pool: ReturnType<typeof getPoolCodec> & SelfFetchFunctions<PoolArgs, Pool>
   stakePosition: ReturnType<typeof getStakePositionCodec> & SelfFetchFunctions<StakePositionArgs, StakePosition>
 }
 
 export type EnvelopeStakePluginInstructions = {
+  buyPass: (
+    input: MakeOptional<BuyPassAsyncInput, 'payer'>,
+  ) => ReturnType<typeof getBuyPassInstructionAsync> & SelfPlanAndSendFunctions
   initialize: (
     input: InitializeAsyncInput,
   ) => ReturnType<typeof getInitializeInstructionAsync> & SelfPlanAndSendFunctions
+  initializePassConfig: (
+    input: InitializePassConfigAsyncInput,
+  ) => ReturnType<typeof getInitializePassConfigInstructionAsync> & SelfPlanAndSendFunctions
   requestUnstake: (
     input: RequestUnstakeAsyncInput,
   ) => ReturnType<typeof getRequestUnstakeInstructionAsync> & SelfPlanAndSendFunctions
@@ -220,11 +298,14 @@ export type EnvelopeStakePluginInstructions = {
 
 export type EnvelopeStakePluginPdas = {
   pool: typeof findPoolPda
+  passConfig: typeof findPassConfigPda
+  pass: typeof findPassPda
   poolAuthority: typeof findPoolAuthorityPda
   stakePosition: typeof findStakePositionPda
 }
 
 export type EnvelopeStakePluginRequirements = ClientWithRpc<GetAccountInfoApi & GetMultipleAccountsApi> &
+  ClientWithPayer &
   ClientWithTransactionPlanning &
   ClientWithTransactionSending
 
@@ -235,16 +316,31 @@ export function envelopeStakeProgram() {
     return extendClient(client, {
       envelopeStake: <EnvelopeStakePlugin>{
         accounts: {
+          pass: addSelfFetchFunctions(client, getPassCodec()),
+          passConfig: addSelfFetchFunctions(client, getPassConfigCodec()),
           pool: addSelfFetchFunctions(client, getPoolCodec()),
           stakePosition: addSelfFetchFunctions(client, getStakePositionCodec()),
         },
         instructions: {
+          buyPass: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getBuyPassInstructionAsync({ ...input, payer: input.payer ?? client.payer }),
+            ),
           initialize: (input) => addSelfPlanAndSendFunctions(client, getInitializeInstructionAsync(input)),
+          initializePassConfig: (input) =>
+            addSelfPlanAndSendFunctions(client, getInitializePassConfigInstructionAsync(input)),
           requestUnstake: (input) => addSelfPlanAndSendFunctions(client, getRequestUnstakeInstructionAsync(input)),
           stake: (input) => addSelfPlanAndSendFunctions(client, getStakeInstructionAsync(input)),
           withdrawUnstaked: (input) => addSelfPlanAndSendFunctions(client, getWithdrawUnstakedInstructionAsync(input)),
         },
-        pdas: { pool: findPoolPda, poolAuthority: findPoolAuthorityPda, stakePosition: findStakePositionPda },
+        pdas: {
+          pool: findPoolPda,
+          passConfig: findPassConfigPda,
+          pass: findPassPda,
+          poolAuthority: findPoolAuthorityPda,
+          stakePosition: findStakePositionPda,
+        },
         identifyAccount: identifyEnvelopeStakeAccount,
         identifyInstruction: identifyEnvelopeStakeInstruction,
         parseInstruction: parseEnvelopeStakeInstruction,
@@ -252,3 +348,5 @@ export function envelopeStakeProgram() {
     })
   }
 }
+
+type MakeOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>

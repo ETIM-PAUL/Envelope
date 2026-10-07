@@ -10,7 +10,19 @@ import {
 import { envelopeStake } from '../../src'
 import { sendInstructions } from '../send-instruction'
 import { createMint } from './mints'
-import { BUSINESS_THRESHOLD, COOLDOWN_SECS, MEMBER_THRESHOLD } from './constants'
+import {
+  getCreateAssociatedTokenIdempotentInstructionAsync,
+  findAssociatedTokenPda,
+  TOKEN_PROGRAM_ADDRESS,
+} from '@solana-program/token'
+import {
+  BUSINESS_THRESHOLD,
+  COOLDOWN_SECS,
+  MEMBER_THRESHOLD,
+  PASS_BUSINESS_PRICE,
+  PASS_MEMBER_PRICE,
+  PASS_PERIOD_SECS,
+} from './constants'
 
 type Clients = {
   rpc: Rpc<SolanaRpcApi>
@@ -46,4 +58,39 @@ export async function ensureStakePool(
   })
   await sendInstructions({ instructions: instruction, payer: admin, rpc, sendAndConfirm })
   return { poolAddress, skrMint: skrMint.address }
+}
+
+// The pass config is a singleton too (see ensureStakePool for why idempotent). Pass payments go
+// to the admin's own SKR account — the test treasury.
+export async function ensurePassConfig(
+  clients: Clients,
+  admin: KeyPairSigner,
+  skrMint: Address,
+): Promise<{ treasury: Address }> {
+  const { rpc, sendAndConfirm } = clients
+  const [passConfigAddress] = await envelopeStake.findPassConfigPda()
+  const existing = await envelopeStake.fetchMaybePassConfig(rpc, passConfigAddress)
+  if (existing.exists) return { treasury: existing.data.treasury }
+
+  const [treasury] = await findAssociatedTokenPda({
+    owner: admin.address,
+    mint: skrMint,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  })
+  await sendInstructions({
+    instructions: [
+      await getCreateAssociatedTokenIdempotentInstructionAsync({ payer: admin, owner: admin.address, mint: skrMint }),
+      await envelopeStake.getInitializePassConfigInstructionAsync({
+        admin,
+        treasury,
+        memberPrice: PASS_MEMBER_PRICE,
+        businessPrice: PASS_BUSINESS_PRICE,
+        periodSecs: PASS_PERIOD_SECS,
+      }),
+    ],
+    payer: admin,
+    rpc,
+    sendAndConfirm,
+  })
+  return { treasury }
 }

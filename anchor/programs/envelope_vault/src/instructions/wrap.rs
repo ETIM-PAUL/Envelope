@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::{self, MintTo, Token2022};
 use anchor_spl::token_interface::{Mint as Mint2022, TokenAccount as TokenAccount2022};
-use envelope_stake::state::{Pool, StakePosition};
-use envelope_stake::tier::tier_for_stake;
+use envelope_stake::state::{Pass, Pool, StakePosition};
+use envelope_stake::tier::{higher_tier, tier_for_pass, tier_for_stake};
 
 use crate::constants::*;
 use crate::error::ErrorCode;
@@ -11,8 +11,12 @@ use crate::state::{Config, UserDaily};
 
 #[derive(Accounts)]
 pub struct Wrap<'info> {
-    #[account(mut)]
     pub user: Signer<'info>,
+
+    /// Pays the daily-limit record's rent the first time: the user's own wallet, or (SKR fuel)
+    /// their gas tank.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
@@ -37,9 +41,16 @@ pub struct Wrap<'info> {
     #[account(seeds = [b"stake", user.key().as_ref()], bump, seeds::program = envelope_stake::ID)]
     pub stake_position: UncheckedAccount<'info>,
 
+    /// CHECK: the user's membership pass (envelope_stake `Pass`), read-only. Same treatment as
+    /// `stake_position`: absent (never bought) is ordinary Free, so it's an `UncheckedAccount`
+    /// whose owner and `user` field the handler verifies whenever it isn't empty; the seeds pin
+    /// the address.
+    #[account(seeds = [b"pass", user.key().as_ref()], bump, seeds::program = envelope_stake::ID)]
+    pub pass: UncheckedAccount<'info>,
+
     #[account(
         init_if_needed,
-        payer = user,
+        payer = payer,
         space = 8 + UserDaily::INIT_SPACE,
         seeds = [USER_DAILY_SEED, user.key().as_ref()],
         bump
@@ -88,6 +99,20 @@ fn read_stake_position(stake_position: &UncheckedAccount, user: &Pubkey) -> Resu
     Ok((stake_position.amount, stake_position.unlock_requested_at))
 }
 
+// Same shape and reasoning as `read_stake_position` (own stack frame, owner check rather than a
+// lamport check). Returns (tier, expires_at); a never-bought pass reads as (0, 0): Free.
+#[inline(never)]
+fn read_pass(pass: &UncheckedAccount, user: &Pubkey) -> Result<(u8, i64)> {
+    let info = pass.to_account_info();
+    if *info.owner != envelope_stake::ID {
+        return Ok((0, 0));
+    }
+    let data = info.try_borrow_data()?;
+    let pass = Pass::try_deserialize(&mut &data[..])?;
+    require_keys_eq!(pass.user, *user, ErrorCode::InvalidStakePosition);
+    Ok((pass.tier, pass.expires_at))
+}
+
 pub fn handle_wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
     require!(amount > 0, ErrorCode::Overflow);
 
@@ -95,15 +120,21 @@ pub fn handle_wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
     let (staked_amount, unlock_requested_at) =
         read_stake_position(&ctx.accounts.stake_position, &user_key)?;
 
-    let tier = tier_for_stake(
-        staked_amount,
-        unlock_requested_at,
-        ctx.accounts.pool.member_threshold,
-        ctx.accounts.pool.business_threshold,
+    let (pass_tier, pass_expires_at) = read_pass(&ctx.accounts.pass, &user_key)?;
+    let now = Clock::get()?.unix_timestamp;
+
+    // A wallet with both a stake and a pass gets whichever tier is higher.
+    let tier = higher_tier(
+        tier_for_stake(
+            staked_amount,
+            unlock_requested_at,
+            ctx.accounts.pool.member_threshold,
+            ctx.accounts.pool.business_threshold,
+        ),
+        tier_for_pass(pass_tier, pass_expires_at, now),
     );
     let limit = ctx.accounts.config.limits[tier as usize];
 
-    let now = Clock::get()?.unix_timestamp;
     let day_index = now / ctx.accounts.config.seconds_per_day;
 
     let user_daily = &mut ctx.accounts.user_daily;

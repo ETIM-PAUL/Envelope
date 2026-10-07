@@ -54,6 +54,8 @@ export default function SendBatch() {
   const isDollars = asset === 'usdc'
   const { availableBalance } = usePrivateBalance(asset)
   const { data: tierInfo } = useTier(walletAddress)
+  // The tier's cap, from the relayer (which enforces it too); Free's until the tier has loaded.
+  const maxRecipients = Math.min(tierInfo?.perks.maxBatchRecipients ?? 3, MAX_BATCH_RECIPIENTS)
   const { data: stakeInfo } = useStakeInfo()
   const { sendBatch, step, isBusy } = useSendBatch()
 
@@ -256,7 +258,7 @@ export default function SendBatch() {
         ))}
       </View>
 
-      {parsed.length < MAX_BATCH_RECIPIENTS && !isBusy ? (
+      {parsed.length < maxRecipients && !isBusy ? (
         <Pressable
           onPress={() => setRows((current) => [...current, newRow()])}
           className="flex-row items-center justify-center gap-2 py-3 mb-5 rounded-2xl border border-dashed border-ink-700"
@@ -266,6 +268,13 @@ export default function SendBatch() {
             Add recipient
           </Text>
         </Pressable>
+      ) : !isBusy && tierInfo && maxRecipients < MAX_BATCH_RECIPIENTS ? (
+        <Text className="text-mute-500 text-sm mb-5 text-center" style={{ fontFamily: fontFamily.ui }}>
+          Your plan sends to {maxRecipients} people at once.{' '}
+          <Link href="/(tabs)/stake" className="text-seal-400" style={{ fontFamily: fontFamily.uiSemibold }}>
+            Membership raises it
+          </Link>
+        </Text>
       ) : (
         <View className="mb-5" />
       )}

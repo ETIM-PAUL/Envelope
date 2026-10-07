@@ -141,6 +141,7 @@ async function main() {
   console.log(`wrapping ${WRAP_AMOUNT} USDC -> cUSDC for alice...`)
   const wrapInstruction = await envelopeVault.getWrapInstructionAsync({
     user: alice,
+    payer: alice,
     userUsdc: aliceUsdcAta,
     vaultUsdc,
     cusdcMint,

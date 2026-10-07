@@ -26,7 +26,7 @@ import { readDevnetConfig } from './lib/keys.ts'
 const RELAYER_ADDRESS = address('Fjqmc1BpebL3FMVZo93zXMKMuiiMxSS57r5w8PHUP8Fe')
 
 async function relay(owner: string, wireBase64: string) {
-  const response = await fetch('http://localhost:8787/relay', {
+  const response = await fetch(`${process.env.RELAYER_URL ?? 'http://localhost:8787'}/relay`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ owner, transactions: [wireBase64] }),

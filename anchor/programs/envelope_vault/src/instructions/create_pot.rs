@@ -6,12 +6,15 @@ use crate::state::Pot;
 #[derive(Accounts)]
 #[instruction(pot_id: u64)]
 pub struct CreatePot<'info> {
-    #[account(mut)]
     pub host: Signer<'info>,
+
+    /// Pays the pot record's rent: the host's own wallet, or (SKR fuel) the host's gas tank.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     #[account(
         init,
-        payer = host,
+        payer = payer,
         space = 8 + Pot::INIT_SPACE,
         seeds = [POT_SEED, host.key().as_ref(), &pot_id.to_le_bytes()],
         bump

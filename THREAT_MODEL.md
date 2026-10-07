@@ -331,3 +331,35 @@ behind, computed off-chain with the same Ristretto subtraction Token-2022 perfor
 wrong computation can't move funds: the on-chain equality proof check fails and that transfer
 (and everything after it) is rejected. The relayer submits and confirms each transaction in order,
 which the chain of proofs requires. A batch carries one SKR fee per transfer (free tier).
+
+## Membership passes and SKR fuel
+
+**Passes (`envelope_stake::buy_pass`).** A pass is SKR transferred to a treasury account fixed in
+`PassConfig` (admin-set, once) for a tier and expiry. The PDA is seeded by the buyer, so
+`init_if_needed` can only ever touch the caller's own pass, and every field is rewritten on each
+purchase. Same-tier purchases extend from the current expiry; a higher tier starts now (the rest of
+the lower pass is not refunded — the app says so); a lower tier while a higher one is active is
+rejected. `wrap` reads the pass the same way it reads a stake position (owner check, Anchor
+discriminator, `user` field, `seeds::program`) and uses whichever tier is higher. A pass separates
+rent payer from buyer, so the buyer's gas tank can pay.
+
+**Perks.** Daily dollar limits are enforced on-chain (`wrap`). The relayer enforces the send fee
+(one per private transfer in a request) and the batch size (private transfers per request). Pot
+limits (open pots, dollars-and-SKR pots) are enforced by the app only — pots don't touch the
+relayer, and the program has no notion of tier for them. A modified client could exceed them; the
+cost is extra pots, not anyone's funds.
+
+**Fuel (`relayer/src/fuel.ts`).** The relayer refills a wallet's gas tank with SOL so the wallet
+never needs any. Bounded so it can't be drained:
+
+- A refill only happens when the tank is below 0.01 SOL, tops it up to 0.025 SOL, and at most 3
+  times per wallet per day.
+- A wallet's tank is bound on its first refill; refills to any other address are refused.
+- Paid refills (Free tier) are built by the relayer and co-signed only if the signed transaction
+  still contains exactly the quoted SOL transfer to exactly the bound tank, the SKR price to the
+  relayer, and nothing else besides compute-budget price instructions under the cap.
+- The relayer never funds accounts other people can close: rent is paid from the user's own gas
+  tank, which holds SOL the user was given (welcome or member refill) or bought with SKR.
+- **Devnet-only allowance:** every wallet's first refill is free, so a brand-new user with neither
+  SOL nor SKR can start. A fresh wallet costs nothing to make, so on mainnet this must be gated
+  (e.g. on the Seeker Genesis Token) or removed.

@@ -6,7 +6,9 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from './buyPass'
 export * from './initialize'
+export * from './initializePassConfig'
 export * from './requestUnstake'
 export * from './stake'
 export * from './withdrawUnstaked'

@@ -74,6 +74,13 @@
       "accounts": [
         {
           "name": "host",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the pot record's rent: the host's own wallet, or (SKR fuel) the host's gas tank."
+          ],
           "writable": true,
           "signer": true
         },
@@ -652,6 +659,14 @@
       "accounts": [
         {
           "name": "user",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the daily-limit record's rent the first time: the user's own wallet, or (SKR fuel)",
+            "their gas tank."
+          ],
           "writable": true,
           "signer": true
         },
@@ -768,6 +783,68 @@
                   97,
                   107,
                   101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                30,
+                59,
+                28,
+                86,
+                113,
+                215,
+                29,
+                158,
+                122,
+                164,
+                170,
+                211,
+                52,
+                27,
+                87,
+                96,
+                193,
+                240,
+                242,
+                7,
+                8,
+                93,
+                217,
+                116,
+                195,
+                25,
+                106,
+                76,
+                214,
+                105,
+                224,
+                163
+              ]
+            }
+          }
+        },
+        {
+          "name": "pass",
+          "docs": [
+            "`stake_position`: absent (never bought) is ordinary Free, so it's an `UncheckedAccount`",
+            "whose owner and `user` field the handler verifies whenever it isn't empty; the seeds pin",
+            "the address."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115
                 ]
               },
               {

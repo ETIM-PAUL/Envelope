@@ -167,6 +167,7 @@ async function main() {
     if (existingPot.exists) return
     const createPotIx = await envelopeVault.getCreatePotInstructionAsync({
       host,
+      payer: host,
       potId,
       name: new TextEncoder().encode('Demo pot').slice(0, 32),
       closeTs: BigInt(Math.floor(Date.now() / 1000) + 3600),

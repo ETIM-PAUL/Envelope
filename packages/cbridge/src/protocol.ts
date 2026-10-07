@@ -107,12 +107,14 @@ export type ApplyPendingBalanceResult = { signedTransactions: string[] }
 // `payer` (Phase 15): defaults to `owner` — set it to a different address (the pot's host) when
 // `owner` is a pot's derived identity, which never holds any SOL of its own to pay rent with.
 // `extraMints`: more tokens to get ready in the same call (one wallet approval for all of them).
+// `payWithGasTank`: the wallet's gas tank pays the rent and fees (SKR fuel) instead of the wallet.
 export type EnsureAccountReadyParams = {
   rpcUrl: string
   mint: string
   extraMints?: string[]
   owner: string
   payer?: string
+  payWithGasTank?: boolean
 }
 export type EnsureAccountReadyResult = { alreadyReady: boolean; signedTransactions: string[] }
 
@@ -243,6 +245,12 @@ export type EnsureGasTankResult = { signedTransactions: string[] }
 
 // `mint` is the confidential mint (cUSDC, cSKR); `underlyingMint` is what the wallet receives
 // (USDC, SKR) — the bridge picks `unwrap` or `unwrap_asset` from it.
+export type GasTankAddressParams = { owner: string }
+export type GasTankAddressResult = { address: string }
+// Transactions with the gas tank as fee/rent payer, already signed by the wallet.
+export type CosignWithGasTankParams = { owner: string; transactionsBase64: string[] }
+export type CosignWithGasTankResult = { transactionsBase64: string[] }
+
 export type BuildWithdrawPlanParams = {
   rpcUrl: string
   mint: string
@@ -276,6 +284,8 @@ export type BridgeMethodMap = {
   closePot: { params: ClosePotParams; result: ClosePotResult }
   decryptPotActivity: { params: DecryptPotActivityParams; result: DecryptPotActivityResult }
   buildBatchTransferPlan: { params: BuildBatchTransferPlanParams; result: BuildBatchTransferPlanResult }
+  gasTankAddress: { params: GasTankAddressParams; result: GasTankAddressResult }
+  cosignWithGasTank: { params: CosignWithGasTankParams; result: CosignWithGasTankResult }
   ensureGasTank: { params: EnsureGasTankParams; result: EnsureGasTankResult }
   buildWithdrawPlan: { params: BuildWithdrawPlanParams; result: BuildWithdrawPlanResult }
   signContinuation: { params: SignContinuationParams; result: SignContinuationResult }

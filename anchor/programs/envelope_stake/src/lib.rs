@@ -49,4 +49,25 @@ pub mod envelope_stake {
     pub fn withdraw_unstaked(ctx: Context<WithdrawUnstaked>) -> Result<()> {
         crate::instructions::withdraw_unstaked::handle_withdraw_unstaked(ctx)
     }
+
+    /// Admin-only, once. Membership pass prices (per period, SKR base units) and the treasury.
+    pub fn initialize_pass_config(
+        ctx: Context<InitializePassConfig>,
+        member_price: u64,
+        business_price: u64,
+        period_secs: i64,
+    ) -> Result<()> {
+        crate::instructions::initialize_pass_config::handle_initialize_pass_config(
+            ctx,
+            member_price,
+            business_price,
+            period_secs,
+        )
+    }
+
+    /// Buys or extends a membership pass with SKR: tier 1 (Member) or 2 (Business), for
+    /// `periods` periods. Spent, not staked.
+    pub fn buy_pass(ctx: Context<BuyPass>, tier: u8, periods: u8) -> Result<()> {
+        crate::instructions::buy_pass::handle_buy_pass(ctx, tier, periods)
+    }
 }

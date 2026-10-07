@@ -10,9 +10,15 @@ import { generateKeyPairSigner, type Address, type KeyPairSigner } from '@solana
 import { beforeAll, describe, expect, it } from 'vitest'
 import { envelopeStake, envelopeVault } from '../src'
 import { createFundedSigner } from './create-funded-signer'
-import { BUSINESS_THRESHOLD, COOLDOWN_SECS, MEMBER_THRESHOLD } from './lib/constants'
+import {
+  BUSINESS_THRESHOLD,
+  COOLDOWN_SECS,
+  MEMBER_THRESHOLD,
+  PASS_MEMBER_PRICE,
+  PASS_PERIOD_SECS,
+} from './lib/constants'
 import { createMint, mintTo } from './lib/mints'
-import { ensureStakePool } from './lib/setup-stake-pool'
+import { ensurePassConfig, ensureStakePool } from './lib/setup-stake-pool'
 import { testAdminSigner } from './lib/test-admin'
 import { createTestClients, sendInstructions } from './send-instruction'
 
@@ -125,6 +131,7 @@ describe('envelope_vault', () => {
   async function wrapInstruction(user: KeyPairSigner, amount: bigint) {
     return envelopeVault.getWrapInstructionAsync({
       user,
+      payer: user,
       userUsdc: await userUsdcAddress(user),
       vaultUsdc,
       cusdcMint: cusdcMint.address,
@@ -301,6 +308,7 @@ describe('envelope_vault', () => {
     const fakeStakePosition = await generateKeyPairSigner()
     const instruction = await envelopeVault.getWrapInstructionAsync({
       user,
+      payer: user,
       userUsdc: await userUsdcAddress(user),
       vaultUsdc,
       cusdcMint: cusdcMint.address,
@@ -316,6 +324,7 @@ describe('envelope_vault', () => {
     const wrongVault = await userUsdcAddress(user) // the user's own USDC ATA, not the vault's
     const instruction = await envelopeVault.getWrapInstructionAsync({
       user,
+      payer: user,
       userUsdc: await userUsdcAddress(user),
       vaultUsdc: wrongVault,
       cusdcMint: cusdcMint.address,
@@ -330,6 +339,7 @@ describe('envelope_vault', () => {
     const wrongMint = await createMint(clients, admin, { decimals: 6, token2022: true })
     const instruction = await envelopeVault.getWrapInstructionAsync({
       user,
+      payer: user,
       userUsdc: await userUsdcAddress(user),
       vaultUsdc,
       cusdcMint: wrongMint.address,
@@ -394,6 +404,50 @@ describe('envelope_vault', () => {
     // A new day: the same user can wrap up to the limit again.
     await sendInstructions({ instructions: await wrapInstruction(user, 1_000_000n), payer: user, rpc, sendAndConfirm })
   }, 40_000)
+  it('a membership pass raises the daily limit until it expires', async () => {
+    const { treasury } = await ensurePassConfig(clients, admin, skrMint)
+    const user = await freshFreeUser(FREE_LIMIT * 3n)
+    await mintTo(clients, admin, skrMint, user.address, PASS_MEMBER_PRICE)
+    const [userSkr] = await findAssociatedTokenPda({
+      owner: user.address,
+      mint: skrMint,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+    })
+    await sendInstructions({
+      instructions: await envelopeStake.getBuyPassInstructionAsync({
+        user,
+        payer: user,
+        userSkr,
+        treasury,
+        tier: 1,
+        periods: 1,
+      }),
+      payer: user,
+      rpc,
+      sendAndConfirm,
+    })
+
+    // Member (pass) limit: more than Free's in one day.
+    await sendInstructions({
+      instructions: await wrapInstruction(user, FREE_LIMIT + 1n),
+      payer: user,
+      rpc,
+      sendAndConfirm,
+    })
+
+    // Expired: back to Free's limit. A single wrap over that limit fails whether or not the
+    // (20-second test) day rolled over while waiting.
+    await new Promise((resolve) => setTimeout(resolve, Number(PASS_PERIOD_SECS) * 1000 + 2_000))
+    await expect(
+      sendInstructions({
+        instructions: await wrapInstruction(user, FREE_LIMIT + 1n),
+        payer: user,
+        rpc,
+        sendAndConfirm,
+      }),
+    ).rejects.toThrow()
+  }, 40_000)
+
   // A second wrappable asset (e.g. SKR <-> cSKR) via `initialize_asset` / `wrap_asset` /
   // `unwrap_asset`. Fresh mints per run: the AssetVault PDA is seeded by the underlying mint.
   describe('asset vaults', () => {

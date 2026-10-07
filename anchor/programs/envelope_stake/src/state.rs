@@ -28,3 +28,27 @@ pub struct StakePosition {
     pub unlock_requested_at: i64,
     pub bump: u8,
 }
+
+/// Membership pricing, set once by the admin (`initialize_pass_config`): what a pass costs per
+/// period for each tier, and where the SKR goes. A pass is *spent* SKR, not staked.
+#[account]
+#[derive(InitSpace)]
+pub struct PassConfig {
+    pub member_price: u64,
+    pub business_price: u64,
+    pub period_secs: i64,
+    /// SKR token account that receives pass payments.
+    pub treasury: Pubkey,
+    pub bump: u8,
+}
+
+/// A user's membership pass: `tier` (see `tier::Tier`, as u8) until `expires_at`, bought with
+/// `buy_pass`. Read by `envelope_vault`'s `wrap` and by the relayer alongside the stake position.
+#[account]
+#[derive(InitSpace)]
+pub struct Pass {
+    pub user: Pubkey,
+    pub tier: u8,
+    pub expires_at: i64,
+    pub bump: u8,
+}

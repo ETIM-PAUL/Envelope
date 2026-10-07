@@ -57,7 +57,7 @@ export function getInitializeDiscriminatorBytes(): ReadonlyUint8Array {
 
 export type InitializeInstruction<
   TProgram extends string = typeof ENVELOPE_STAKE_PROGRAM_ADDRESS,
-  TAccountAdmin extends string | AccountMeta<string> = string,
+  TAccountAdmin extends string | AccountMeta<string> = '7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1',
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountPoolAuthority extends string | AccountMeta<string> = string,
   TAccountSkrMint extends string | AccountMeta<string> = string,
@@ -137,7 +137,7 @@ export type InitializeAsyncInput<
   TAccountVaultSkr extends InstructionAccountInput = InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
-  admin: TAccountAdmin
+  admin?: TAccountAdmin
   pool?: TAccountPool
   poolAuthority?: TAccountPoolAuthority
   skrMint: TAccountSkrMint
@@ -196,7 +196,7 @@ export async function getInitializeInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    admin: { value: input.admin ?? null, isSigner: true, isWritable: true },
+    admin: { value: input.admin ?? null, isSigner: 'either', isWritable: true },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     poolAuthority: { value: input.poolAuthority ?? null, isSigner: false, isWritable: false },
     skrMint: { value: input.skrMint ?? null, isSigner: false, isWritable: false },
@@ -211,6 +211,10 @@ export async function getInitializeInstructionAsync<
   const args = { ...input }
 
   // Resolve default values.
+  if (!accounts.admin.value) {
+    accounts.admin.value =
+      '7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1' as Address<'7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1'>
+  }
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress })
   }
@@ -283,7 +287,7 @@ export type InitializeInput<
   TAccountVaultSkr extends InstructionAccountInput = InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
-  admin: TAccountAdmin
+  admin?: TAccountAdmin
   pool: TAccountPool
   poolAuthority: TAccountPoolAuthority
   skrMint: TAccountSkrMint
@@ -340,7 +344,7 @@ export function getInitializeInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    admin: { value: input.admin ?? null, isSigner: true, isWritable: true },
+    admin: { value: input.admin ?? null, isSigner: 'either', isWritable: true },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     poolAuthority: { value: input.poolAuthority ?? null, isSigner: false, isWritable: false },
     skrMint: { value: input.skrMint ?? null, isSigner: false, isWritable: false },
@@ -355,6 +359,10 @@ export function getInitializeInstruction<
   const args = { ...input }
 
   // Resolve default values.
+  if (!accounts.admin.value) {
+    accounts.admin.value =
+      '7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1' as Address<'7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1'>
+  }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =
       'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' as Address<'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'>

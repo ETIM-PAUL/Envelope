@@ -22,4 +22,12 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("cooldown_secs must be >= 0")]
     InvalidCooldown,
+    #[msg("A pass is Member (1) or Business (2)")]
+    InvalidPassTier,
+    #[msg("A pass is bought for 1 to 12 periods")]
+    InvalidPassPeriods,
+    #[msg("Your higher-tier pass is still active")]
+    PassDowngrade,
+    #[msg("Pass prices and period must be greater than zero")]
+    InvalidPassConfig,
 }

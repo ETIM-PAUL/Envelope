@@ -16,6 +16,27 @@ pub enum Tier {
 /// immediately, before the cooldown even elapses. This is deliberate, not an oversight — without
 /// it a user could request an unstake and keep every tier perk (waived fees, higher wrap limits)
 /// for the whole cooldown window while already exiting.
+/// A pass grants its tier until `expires_at`; after that it's `Free`. Anything but 1/2 is `Free`.
+pub fn tier_for_pass(tier: u8, expires_at: i64, now: i64) -> Tier {
+    if now >= expires_at {
+        return Tier::Free;
+    }
+    match tier {
+        2 => Tier::Business,
+        1 => Tier::Member,
+        _ => Tier::Free,
+    }
+}
+
+/// The better of two tiers — a wallet with both a stake and a pass gets whichever is higher.
+pub fn higher_tier(a: Tier, b: Tier) -> Tier {
+    if (a as usize) >= (b as usize) {
+        a
+    } else {
+        b
+    }
+}
+
 pub fn tier_for_stake(
     staked_amount: u64,
     unlock_requested_at: i64,

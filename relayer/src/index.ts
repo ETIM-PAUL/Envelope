@@ -13,6 +13,8 @@ import {
 } from '@solana/kit'
 import {
   faucetConfig,
+  fuelConfig,
+  tierPerks,
   mints,
   policyConfig,
   port,
@@ -24,9 +26,10 @@ import {
 import { confirmSignature } from './confirm.ts'
 import { validateTransaction } from './policy.ts'
 import { checkRateLimit } from './rate-limit.ts'
-import { getTierForWallet } from './tier.ts'
+import { forgetCachedTier, getMembership, getTierForWallet } from './tier.ts'
 import { getPushTokens, registerPushToken } from './push-store.ts'
 import { claimFromFaucet, FaucetRefusal, getFaucetStatus } from './faucet.ts'
+import { FuelRefusal, requestFuel, submitFuel } from './fuel.ts'
 import { sendPushNotification } from './expo-push.ts'
 
 // The outermost SolanaError is usually generic ("Transaction simulation failed"); the reason that
@@ -54,18 +57,62 @@ app.get('/', (c) => c.json({ ok: true, relayer: relayerAddress }))
 // client never has to hardcode them separately and risk drifting out of sync.
 app.get('/tier/:wallet', async (c) => {
   const wallet = c.req.param('wallet')
-  let tier: Awaited<ReturnType<typeof getTierForWallet>>
+  let membership: Awaited<ReturnType<typeof getMembership>>
   try {
-    tier = await getTierForWallet(rpc, address(wallet))
+    // Always fresh here (not the /relay cache): the app reads this right after buying a pass.
+    membership = await getMembership(rpc, address(wallet))
+    forgetCachedTier(wallet)
   } catch {
     return c.json({ error: 'malformed wallet address' }, 400)
   }
+  const { tier, pass } = membership
   return c.json({
     tier,
+    pass,
     relayerAddress,
     skrMint: mints.skr,
     freeTierFeeAmount: policyConfig.freeTierFeeAmount.toString(),
+    perks: tierPerks[tier],
+    allPerks: tierPerks,
   })
+})
+
+// POST /fuel — body: { owner, tank }. Refills the wallet's gas tank with SOL (see fuel.ts): sent
+// straight away for members (`sent`), or returned as a transaction for the wallet to sign
+// (`quote`, Free tier: pays SKR) and hand back to POST /fuel/submit.
+app.post('/fuel', async (c) => {
+  if (!fuelConfig.enabled) return c.json({ error: 'fuel disabled' }, 404)
+  const body = await c.req.json<{ owner?: string; tank?: string }>().catch(() => null)
+  if (!body?.owner || !body.tank) return c.json({ error: 'body must be { owner: string, tank: string }' }, 400)
+  const rateLimit = checkRateLimit(body.owner)
+  if (!rateLimit.allowed) return c.json({ error: 'rate limit exceeded', retryAfterMs: rateLimit.retryAfterMs }, 429)
+  try {
+    return c.json(await requestFuel(address(body.owner), address(body.tank)))
+  } catch (err) {
+    if (err instanceof FuelRefusal) return c.json({ error: err.message }, 400)
+    return c.json({ error: describeFailure(err) }, 502)
+  }
+})
+
+// POST /fuel/submit — body: { owner, transaction } (the /fuel quote, signed by the wallet).
+app.post('/fuel/submit', async (c) => {
+  if (!fuelConfig.enabled) return c.json({ error: 'fuel disabled' }, 404)
+  const body = await c.req.json<{ owner?: string; transaction?: string }>().catch(() => null)
+  if (!body?.owner || !body.transaction) {
+    return c.json({ error: 'body must be { owner: string, transaction: string }' }, 400)
+  }
+  let transaction: Transaction
+  try {
+    transaction = getTransactionDecoder().decode(Buffer.from(body.transaction, 'base64'))
+  } catch {
+    return c.json({ error: 'malformed transaction' }, 400)
+  }
+  try {
+    return c.json({ signature: await submitFuel(address(body.owner), transaction) })
+  } catch (err) {
+    if (err instanceof FuelRefusal) return c.json({ error: err.message }, 400)
+    return c.json({ error: describeFailure(err) }, 502)
+  }
 })
 
 // GET /faucet/skr/:wallet — what a claim would give right now, and why not if nothing (see faucet.ts).
@@ -121,6 +168,8 @@ app.post('/relay', async (c) => {
   const transactions: Transaction[] = []
   let sawFreeTierFeeInstruction = false
   let proofSetupOnly = true
+  let confidentialTransfers = 0
+  let freeTierFeePaid = 0n
   for (const wireBase64 of body.transactions) {
     let transaction: Transaction
     try {
@@ -135,7 +184,19 @@ app.post('/relay', async (c) => {
     }
     if (policyResult.sawFreeTierFeeInstruction) sawFreeTierFeeInstruction = true
     if (!policyResult.proofSetupOnly) proofSetupOnly = false
+    confidentialTransfers += policyResult.confidentialTransfers
+    freeTierFeePaid += policyResult.freeTierFeePaid
     transactions.push(transaction)
+  }
+
+  // A batch send is one request carrying several private transfers: capped by tier, and on the
+  // free tier each transfer pays its own fee.
+  const perks = tierPerks[tier]
+  if (confidentialTransfers > perks.maxBatchRecipients) {
+    return c.json({ error: `rejected: your tier can send to ${perks.maxBatchRecipients} people at once` }, 400)
+  }
+  if (!perks.sendFeeWaived && freeTierFeePaid < policyConfig.freeTierFeeAmount * BigInt(confidentialTransfers)) {
+    return c.json({ error: 'rejected: each private transfer needs its SKR send fee' }, 400)
   }
 
   // A batch of nothing but proof-context setup is exempt (see policy.ts's PolicyResult): a private
