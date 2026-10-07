@@ -13,13 +13,15 @@ import { Screen } from '../../components/screen'
 import { SealMark } from '../../components/seal-mark'
 import { fontFamily } from '../../design/tokens'
 import { useConfidentialAccount } from '../../features/account/use-confidential-account'
+import { availableAssetIds, parseAssetList } from '../../config/assets'
 import { useAppStore } from '../../store/app-store'
 import { useWalletSession } from '../../features/wallet/use-wallet-session'
 import { formatError } from '../../utils/format-error'
 
 export default function Pay() {
   const router = useRouter()
-  const { owner } = useLocalSearchParams<{ owner: string }>()
+  // `assets`: the tokens the recipient asks for (see Receive), passed on to send-confirm.
+  const { owner, assets } = useLocalSearchParams<{ owner: string; assets?: string }>()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { isConnected, isBusy: connecting, connect } = useWalletSession()
   const { isRecipientReady } = useConfidentialAccount()
@@ -32,13 +34,17 @@ export default function Pay() {
   useEffect(() => {
     if (!isConnected || !validOwner || isSelf || attempted.current) return
     attempted.current = true
-    isRecipientReady(owner)
+    const requested = parseAssetList(assets) ?? availableAssetIds()
+    Promise.all(requested.map((id) => isRecipientReady(owner, id)))
       .then((ready) => {
-        if (!ready) {
+        if (!ready.some(Boolean)) {
           setError("This address hasn't set up private transfers yet.")
           return
         }
-        router.replace({ pathname: '/send-confirm', params: { recipient: owner, quickAmounts: '1' } })
+        router.replace({
+          pathname: '/send-confirm',
+          params: { recipient: owner, quickAmounts: '1', ...(assets ? { assets } : {}) },
+        })
       })
       .catch((e) => setError(formatError(e)))
     // Deliberately not re-running on every render — only when the inputs that decide the outcome

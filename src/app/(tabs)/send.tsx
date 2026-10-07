@@ -12,6 +12,7 @@ import { QrScanner } from '../../components/qr-scanner'
 import { Screen } from '../../components/screen'
 import { colors, fontFamily } from '../../design/tokens'
 import { useConfidentialAccount } from '../../features/account/use-confidential-account'
+import { availableAssetIds } from '../../config/assets'
 import { useAppStore } from '../../store/app-store'
 import { formatError } from '../../utils/format-error'
 import type { ScannedCode } from '../../utils/parse-scanned-code'
@@ -24,6 +25,8 @@ export default function Send() {
   const [isChecking, setIsChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
+  // The scanned code's `?assets=` (the recipient's preference), kept while the address is unchanged.
+  const [scannedAssets, setScannedAssets] = useState<{ address: string; assets: string } | null>(null)
 
   const trimmed = addressText.trim()
   const looksValid = trimmed.length > 0 && isAddress(trimmed)
@@ -42,6 +45,7 @@ export default function Send() {
       return
     }
     setAddressText(code.address)
+    setScannedAssets(code.assets ? { address: code.address, assets: code.assets } : null)
   }
 
   async function handleContinue() {
@@ -49,12 +53,14 @@ export default function Send() {
     setIsChecking(true)
     setError(null)
     try {
-      const ready = await isRecipientReady(trimmed)
-      if (!ready) {
+      // Any token will do here; send-confirm offers exactly the ones this address can receive.
+      const ready = await Promise.all(availableAssetIds().map((asset) => isRecipientReady(trimmed, asset)))
+      if (!ready.some(Boolean)) {
         setError("This address hasn't set up private transfers yet.")
         return
       }
-      router.push({ pathname: '/send-confirm', params: { recipient: trimmed } })
+      const assets = scannedAssets?.address === trimmed ? scannedAssets.assets : undefined
+      router.push({ pathname: '/send-confirm', params: { recipient: trimmed, ...(assets ? { assets } : {}) } })
     } catch (e) {
       setError(formatError(e))
     } finally {
@@ -115,6 +121,13 @@ export default function Send() {
           busy={isChecking}
         />
       </View>
+
+      <Pressable onPress={() => router.push('/send-batch')} className="mt-5 flex-row items-center justify-center gap-2">
+        <Feather name="users" size={15} color={colors.mute[500]} />
+        <Text className="text-mute-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 14 }}>
+          Send to several people
+        </Text>
+      </Pressable>
 
       <QrScanner visible={isScanning} onScanned={handleScanned} onClose={() => setIsScanning(false)} />
     </Screen>

@@ -5,11 +5,12 @@
 import { useCBridge } from '@envelope/rn-confidential'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo } from 'react'
-import { requireMints } from '../../config/devnet-config'
+import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { useAppStore } from '../../store/app-store'
 import { readActivityCache } from '../account/activity-cache'
 import { listPotSummaries } from '../pots/pot-store'
+import { fetchPotAssets } from '../pots/use-pot-assets'
 import {
   markNotificationsSeen,
   readLastSeen,
@@ -25,6 +26,7 @@ export type AppNotification = {
   id: string
   kind: NotificationKind
   amount?: string
+  asset?: AssetId // absent means dollars (cUSDC)
   label?: string
   at: number
 }
@@ -74,6 +76,7 @@ export function useNotifications() {
       id: entry.signature,
       kind: entry.direction === 'incoming' ? 'received' : 'sent',
       amount: entry.amount,
+      asset: entry.asset,
       at: (entry.blockTime ?? 0) * 1000,
     }))
     return [...(log.data ?? []), ...fromTransfers].sort((a, b) => b.at - a.at)
@@ -95,6 +98,7 @@ export async function recordPotContributions(
   owner: string,
   potOwnerAddress: string,
   contributions: { signature: string; amount: string; blockTime: number | null }[],
+  asset: AssetId = 'usdc',
 ): Promise<void> {
   if (contributions.length === 0) return
   const pot = (await listPotSummaries(owner)).find((p) => p.potOwnerAddress === potOwnerAddress)
@@ -104,6 +108,7 @@ export async function recordPotContributions(
       id: `pot-received-${contribution.signature}`,
       kind: 'pot-received' as const,
       amount: contribution.amount,
+      asset,
       label: pot?.name,
       at: contribution.blockTime ? contribution.blockTime * 1000 : undefined,
     })),
@@ -119,15 +124,16 @@ export function useRefreshPotContributions() {
 
   return useCallback(async () => {
     if (!owner || !bridge.ready) return
-    const { cusdc } = requireMints()
     for (const pot of await listPotSummaries(owner)) {
       try {
-        const { contributions } = await bridge.call('decryptPotActivity', {
-          rpcUrl: DEVNET_RPC_URL,
-          mint: cusdc,
-          potOwner: pot.potOwnerAddress,
-        })
-        await recordPotContributions(owner, pot.potOwnerAddress, contributions)
+        for (const asset of await fetchPotAssets(bridge, pot.potOwnerAddress)) {
+          const { contributions } = await bridge.call('decryptPotActivity', {
+            rpcUrl: DEVNET_RPC_URL,
+            mint: getAsset(asset).confidentialMint,
+            potOwner: pot.potOwnerAddress,
+          })
+          await recordPotContributions(owner, pot.potOwnerAddress, contributions, asset)
+        }
       } catch {
         // Not unlocked this session (or the network blipped) — picked up next time.
       }

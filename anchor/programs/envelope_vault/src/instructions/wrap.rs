@@ -92,7 +92,8 @@ pub fn handle_wrap(ctx: Context<Wrap>, amount: u64) -> Result<()> {
     require!(amount > 0, ErrorCode::Overflow);
 
     let user_key = ctx.accounts.user.key();
-    let (staked_amount, unlock_requested_at) = read_stake_position(&ctx.accounts.stake_position, &user_key)?;
+    let (staked_amount, unlock_requested_at) =
+        read_stake_position(&ctx.accounts.stake_position, &user_key)?;
 
     let tier = tier_for_stake(
         staked_amount,

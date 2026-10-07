@@ -22,14 +22,20 @@ type Presentation = { icon: keyof typeof Feather.glyphMap; text: string; inbound
 
 function present(item: AppNotification): Presentation {
   const amount = item.amount ? formatBaseUnits(BigInt(item.amount), DECIMALS) : ''
+  // The private token the movement was in; entries from before cSKR carry no asset and are dollars.
+  const token = item.asset === 'skr' ? 'cSKR' : 'cUSDC'
   const pot = item.label ?? 'Your'
   const copy: Record<NotificationKind, Presentation> = {
-    deposit: { icon: 'download', text: `${amount} cUSDC deposited from wallet`, inbound: true },
-    withdraw: { icon: 'upload', text: `${amount} cUSDC withdrawn to wallet`, inbound: false },
-    received: { icon: 'arrow-down-left', text: `${amount} cUSDC received privately`, inbound: true },
-    sent: { icon: 'arrow-up-right', text: `${amount} cUSDC sent privately`, inbound: false },
+    deposit: { icon: 'download', text: `${amount} ${token} deposited from wallet`, inbound: true },
+    withdraw: { icon: 'upload', text: `${amount} ${token} withdrawn to wallet`, inbound: false },
+    received: { icon: 'arrow-down-left', text: `${amount} ${token} received privately`, inbound: true },
+    sent: { icon: 'arrow-up-right', text: `${amount} ${token} sent privately`, inbound: false },
     'pot-created': { icon: 'archive', text: `${pot} pot created`, inbound: false },
-    'pot-received': { icon: 'gift', text: `${amount} cUSDC received for ${item.label ?? 'your pot'}`, inbound: true },
+    'pot-received': {
+      icon: 'gift',
+      text: `${amount} ${token} received for ${item.label ?? 'your pot'}`,
+      inbound: true,
+    },
     'pot-closed': { icon: 'lock', text: `${pot} pot closed`, inbound: false },
     stake: { icon: 'trending-up', text: `${amount} SKR staked`, inbound: false },
     'unstake-requested': { icon: 'clock', text: 'Unstake requested — SKR unlocks after the cooldown', inbound: false },

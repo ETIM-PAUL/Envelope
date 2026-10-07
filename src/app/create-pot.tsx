@@ -4,10 +4,12 @@
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Text, TextInput, View } from 'react-native'
+import { AssetChips } from '../components/asset-picker'
 import { BackButton } from '../components/back-button'
 import { Button } from '../components/button'
 import { Screen } from '../components/screen'
 import { colors, fontFamily } from '../design/tokens'
+import { availableAssetIds, type AssetId } from '../config/assets'
 import { useCreatePot } from '../features/pots/use-create-pot'
 import { formatError } from '../utils/format-error'
 
@@ -18,6 +20,8 @@ export default function CreatePot() {
   const { createPot } = useCreatePot()
   const [name, setName] = useState('')
   const [daysText, setDaysText] = useState('7')
+  // Which tokens guests can contribute; the pot gets a private account for each.
+  const [assets, setAssets] = useState<AssetId[]>(['usdc'])
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,7 +34,7 @@ export default function CreatePot() {
     setError(null)
     try {
       const closeTs = BigInt(Math.floor(Date.now() / 1000) + days * DAY_SECONDS)
-      const summary = await createPot(name.trim(), closeTs)
+      const summary = await createPot(name.trim(), closeTs, assets)
       router.replace({ pathname: '/pot/[potPda]', params: { potPda: summary.potPda } })
     } catch (e) {
       setError(formatError(e))
@@ -64,7 +68,7 @@ export default function CreatePot() {
         />
       </View>
 
-      <View className="w-full max-w-xs mb-10">
+      <View className="w-full max-w-xs mb-5">
         <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.uiSemibold }}>
           Closes in (days)
         </Text>
@@ -77,6 +81,17 @@ export default function CreatePot() {
           style={{ fontFamily: fontFamily.ui, fontSize: 15 }}
         />
       </View>
+
+      {availableAssetIds().length > 1 ? (
+        <View className="w-full max-w-xs mb-10">
+          <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.uiSemibold }}>
+            Guests can give
+          </Text>
+          <AssetChips selected={assets} onChange={setAssets} />
+        </View>
+      ) : (
+        <View className="mb-5" />
+      )}
 
       <View className="w-full max-w-xs">
         <Button

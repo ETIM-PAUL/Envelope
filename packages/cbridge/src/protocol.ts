@@ -72,6 +72,17 @@ export type BuildTransferPlanParams = {
 // relay that second. Retrying an expired second batch re-signs it against the same proofs.
 export type BuildTransferPlanResult = { signedTransactions: string[]; continuationId: string }
 
+// Several private sends from one balance, approved once: every transfer's proof setup is relayed
+// first (no approval), then `signContinuation` signs all the transfers in one wallet request and
+// they're relayed in order. Each transfer's proofs are built against the balance the previous one
+// leaves behind, so they must land in the order given — the relayer submits and confirms each in
+// turn. `feeInstruction.amount` is the whole batch's fee (one per transfer).
+export type BatchTransfer = { destinationOwner: string; amount: string }
+export type BuildBatchTransferPlanParams = Omit<BuildTransferPlanParams, 'destinationOwner' | 'amount'> & {
+  transfers: BatchTransfer[]
+}
+export type BuildBatchTransferPlanResult = BuildTransferPlanResult
+
 export type DecryptAvailableParams = { rpcUrl: string; mint: string; owner: string }
 export type DecryptAvailableResult = { availableBalance: string; pendingBalance: string }
 
@@ -95,7 +106,14 @@ export type ApplyPendingBalanceResult = { signedTransactions: string[] }
 // Like `buildTransferPlan`, this only builds and signs — the host submits `signedTransactions`.
 // `payer` (Phase 15): defaults to `owner` — set it to a different address (the pot's host) when
 // `owner` is a pot's derived identity, which never holds any SOL of its own to pay rent with.
-export type EnsureAccountReadyParams = { rpcUrl: string; mint: string; owner: string; payer?: string }
+// `extraMints`: more tokens to get ready in the same call (one wallet approval for all of them).
+export type EnsureAccountReadyParams = {
+  rpcUrl: string
+  mint: string
+  extraMints?: string[]
+  owner: string
+  payer?: string
+}
 export type EnsureAccountReadyResult = { alreadyReady: boolean; signedTransactions: string[] }
 
 // Read-only "is this address ready to receive?" check — no session keys needed (it's not
@@ -168,7 +186,10 @@ export type RestorePotKeysResult = { potOwnerAddress: string; elgamalPubkeyBase5
 // (unix seconds); `name` is sent as plain text and padded/truncated to the on-chain 32-byte field.
 export type CreatePotParams = {
   rpcUrl: string
+  // The pot's main token (cUSDC or cSKR), recorded on-chain as `pot_token_account`. `extraMints`
+  // are any other tokens it also accepts; the pot gets a confidential account for each.
   mint: string
+  extraMints?: string[]
   host: string
   potOwner: string
   potId: string
@@ -181,7 +202,9 @@ export type CreatePotResult = { signedTransactions: string[] }
 // contributions and sweeping the full available balance to `host` — all one call, `host`-paid,
 // `potOwner`-authorized (signed locally, no MWA). Safe to call on a pot with zero balance: the
 // sweep step is simply omitted.
-export type ClosePotParams = { rpcUrl: string; mint: string; host: string; potOwner: string; potId: string }
+// `mints`: every token the pot may hold; ones it has no account for, or no balance in, are skipped.
+// The host needs a confidential account for each token that has a balance.
+export type ClosePotParams = { rpcUrl: string; mints: string[]; host: string; potOwner: string; potId: string }
 export type ClosePotResult = { signedTransactions: string[] }
 
 // The host's pot dashboard: every contribution decrypted with the pot's own ElGamal key, each
@@ -218,7 +241,15 @@ export type DecryptPotActivityResult = { contributions: PotContribution[] }
 export type EnsureGasTankParams = { rpcUrl: string; owner: string }
 export type EnsureGasTankResult = { signedTransactions: string[] }
 
-export type BuildWithdrawPlanParams = { rpcUrl: string; mint: string; usdcMint: string; owner: string; amount: string }
+// `mint` is the confidential mint (cUSDC, cSKR); `underlyingMint` is what the wallet receives
+// (USDC, SKR) — the bridge picks `unwrap` or `unwrap_asset` from it.
+export type BuildWithdrawPlanParams = {
+  rpcUrl: string
+  mint: string
+  underlyingMint: string
+  owner: string
+  amount: string
+}
 export type BuildWithdrawPlanResult = { signedTransactions: string[]; continuationId: string }
 
 // Signs the deferred remainder of a staged plan (see BuildWithdrawPlanParams) with a fresh
@@ -244,6 +275,7 @@ export type BridgeMethodMap = {
   createPot: { params: CreatePotParams; result: CreatePotResult }
   closePot: { params: ClosePotParams; result: ClosePotResult }
   decryptPotActivity: { params: DecryptPotActivityParams; result: DecryptPotActivityResult }
+  buildBatchTransferPlan: { params: BuildBatchTransferPlanParams; result: BuildBatchTransferPlanResult }
   ensureGasTank: { params: EnsureGasTankParams; result: EnsureGasTankResult }
   buildWithdrawPlan: { params: BuildWithdrawPlanParams; result: BuildWithdrawPlanResult }
   signContinuation: { params: SignContinuationParams; result: SignContinuationResult }

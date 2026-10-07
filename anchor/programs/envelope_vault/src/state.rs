@@ -19,6 +19,22 @@ pub struct Config {
     pub bump: u8,
 }
 
+/// A wrappable asset beyond the original USDC <-> cUSDC pair, which keeps its own `Config`
+/// fields so existing deployments are untouched. One per underlying mint (e.g. SKR <-> cSKR),
+/// PDA-seeded by that mint. No tier limits: those exist to cap dollars entering the private
+/// system, and are enforced on `wrap` (USDC) only.
+#[account]
+#[derive(InitSpace)]
+pub struct AssetVault {
+    /// Classic SPL Token mint users deposit (SKR).
+    pub underlying_mint: Pubkey,
+    /// Token-2022 mint with the `ConfidentialTransferMint` extension, minted 1:1 (cSKR).
+    pub confidential_mint: Pubkey,
+    /// The vault's ATA of `underlying_mint`, owned by the VaultAuth PDA.
+    pub vault_token_account: Pubkey,
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct UserDaily {

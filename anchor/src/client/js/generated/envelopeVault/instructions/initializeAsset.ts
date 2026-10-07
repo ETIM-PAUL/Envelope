@@ -11,17 +11,11 @@ import {
   fixDecoderSize,
   fixEncoderSize,
   getAddressEncoder,
-  getArrayDecoder,
-  getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
-  getI64Decoder,
-  getI64Encoder,
   getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
-  getU64Decoder,
-  getU64Encoder,
   SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
   SolanaError,
   transformEncoder,
@@ -48,23 +42,23 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from '@solana/kit/program-client-core'
-import { findConfigPda, findVaultAuthorityPda } from '../pdas'
+import { findAssetVaultPda, findVaultAuthorityPda } from '../pdas'
 import { ENVELOPE_VAULT_PROGRAM_ADDRESS } from '../programs'
 
-export const INITIALIZE_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([175, 175, 109, 31, 13, 152, 155, 237])
+export const INITIALIZE_ASSET_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([214, 153, 49, 248, 95, 248, 208, 179])
 
-export function getInitializeDiscriminatorBytes(): ReadonlyUint8Array {
-  return fixEncoderSize(getBytesEncoder(), 8).encode(INITIALIZE_DISCRIMINATOR)
+export function getInitializeAssetDiscriminatorBytes(): ReadonlyUint8Array {
+  return fixEncoderSize(getBytesEncoder(), 8).encode(INITIALIZE_ASSET_DISCRIMINATOR)
 }
 
-export type InitializeInstruction<
+export type InitializeAssetInstruction<
   TProgram extends string = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
   TAccountAdmin extends string | AccountMeta<string> = '7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1',
-  TAccountConfig extends string | AccountMeta<string> = string,
+  TAccountAssetVault extends string | AccountMeta<string> = string,
   TAccountVaultAuthority extends string | AccountMeta<string> = string,
-  TAccountUsdcMint extends string | AccountMeta<string> = string,
-  TAccountCusdcMint extends string | AccountMeta<string> = string,
-  TAccountVaultUsdc extends string | AccountMeta<string> = string,
+  TAccountUnderlyingMint extends string | AccountMeta<string> = string,
+  TAccountConfidentialMint extends string | AccountMeta<string> = string,
+  TAccountVaultTokenAccount extends string | AccountMeta<string> = string,
   TAccountTokenProgram extends string | AccountMeta<string> = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   TAccountAssociatedTokenProgram extends string | AccountMeta<string> = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
   TAccountSystemProgram extends string | AccountMeta<string> = '11111111111111111111111111111111',
@@ -76,11 +70,11 @@ export type InitializeInstruction<
       TAccountAdmin extends string
         ? WritableSignerAccount<TAccountAdmin> & AccountSignerMeta<TAccountAdmin>
         : TAccountAdmin,
-      TAccountConfig extends string ? WritableAccount<TAccountConfig> : TAccountConfig,
+      TAccountAssetVault extends string ? WritableAccount<TAccountAssetVault> : TAccountAssetVault,
       TAccountVaultAuthority extends string ? ReadonlyAccount<TAccountVaultAuthority> : TAccountVaultAuthority,
-      TAccountUsdcMint extends string ? ReadonlyAccount<TAccountUsdcMint> : TAccountUsdcMint,
-      TAccountCusdcMint extends string ? ReadonlyAccount<TAccountCusdcMint> : TAccountCusdcMint,
-      TAccountVaultUsdc extends string ? WritableAccount<TAccountVaultUsdc> : TAccountVaultUsdc,
+      TAccountUnderlyingMint extends string ? ReadonlyAccount<TAccountUnderlyingMint> : TAccountUnderlyingMint,
+      TAccountConfidentialMint extends string ? ReadonlyAccount<TAccountConfidentialMint> : TAccountConfidentialMint,
+      TAccountVaultTokenAccount extends string ? WritableAccount<TAccountVaultTokenAccount> : TAccountVaultTokenAccount,
       TAccountTokenProgram extends string ? ReadonlyAccount<TAccountTokenProgram> : TAccountTokenProgram,
       TAccountAssociatedTokenProgram extends string
         ? ReadonlyAccount<TAccountAssociatedTokenProgram>
@@ -90,103 +84,92 @@ export type InitializeInstruction<
     ]
   >
 
-export type InitializeInstructionData = {
-  discriminator: ReadonlyUint8Array
-  limits: Array<bigint>
-  secondsPerDay: bigint
+export type InitializeAssetInstructionData = { discriminator: ReadonlyUint8Array }
+
+export type InitializeAssetInstructionDataArgs = {}
+
+export function getInitializeAssetInstructionDataEncoder(): FixedSizeEncoder<InitializeAssetInstructionDataArgs> {
+  return transformEncoder(getStructEncoder([['discriminator', fixEncoderSize(getBytesEncoder(), 8)]]), (value) => ({
+    ...value,
+    discriminator: INITIALIZE_ASSET_DISCRIMINATOR,
+  }))
 }
 
-export type InitializeInstructionDataArgs = { limits: Array<number | bigint>; secondsPerDay: number | bigint }
-
-export function getInitializeInstructionDataEncoder(): FixedSizeEncoder<InitializeInstructionDataArgs> {
-  return transformEncoder(
-    getStructEncoder([
-      ['discriminator', fixEncoderSize(getBytesEncoder(), 8)],
-      ['limits', getArrayEncoder(getU64Encoder(), { size: 3 })],
-      ['secondsPerDay', getI64Encoder()],
-    ]),
-    (value) => ({ ...value, discriminator: INITIALIZE_DISCRIMINATOR }),
-  )
+export function getInitializeAssetInstructionDataDecoder(): FixedSizeDecoder<InitializeAssetInstructionData> {
+  return getStructDecoder([['discriminator', fixDecoderSize(getBytesDecoder(), 8)]])
 }
 
-export function getInitializeInstructionDataDecoder(): FixedSizeDecoder<InitializeInstructionData> {
-  return getStructDecoder([
-    ['discriminator', fixDecoderSize(getBytesDecoder(), 8)],
-    ['limits', getArrayDecoder(getU64Decoder(), { size: 3 })],
-    ['secondsPerDay', getI64Decoder()],
-  ])
-}
-
-export function getInitializeInstructionDataCodec(): FixedSizeCodec<
-  InitializeInstructionDataArgs,
-  InitializeInstructionData
+export function getInitializeAssetInstructionDataCodec(): FixedSizeCodec<
+  InitializeAssetInstructionDataArgs,
+  InitializeAssetInstructionData
 > {
-  return combineCodec(getInitializeInstructionDataEncoder(), getInitializeInstructionDataDecoder())
+  return combineCodec(getInitializeAssetInstructionDataEncoder(), getInitializeAssetInstructionDataDecoder())
 }
 
-export type InitializeAsyncInput<
+export type InitializeAssetAsyncInput<
   TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
-  TAccountConfig extends InstructionAccountInput = InstructionAccountInput,
+  TAccountAssetVault extends InstructionAccountInput = InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput = InstructionAccountInput,
-  TAccountUsdcMint extends InstructionAccountInput = InstructionAccountInput,
-  TAccountCusdcMint extends InstructionAccountInput = InstructionAccountInput,
-  TAccountVaultUsdc extends InstructionAccountInput = InstructionAccountInput,
+  TAccountUnderlyingMint extends InstructionAccountInput = InstructionAccountInput,
+  TAccountConfidentialMint extends InstructionAccountInput = InstructionAccountInput,
+  TAccountVaultTokenAccount extends InstructionAccountInput = InstructionAccountInput,
   TAccountTokenProgram extends InstructionAccountInput = InstructionAccountInput,
   TAccountAssociatedTokenProgram extends InstructionAccountInput = InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
   admin?: TAccountAdmin
-  config?: TAccountConfig
-  /** holds no account data of its own. */
+  assetVault?: TAccountAssetVault
+  /** vault token account); holds no account data of its own. */
   vaultAuthority?: TAccountVaultAuthority
-  /** Classic SPL Token mint (mock USDC, or Circle's real devnet/mainnet USDC). */
-  usdcMint: TAccountUsdcMint
+  /** Classic SPL Token mint (SKR). */
+  underlyingMint: TAccountUnderlyingMint
   /**
-   * Token-2022 mint with the `ConfidentialTransferMint` extension (cUSDC). `InterfaceAccount`
-   * (not `Account<token::Mint>`) because the extension data makes this longer than a base mint.
+   * Token-2022 confidential mint (cSKR). Checked here, once, so `wrap_asset` can never be
+   * pointed at a mint the vault can't mint, or one whose units don't match 1:1.
    */
-  cusdcMint: TAccountCusdcMint
-  vaultUsdc?: TAccountVaultUsdc
+  confidentialMint: TAccountConfidentialMint
+  vaultTokenAccount?: TAccountVaultTokenAccount
   tokenProgram?: TAccountTokenProgram
   associatedTokenProgram?: TAccountAssociatedTokenProgram
   systemProgram?: TAccountSystemProgram
-  limits: InitializeInstructionDataArgs['limits']
-  secondsPerDay: InitializeInstructionDataArgs['secondsPerDay']
 }
 
-export async function getInitializeInstructionAsync<
+export async function getInitializeAssetInstructionAsync<
   TAccountAdmin extends InstructionSignerInput,
-  TAccountConfig extends InstructionAccountInput,
+  TAccountAssetVault extends InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput,
-  TAccountUsdcMint extends InstructionAccountInput,
-  TAccountCusdcMint extends InstructionAccountInput,
-  TAccountVaultUsdc extends InstructionAccountInput,
+  TAccountUnderlyingMint extends InstructionAccountInput,
+  TAccountConfidentialMint extends InstructionAccountInput,
+  TAccountVaultTokenAccount extends InstructionAccountInput,
   TAccountTokenProgram extends InstructionAccountInput,
   TAccountAssociatedTokenProgram extends InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
 >(
-  input: InitializeAsyncInput<
+  input: InitializeAssetAsyncInput<
     TAccountAdmin,
-    TAccountConfig,
+    TAccountAssetVault,
     TAccountVaultAuthority,
-    TAccountUsdcMint,
-    TAccountCusdcMint,
-    TAccountVaultUsdc,
+    TAccountUnderlyingMint,
+    TAccountConfidentialMint,
+    TAccountVaultTokenAccount,
     TAccountTokenProgram,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  InitializeInstruction<
+  InitializeAssetInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountAdmin, InstructionAccountInputAddress<TAccountAdmin>>,
-    ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
+    ResolvedInstructionAccountMeta<TAccountAssetVault, InstructionAccountInputAddress<TAccountAssetVault>>,
     ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
-    ResolvedInstructionAccountMeta<TAccountUsdcMint, InstructionAccountInputAddress<TAccountUsdcMint>>,
-    ResolvedInstructionAccountMeta<TAccountCusdcMint, InstructionAccountInputAddress<TAccountCusdcMint>>,
-    ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
+    ResolvedInstructionAccountMeta<TAccountUnderlyingMint, InstructionAccountInputAddress<TAccountUnderlyingMint>>,
+    ResolvedInstructionAccountMeta<TAccountConfidentialMint, InstructionAccountInputAddress<TAccountConfidentialMint>>,
+    ResolvedInstructionAccountMeta<
+      TAccountVaultTokenAccount,
+      InstructionAccountInputAddress<TAccountVaultTokenAccount>
+    >,
     ResolvedInstructionAccountMeta<TAccountTokenProgram, InstructionAccountInputAddress<TAccountTokenProgram>>,
     ResolvedInstructionAccountMeta<
       TAccountAssociatedTokenProgram,
@@ -204,27 +187,27 @@ export async function getInitializeInstructionAsync<
   // Original accounts.
   const originalAccounts = {
     admin: { value: input.admin ?? null, isSigner: 'either', isWritable: true },
-    config: { value: input.config ?? null, isSigner: false, isWritable: true },
+    assetVault: { value: input.assetVault ?? null, isSigner: false, isWritable: true },
     vaultAuthority: { value: input.vaultAuthority ?? null, isSigner: false, isWritable: false },
-    usdcMint: { value: input.usdcMint ?? null, isSigner: false, isWritable: false },
-    cusdcMint: { value: input.cusdcMint ?? null, isSigner: false, isWritable: false },
-    vaultUsdc: { value: input.vaultUsdc ?? null, isSigner: false, isWritable: true },
+    underlyingMint: { value: input.underlyingMint ?? null, isSigner: false, isWritable: false },
+    confidentialMint: { value: input.confidentialMint ?? null, isSigner: false, isWritable: false },
+    vaultTokenAccount: { value: input.vaultTokenAccount ?? null, isSigner: false, isWritable: true },
     tokenProgram: { value: input.tokenProgram ?? null, isSigner: false, isWritable: false },
     associatedTokenProgram: { value: input.associatedTokenProgram ?? null, isSigner: false, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isSigner: false, isWritable: false },
   }
   const accounts = originalAccounts as Record<keyof typeof originalAccounts, ResolvedInstructionAccount>
 
-  // Original args.
-  const args = { ...input }
-
   // Resolve default values.
   if (!accounts.admin.value) {
     accounts.admin.value =
       '7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1' as Address<'7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1'>
   }
-  if (!accounts.config.value) {
-    accounts.config.value = await findConfigPda({ programAddress })
+  if (!accounts.assetVault.value) {
+    accounts.assetVault.value = await findAssetVaultPda(
+      { underlyingMint: getAddressFromResolvedInstructionAccount('underlyingMint', accounts.underlyingMint.value) },
+      { programAddress },
+    )
   }
   if (!accounts.vaultAuthority.value) {
     accounts.vaultAuthority.value = await findVaultAuthorityPda({ programAddress })
@@ -233,8 +216,8 @@ export async function getInitializeInstructionAsync<
     accounts.tokenProgram.value =
       'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' as Address<'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'>
   }
-  if (!accounts.vaultUsdc.value) {
-    accounts.vaultUsdc.value = await getProgramDerivedAddress({
+  if (!accounts.vaultTokenAccount.value) {
+    accounts.vaultTokenAccount.value = await getProgramDerivedAddress({
       programAddress:
         'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL' as Address<'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'>,
       seeds: [
@@ -244,7 +227,9 @@ export async function getInitializeInstructionAsync<
         getAddressEncoder().encode(
           getAddressFromResolvedInstructionAccount('tokenProgram', accounts.tokenProgram.value),
         ),
-        getAddressEncoder().encode(getAddressFromResolvedInstructionAccount('usdcMint', accounts.usdcMint.value)),
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount('underlyingMint', accounts.underlyingMint.value),
+        ),
       ],
     })
   }
@@ -259,25 +244,28 @@ export async function getInitializeInstructionAsync<
   return Object.freeze({
     accounts: [
       getAccountMeta('admin', accounts.admin),
-      getAccountMeta('config', accounts.config),
+      getAccountMeta('assetVault', accounts.assetVault),
       getAccountMeta('vaultAuthority', accounts.vaultAuthority),
-      getAccountMeta('usdcMint', accounts.usdcMint),
-      getAccountMeta('cusdcMint', accounts.cusdcMint),
-      getAccountMeta('vaultUsdc', accounts.vaultUsdc),
+      getAccountMeta('underlyingMint', accounts.underlyingMint),
+      getAccountMeta('confidentialMint', accounts.confidentialMint),
+      getAccountMeta('vaultTokenAccount', accounts.vaultTokenAccount),
       getAccountMeta('tokenProgram', accounts.tokenProgram),
       getAccountMeta('associatedTokenProgram', accounts.associatedTokenProgram),
       getAccountMeta('systemProgram', accounts.systemProgram),
     ],
-    data: getInitializeInstructionDataEncoder().encode(args as InitializeInstructionDataArgs),
+    data: getInitializeAssetInstructionDataEncoder().encode({}),
     programAddress,
-  } as InitializeInstruction<
+  } as InitializeAssetInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountAdmin, InstructionAccountInputAddress<TAccountAdmin>>,
-    ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
+    ResolvedInstructionAccountMeta<TAccountAssetVault, InstructionAccountInputAddress<TAccountAssetVault>>,
     ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
-    ResolvedInstructionAccountMeta<TAccountUsdcMint, InstructionAccountInputAddress<TAccountUsdcMint>>,
-    ResolvedInstructionAccountMeta<TAccountCusdcMint, InstructionAccountInputAddress<TAccountCusdcMint>>,
-    ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
+    ResolvedInstructionAccountMeta<TAccountUnderlyingMint, InstructionAccountInputAddress<TAccountUnderlyingMint>>,
+    ResolvedInstructionAccountMeta<TAccountConfidentialMint, InstructionAccountInputAddress<TAccountConfidentialMint>>,
+    ResolvedInstructionAccountMeta<
+      TAccountVaultTokenAccount,
+      InstructionAccountInputAddress<TAccountVaultTokenAccount>
+    >,
     ResolvedInstructionAccountMeta<TAccountTokenProgram, InstructionAccountInputAddress<TAccountTokenProgram>>,
     ResolvedInstructionAccountMeta<
       TAccountAssociatedTokenProgram,
@@ -287,68 +275,66 @@ export async function getInitializeInstructionAsync<
   >)
 }
 
-export type InitializeInput<
+export type InitializeAssetInput<
   TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
-  TAccountConfig extends InstructionAccountInput = InstructionAccountInput,
+  TAccountAssetVault extends InstructionAccountInput = InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput = InstructionAccountInput,
-  TAccountUsdcMint extends InstructionAccountInput = InstructionAccountInput,
-  TAccountCusdcMint extends InstructionAccountInput = InstructionAccountInput,
-  TAccountVaultUsdc extends InstructionAccountInput = InstructionAccountInput,
+  TAccountUnderlyingMint extends InstructionAccountInput = InstructionAccountInput,
+  TAccountConfidentialMint extends InstructionAccountInput = InstructionAccountInput,
+  TAccountVaultTokenAccount extends InstructionAccountInput = InstructionAccountInput,
   TAccountTokenProgram extends InstructionAccountInput = InstructionAccountInput,
   TAccountAssociatedTokenProgram extends InstructionAccountInput = InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput = InstructionAccountInput,
 > = {
   admin?: TAccountAdmin
-  config: TAccountConfig
-  /** holds no account data of its own. */
+  assetVault: TAccountAssetVault
+  /** vault token account); holds no account data of its own. */
   vaultAuthority: TAccountVaultAuthority
-  /** Classic SPL Token mint (mock USDC, or Circle's real devnet/mainnet USDC). */
-  usdcMint: TAccountUsdcMint
+  /** Classic SPL Token mint (SKR). */
+  underlyingMint: TAccountUnderlyingMint
   /**
-   * Token-2022 mint with the `ConfidentialTransferMint` extension (cUSDC). `InterfaceAccount`
-   * (not `Account<token::Mint>`) because the extension data makes this longer than a base mint.
+   * Token-2022 confidential mint (cSKR). Checked here, once, so `wrap_asset` can never be
+   * pointed at a mint the vault can't mint, or one whose units don't match 1:1.
    */
-  cusdcMint: TAccountCusdcMint
-  vaultUsdc: TAccountVaultUsdc
+  confidentialMint: TAccountConfidentialMint
+  vaultTokenAccount: TAccountVaultTokenAccount
   tokenProgram?: TAccountTokenProgram
   associatedTokenProgram?: TAccountAssociatedTokenProgram
   systemProgram?: TAccountSystemProgram
-  limits: InitializeInstructionDataArgs['limits']
-  secondsPerDay: InitializeInstructionDataArgs['secondsPerDay']
 }
 
-export function getInitializeInstruction<
+export function getInitializeAssetInstruction<
   TAccountAdmin extends InstructionSignerInput,
-  TAccountConfig extends InstructionAccountInput,
+  TAccountAssetVault extends InstructionAccountInput,
   TAccountVaultAuthority extends InstructionAccountInput,
-  TAccountUsdcMint extends InstructionAccountInput,
-  TAccountCusdcMint extends InstructionAccountInput,
-  TAccountVaultUsdc extends InstructionAccountInput,
+  TAccountUnderlyingMint extends InstructionAccountInput,
+  TAccountConfidentialMint extends InstructionAccountInput,
+  TAccountVaultTokenAccount extends InstructionAccountInput,
   TAccountTokenProgram extends InstructionAccountInput,
   TAccountAssociatedTokenProgram extends InstructionAccountInput,
   TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
 >(
-  input: InitializeInput<
+  input: InitializeAssetInput<
     TAccountAdmin,
-    TAccountConfig,
+    TAccountAssetVault,
     TAccountVaultAuthority,
-    TAccountUsdcMint,
-    TAccountCusdcMint,
-    TAccountVaultUsdc,
+    TAccountUnderlyingMint,
+    TAccountConfidentialMint,
+    TAccountVaultTokenAccount,
     TAccountTokenProgram,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
-): InitializeInstruction<
+): InitializeAssetInstruction<
   TProgramAddress,
   ResolvedInstructionAccountMeta<TAccountAdmin, InstructionAccountInputAddress<TAccountAdmin>>,
-  ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
+  ResolvedInstructionAccountMeta<TAccountAssetVault, InstructionAccountInputAddress<TAccountAssetVault>>,
   ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
-  ResolvedInstructionAccountMeta<TAccountUsdcMint, InstructionAccountInputAddress<TAccountUsdcMint>>,
-  ResolvedInstructionAccountMeta<TAccountCusdcMint, InstructionAccountInputAddress<TAccountCusdcMint>>,
-  ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
+  ResolvedInstructionAccountMeta<TAccountUnderlyingMint, InstructionAccountInputAddress<TAccountUnderlyingMint>>,
+  ResolvedInstructionAccountMeta<TAccountConfidentialMint, InstructionAccountInputAddress<TAccountConfidentialMint>>,
+  ResolvedInstructionAccountMeta<TAccountVaultTokenAccount, InstructionAccountInputAddress<TAccountVaultTokenAccount>>,
   ResolvedInstructionAccountMeta<TAccountTokenProgram, InstructionAccountInputAddress<TAccountTokenProgram>>,
   ResolvedInstructionAccountMeta<
     TAccountAssociatedTokenProgram,
@@ -365,19 +351,16 @@ export function getInitializeInstruction<
   // Original accounts.
   const originalAccounts = {
     admin: { value: input.admin ?? null, isSigner: 'either', isWritable: true },
-    config: { value: input.config ?? null, isSigner: false, isWritable: true },
+    assetVault: { value: input.assetVault ?? null, isSigner: false, isWritable: true },
     vaultAuthority: { value: input.vaultAuthority ?? null, isSigner: false, isWritable: false },
-    usdcMint: { value: input.usdcMint ?? null, isSigner: false, isWritable: false },
-    cusdcMint: { value: input.cusdcMint ?? null, isSigner: false, isWritable: false },
-    vaultUsdc: { value: input.vaultUsdc ?? null, isSigner: false, isWritable: true },
+    underlyingMint: { value: input.underlyingMint ?? null, isSigner: false, isWritable: false },
+    confidentialMint: { value: input.confidentialMint ?? null, isSigner: false, isWritable: false },
+    vaultTokenAccount: { value: input.vaultTokenAccount ?? null, isSigner: false, isWritable: true },
     tokenProgram: { value: input.tokenProgram ?? null, isSigner: false, isWritable: false },
     associatedTokenProgram: { value: input.associatedTokenProgram ?? null, isSigner: false, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isSigner: false, isWritable: false },
   }
   const accounts = originalAccounts as Record<keyof typeof originalAccounts, ResolvedInstructionAccount>
-
-  // Original args.
-  const args = { ...input }
 
   // Resolve default values.
   if (!accounts.admin.value) {
@@ -399,25 +382,28 @@ export function getInitializeInstruction<
   return Object.freeze({
     accounts: [
       getAccountMeta('admin', accounts.admin),
-      getAccountMeta('config', accounts.config),
+      getAccountMeta('assetVault', accounts.assetVault),
       getAccountMeta('vaultAuthority', accounts.vaultAuthority),
-      getAccountMeta('usdcMint', accounts.usdcMint),
-      getAccountMeta('cusdcMint', accounts.cusdcMint),
-      getAccountMeta('vaultUsdc', accounts.vaultUsdc),
+      getAccountMeta('underlyingMint', accounts.underlyingMint),
+      getAccountMeta('confidentialMint', accounts.confidentialMint),
+      getAccountMeta('vaultTokenAccount', accounts.vaultTokenAccount),
       getAccountMeta('tokenProgram', accounts.tokenProgram),
       getAccountMeta('associatedTokenProgram', accounts.associatedTokenProgram),
       getAccountMeta('systemProgram', accounts.systemProgram),
     ],
-    data: getInitializeInstructionDataEncoder().encode(args as InitializeInstructionDataArgs),
+    data: getInitializeAssetInstructionDataEncoder().encode({}),
     programAddress,
-  } as InitializeInstruction<
+  } as InitializeAssetInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<TAccountAdmin, InstructionAccountInputAddress<TAccountAdmin>>,
-    ResolvedInstructionAccountMeta<TAccountConfig, InstructionAccountInputAddress<TAccountConfig>>,
+    ResolvedInstructionAccountMeta<TAccountAssetVault, InstructionAccountInputAddress<TAccountAssetVault>>,
     ResolvedInstructionAccountMeta<TAccountVaultAuthority, InstructionAccountInputAddress<TAccountVaultAuthority>>,
-    ResolvedInstructionAccountMeta<TAccountUsdcMint, InstructionAccountInputAddress<TAccountUsdcMint>>,
-    ResolvedInstructionAccountMeta<TAccountCusdcMint, InstructionAccountInputAddress<TAccountCusdcMint>>,
-    ResolvedInstructionAccountMeta<TAccountVaultUsdc, InstructionAccountInputAddress<TAccountVaultUsdc>>,
+    ResolvedInstructionAccountMeta<TAccountUnderlyingMint, InstructionAccountInputAddress<TAccountUnderlyingMint>>,
+    ResolvedInstructionAccountMeta<TAccountConfidentialMint, InstructionAccountInputAddress<TAccountConfidentialMint>>,
+    ResolvedInstructionAccountMeta<
+      TAccountVaultTokenAccount,
+      InstructionAccountInputAddress<TAccountVaultTokenAccount>
+    >,
     ResolvedInstructionAccountMeta<TAccountTokenProgram, InstructionAccountInputAddress<TAccountTokenProgram>>,
     ResolvedInstructionAccountMeta<
       TAccountAssociatedTokenProgram,
@@ -427,34 +413,34 @@ export function getInitializeInstruction<
   >)
 }
 
-export type ParsedInitializeInstruction<
+export type ParsedInitializeAssetInstruction<
   TProgram extends string = typeof ENVELOPE_VAULT_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>
   accounts: {
     admin: TAccountMetas[0]
-    config: TAccountMetas[1]
-    /** holds no account data of its own. */
+    assetVault: TAccountMetas[1]
+    /** vault token account); holds no account data of its own. */
     vaultAuthority: TAccountMetas[2]
-    /** Classic SPL Token mint (mock USDC, or Circle's real devnet/mainnet USDC). */
-    usdcMint: TAccountMetas[3]
+    /** Classic SPL Token mint (SKR). */
+    underlyingMint: TAccountMetas[3]
     /**
-     * Token-2022 mint with the `ConfidentialTransferMint` extension (cUSDC). `InterfaceAccount`
-     * (not `Account<token::Mint>`) because the extension data makes this longer than a base mint.
+     * Token-2022 confidential mint (cSKR). Checked here, once, so `wrap_asset` can never be
+     * pointed at a mint the vault can't mint, or one whose units don't match 1:1.
      */
-    cusdcMint: TAccountMetas[4]
-    vaultUsdc: TAccountMetas[5]
+    confidentialMint: TAccountMetas[4]
+    vaultTokenAccount: TAccountMetas[5]
     tokenProgram: TAccountMetas[6]
     associatedTokenProgram: TAccountMetas[7]
     systemProgram: TAccountMetas[8]
   }
-  data: InitializeInstructionData
+  data: InitializeAssetInstructionData
 }
 
-export function parseInitializeInstruction<TProgram extends string, TAccountMetas extends readonly AccountMeta[]>(
+export function parseInitializeAssetInstruction<TProgram extends string, TAccountMetas extends readonly AccountMeta[]>(
   instruction: Instruction<TProgram> & InstructionWithAccounts<TAccountMetas> & InstructionWithData<ReadonlyUint8Array>,
-): ParsedInitializeInstruction<TProgram, TAccountMetas> {
+): ParsedInitializeAssetInstruction<TProgram, TAccountMetas> {
   if (instruction.accounts.length < 9) {
     throw new SolanaError(SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS, {
       actualAccountMetas: instruction.accounts.length,
@@ -471,15 +457,15 @@ export function parseInitializeInstruction<TProgram extends string, TAccountMeta
     programAddress: instruction.programAddress,
     accounts: {
       admin: getNextAccount(),
-      config: getNextAccount(),
+      assetVault: getNextAccount(),
       vaultAuthority: getNextAccount(),
-      usdcMint: getNextAccount(),
-      cusdcMint: getNextAccount(),
-      vaultUsdc: getNextAccount(),
+      underlyingMint: getNextAccount(),
+      confidentialMint: getNextAccount(),
+      vaultTokenAccount: getNextAccount(),
       tokenProgram: getNextAccount(),
       associatedTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
     },
-    data: getInitializeInstructionDataDecoder().decode(instruction.data),
+    data: getInitializeAssetInstructionDataDecoder().decode(instruction.data),
   }
 }

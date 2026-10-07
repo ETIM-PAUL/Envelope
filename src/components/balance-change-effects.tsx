@@ -14,6 +14,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
+import type { AssetId } from '../config/assets'
 import { colors, fontFamily } from '../design/tokens'
 import type { BalanceChange } from '../features/account/use-balance-change'
 import { formatBaseUnits } from '../utils/format-amount'
@@ -70,7 +71,15 @@ const STAMP_IN_MS = 260
 const STAMP_HOLD_MS = 2600
 const STAMP_OUT_MS = 450
 
-export function DeltaStamp({ change, decimals }: { change: BalanceChange | null; decimals: number }) {
+export function DeltaStamp({
+  change,
+  decimals,
+  asset = 'usdc',
+}: {
+  change: BalanceChange | null
+  decimals: number
+  asset?: AssetId
+}) {
   const opacity = useSharedValue(0)
   const lift = useSharedValue(6)
 
@@ -108,10 +117,11 @@ export function DeltaStamp({ change, decimals }: { change: BalanceChange | null;
         style,
       ]}
       accessibilityLiveRegion="polite"
-      accessibilityLabel={`Private balance ${increase ? 'increased' : 'decreased'} by ${formatBaseUnits(magnitude, decimals)} dollars`}
+      accessibilityLabel={`Private balance ${increase ? 'increased' : 'decreased'} by ${formatBaseUnits(magnitude, decimals)} ${asset === 'usdc' ? 'dollars' : 'SKR'}`}
     >
       <Text style={{ color: tint, fontFamily: fontFamily.uiSemibold, fontSize: 14, letterSpacing: 0.2 }}>
-        {increase ? '+' : '−'}${formatBaseUnits(magnitude, decimals)}
+        {increase ? '+' : '−'}
+        {asset === 'usdc' ? `$${formatBaseUnits(magnitude, decimals)}` : `${formatBaseUnits(magnitude, decimals)} SKR`}
       </Text>
     </Animated.View>
   )

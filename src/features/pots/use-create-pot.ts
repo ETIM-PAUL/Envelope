@@ -5,7 +5,7 @@ import { useCBridge } from '@envelope/rn-confidential'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import { address, type GetSignatureStatusesApi, type Rpc, type SendTransactionApi } from '@solana/kit'
 import { useCallback } from 'react'
-import { requireMints } from '../../config/devnet-config'
+import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
@@ -24,10 +24,11 @@ export function useCreatePot() {
   const { ensureGasTank } = useGasTank()
 
   const createPot = useCallback(
-    async (name: string, closeTs: bigint): Promise<PotSummary> => {
+    async (name: string, closeTs: bigint, assets: AssetId[] = ['usdc']): Promise<PotSummary> => {
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
-      const { cusdc } = requireMints()
+      if (assets.length === 0) throw new Error('choose at least one token for the pot')
+      const [mainMint, ...extraMints] = assets.map((asset) => getAsset(asset).confidentialMint)
 
       const potId = BigInt(Date.now())
       const potOwnerAddress = await ensurePotKeys(potId.toString())
@@ -37,7 +38,8 @@ export function useCreatePot() {
       await retryOnExpiry(async () => {
         const { signedTransactions } = await bridge.call('createPot', {
           rpcUrl: DEVNET_RPC_URL,
-          mint: cusdc,
+          mint: mainMint!,
+          extraMints,
           host: walletAddress,
           potOwner: potOwnerAddress,
           potId: potId.toString(),

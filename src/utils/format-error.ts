@@ -6,6 +6,18 @@
 // (`TypeError: fetch failed`, `HTTP error (429): Too Many Requests`, etc.) — translated to
 // something a user can actually act on, before falling back to the raw message for anything
 // unrecognized rather than losing information.
+import {
+  isSolanaError,
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM,
+  SOLANA_ERROR__INSTRUCTION_ERROR__INSUFFICIENT_FUNDS,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
+  SOLANA_ERROR__TRANSACTION_ERROR__INSUFFICIENT_FUNDS_FOR_FEE,
+  SOLANA_ERROR__TRANSACTION_ERROR__INSUFFICIENT_FUNDS_FOR_RENT,
+} from '@solana/kit'
+
 // envelope_vault's ErrorCode::DailyLimitExceeded is Anchor custom error index 1 -> code 6001
 // (0x1771) — Anchor errors don't come back with their #[msg(...)] text over the RPC, just this
 // number, so matching it is the only way to show the friendly message instead of a raw hex code.
@@ -66,6 +78,32 @@ function translateKnownError(message: string): string | null {
   return null
 }
 
+// Release builds of @solana/kit strip error messages down to "Solana error #<code>" (the message
+// templates are dev-only), which every text pattern in this file would miss — including the
+// blockhash-expiry check retryOnExpiry depends on. So for the codes we act on, also describe the
+// error the way a dev build would, from its code and context.
+function describeSolanaError(error: unknown): string | null {
+  if (isSolanaError(error, SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND)) return 'Blockhash not found'
+  if (isSolanaError(error, SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED)) return 'block height exceeded'
+  if (isSolanaError(error, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE)) {
+    return 'Transaction simulation failed'
+  }
+  if (
+    isSolanaError(error, SOLANA_ERROR__TRANSACTION_ERROR__INSUFFICIENT_FUNDS_FOR_FEE) ||
+    isSolanaError(error, SOLANA_ERROR__TRANSACTION_ERROR__INSUFFICIENT_FUNDS_FOR_RENT) ||
+    isSolanaError(error, SOLANA_ERROR__INSTRUCTION_ERROR__INSUFFICIENT_FUNDS)
+  ) {
+    return 'insufficient funds'
+  }
+  if (isSolanaError(error, SOLANA_ERROR__INSTRUCTION_ERROR__CUSTOM)) {
+    return `custom program error: 0x${error.context.code.toString(16)}`
+  }
+  if (isSolanaError(error, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR)) {
+    return `HTTP error (${error.context.statusCode})`
+  }
+  return null
+}
+
 function messageOf(error: unknown): string | null {
   if (error instanceof Error) return error.message
   if (error && typeof error === 'object' && 'message' in error) return String((error as { message: unknown }).message)
@@ -83,6 +121,8 @@ function causeChainMessages(error: unknown): string[] {
   for (let depth = 0; depth < 5 && current; depth++) {
     const message = messageOf(current)
     if (message) messages.push(message)
+    const described = describeSolanaError(current)
+    if (described) messages.push(described)
     current = current instanceof Error ? current.cause : undefined
   }
   return messages

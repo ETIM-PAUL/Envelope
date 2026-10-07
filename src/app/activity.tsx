@@ -5,9 +5,7 @@ import { BackButton } from '../components/back-button'
 import { Screen } from '../components/screen'
 import { colors, fontFamily } from '../design/tokens'
 import { useActivity } from '../features/account/use-activity'
-import { formatBaseUnits } from '../utils/format-amount'
-
-const CUSDC_DECIMALS = 6
+import { formatAssetAmount } from '../config/assets'
 
 function formatDate(blockTime: number | null): string {
   if (blockTime === null) return ''
@@ -60,7 +58,8 @@ export default function Activity() {
                 color: item.direction === 'incoming' ? colors.success : colors.paper[500],
               }}
             >
-              {item.direction === 'incoming' ? '+' : '-'}${formatBaseUnits(BigInt(item.amount), CUSDC_DECIMALS)}
+              {item.direction === 'incoming' ? '+' : '-'}
+              {formatAssetAmount(BigInt(item.amount), item.asset ?? 'usdc')}
             </Text>
           </View>
         )}

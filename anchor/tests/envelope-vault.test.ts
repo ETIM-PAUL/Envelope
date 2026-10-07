@@ -394,4 +394,187 @@ describe('envelope_vault', () => {
     // A new day: the same user can wrap up to the limit again.
     await sendInstructions({ instructions: await wrapInstruction(user, 1_000_000n), payer: user, rpc, sendAndConfirm })
   }, 40_000)
+  // A second wrappable asset (e.g. SKR <-> cSKR) via `initialize_asset` / `wrap_asset` /
+  // `unwrap_asset`. Fresh mints per run: the AssetVault PDA is seeded by the underlying mint.
+  describe('asset vaults', () => {
+    let underlyingMint: KeyPairSigner
+    let confidentialMint: KeyPairSigner
+    let vaultTokenAccount: Address
+
+    async function setMintAuthorityToVault(mint: Address) {
+      await sendInstructions({
+        instructions: getSetAuthorityInstruction(
+          { owned: mint, owner: admin, authorityType: AuthorityType.MintTokens, newAuthority: vaultAuthority },
+          { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
+        ),
+        payer: admin,
+        rpc,
+        sendAndConfirm,
+      })
+    }
+
+    beforeAll(async () => {
+      underlyingMint = await createMint(clients, admin, { decimals: 6 })
+      confidentialMint = await createMint(clients, admin, { decimals: 6, token2022: true })
+      await setMintAuthorityToVault(confidentialMint.address)
+      await sendInstructions({
+        instructions: await envelopeVault.getInitializeAssetInstructionAsync({
+          admin,
+          underlyingMint: underlyingMint.address,
+          confidentialMint: confidentialMint.address,
+        }),
+        payer: admin,
+        rpc,
+        sendAndConfirm,
+      })
+      const [assetVaultAddress] = await envelopeVault.findAssetVaultPda({ underlyingMint: underlyingMint.address })
+      vaultTokenAccount = (await envelopeVault.fetchAssetVault(rpc, assetVaultAddress)).data.vaultTokenAccount
+    })
+
+    async function assetUser(amount: bigint) {
+      const user = await createFundedSigner({ rpc, rpcSubscriptions })
+      await mintTo(clients, admin, underlyingMint.address, user.address, amount)
+      await sendInstructions({
+        instructions: await getCreateAssociatedTokenIdempotentInstructionAsync({
+          payer: admin,
+          owner: user.address,
+          mint: confidentialMint.address,
+        }),
+        payer: admin,
+        rpc,
+        sendAndConfirm,
+      })
+      const [userUnderlying] = await findAssociatedTokenPda({
+        owner: user.address,
+        mint: underlyingMint.address,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      })
+      const [userConfidential] = await findAssociatedTokenPda({
+        owner: user.address,
+        mint: confidentialMint.address,
+        tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+      })
+      return { user, userUnderlying, userConfidential }
+    }
+
+    function wrapAsset(u: Awaited<ReturnType<typeof assetUser>>, amount: bigint) {
+      return envelopeVault.getWrapAssetInstructionAsync({
+        user: u.user,
+        underlyingMint: underlyingMint.address,
+        userUnderlying: u.userUnderlying,
+        vaultTokenAccount,
+        confidentialMint: confidentialMint.address,
+        userConfidential: u.userConfidential,
+        amount,
+      })
+    }
+
+    function unwrapAsset(u: Awaited<ReturnType<typeof assetUser>>, amount: bigint) {
+      return envelopeVault.getUnwrapAssetInstructionAsync({
+        user: u.user,
+        underlyingMint: underlyingMint.address,
+        confidentialMint: confidentialMint.address,
+        userConfidential: u.userConfidential,
+        vaultTokenAccount,
+        userUnderlying: u.userUnderlying,
+        amount,
+      })
+    }
+
+    async function assetSupplyInvariantHolds() {
+      const [supply, vault] = await Promise.all([
+        rpc.getTokenSupply(confidentialMint.address).send(),
+        rpc.getTokenAccountBalance(vaultTokenAccount).send(),
+      ])
+      expect(supply.value.amount).toEqual(vault.value.amount)
+    }
+
+    it('wraps and unwraps 1:1, keeping the supply invariant', async () => {
+      const u = await assetUser(50_000_000n)
+      await sendInstructions({ instructions: await wrapAsset(u, 30_000_000n), payer: u.user, rpc, sendAndConfirm })
+      expect((await rpc.getTokenAccountBalance(u.userConfidential).send()).value.amount).toEqual('30000000')
+      await assetSupplyInvariantHolds()
+
+      const approve = getApproveInstruction(
+        { source: u.userConfidential, delegate: vaultAuthority, owner: u.user, amount: 10_000_000n },
+        { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
+      )
+      await sendInstructions({
+        instructions: [approve, await unwrapAsset(u, 10_000_000n)],
+        payer: u.user,
+        rpc,
+        sendAndConfirm,
+      })
+      expect((await rpc.getTokenAccountBalance(u.userUnderlying).send()).value.amount).toEqual('30000000')
+      await assetSupplyInvariantHolds()
+    })
+
+    it('has no tier limit: a Free-tier user can wrap more than the USDC Free limit', async () => {
+      const u = await assetUser(FREE_LIMIT * 3n)
+      await sendInstructions({ instructions: await wrapAsset(u, FREE_LIMIT * 3n), payer: u.user, rpc, sendAndConfirm })
+      await assetSupplyInvariantHolds()
+    })
+
+    it('rejects unwrap_asset without a prior delegate approval', async () => {
+      const u = await assetUser(10_000_000n)
+      await sendInstructions({ instructions: await wrapAsset(u, 5_000_000n), payer: u.user, rpc, sendAndConfirm })
+      await expect(
+        sendInstructions({ instructions: await unwrapAsset(u, 1_000_000n), payer: u.user, rpc, sendAndConfirm }),
+      ).rejects.toThrow()
+    })
+
+    it('rejects wrap_asset into a different confidential mint (cUSDC)', async () => {
+      const u = await assetUser(10_000_000n)
+      const instruction = await envelopeVault.getWrapAssetInstructionAsync({
+        user: u.user,
+        underlyingMint: underlyingMint.address,
+        userUnderlying: u.userUnderlying,
+        vaultTokenAccount,
+        confidentialMint: cusdcMint.address,
+        userConfidential: await userCusdcAddress(u.user.address),
+        amount: 1_000_000n,
+      })
+      await expect(
+        sendInstructions({ instructions: instruction, payer: u.user, rpc, sendAndConfirm }),
+      ).rejects.toThrow()
+    })
+
+    it('rejects initialize_asset from anyone but the admin', async () => {
+      const outsider = await createFundedSigner({ rpc, rpcSubscriptions })
+      const otherUnderlying = await createMint(clients, admin, { decimals: 6 })
+      const otherConfidential = await createMint(clients, admin, { decimals: 6, token2022: true })
+      await setMintAuthorityToVault(otherConfidential.address)
+      const instruction = await envelopeVault.getInitializeAssetInstructionAsync({
+        admin: outsider,
+        underlyingMint: otherUnderlying.address,
+        confidentialMint: otherConfidential.address,
+      })
+      await expect(
+        sendInstructions({ instructions: instruction, payer: outsider, rpc, sendAndConfirm }),
+      ).rejects.toThrow()
+    })
+
+    it('rejects initialize_asset when the vault cannot mint the confidential mint', async () => {
+      const otherUnderlying = await createMint(clients, admin, { decimals: 6 })
+      const adminMinted = await createMint(clients, admin, { decimals: 6, token2022: true }) // authority stays admin
+      const instruction = await envelopeVault.getInitializeAssetInstructionAsync({
+        admin,
+        underlyingMint: otherUnderlying.address,
+        confidentialMint: adminMinted.address,
+      })
+      await expect(sendInstructions({ instructions: instruction, payer: admin, rpc, sendAndConfirm })).rejects.toThrow()
+    })
+
+    it('rejects initialize_asset when decimals differ', async () => {
+      const otherUnderlying = await createMint(clients, admin, { decimals: 6 })
+      const wrongDecimals = await createMint(clients, admin, { decimals: 9, token2022: true })
+      await setMintAuthorityToVault(wrongDecimals.address)
+      const instruction = await envelopeVault.getInitializeAssetInstructionAsync({
+        admin,
+        underlyingMint: otherUnderlying.address,
+        confidentialMint: wrongDecimals.address,
+      })
+      await expect(sendInstructions({ instructions: instruction, payer: admin, rpc, sendAndConfirm })).rejects.toThrow()
+    })
+  })
 })

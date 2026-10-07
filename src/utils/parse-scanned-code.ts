@@ -6,7 +6,19 @@
 import { isAddress } from '@solana/kit'
 import { TIP_SITE_URL } from '../config/site'
 
-export type ScannedCode = { kind: 'recipient'; address: string } | { kind: 'pot'; potPda: string }
+// `assets`: the recipient's `?assets=` preference from an Envelope code or tip link, verbatim
+// (send-confirm parses it), when there is one.
+export type ScannedCode = { kind: 'recipient'; address: string; assets?: string } | { kind: 'pot'; potPda: string }
+
+// Parsed by hand: React Native's URLSearchParams doesn't implement get() on every version.
+function assetsParam(text: string): string | undefined {
+  const query = text.split('?')[1]?.split('#')[0] ?? ''
+  for (const pair of query.split('&')) {
+    const [key, value] = pair.split('=')
+    if (key === 'assets' && value) return decodeURIComponent(value)
+  }
+  return undefined
+}
 
 function firstPathSegment(rest: string): string {
   return rest.split(/[/?#]/)[0] ?? ''
@@ -26,5 +38,8 @@ export function parseScannedCode(raw: string): ScannedCode | null {
   else if (text.startsWith('solana:')) candidate = firstPathSegment(text.slice('solana:'.length))
   else if (text.startsWith(`${TIP_SITE_URL}/`)) candidate = firstPathSegment(text.slice(TIP_SITE_URL.length + 1))
 
-  return candidate && isAddress(candidate) ? { kind: 'recipient', address: candidate } : null
+  if (!candidate || !isAddress(candidate)) return null
+  // Solana Pay's own query (amount, spl-token…) isn't ours; only Envelope codes carry `assets`.
+  const assets = text.startsWith('solana:') ? undefined : assetsParam(text)
+  return { kind: 'recipient', address: candidate, ...(assets ? { assets } : {}) }
 }

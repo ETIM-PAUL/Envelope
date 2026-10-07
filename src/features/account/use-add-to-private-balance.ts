@@ -1,6 +1,7 @@
-// Phase 10: "Add to private balance" — USDC -> private cUSDC in one user action. Three
-// instructions, one transaction, one MWA signature:
-//   wrap(amount)          envelope_vault: USDC in, public cUSDC minted (Phase 4/6)
+// Phase 10: "Add to private balance" — USDC -> private cUSDC (or SKR -> private cSKR) in one user
+// action. Three instructions, one transaction, one MWA signature:
+//   wrap(amount)          envelope_vault: USDC in, public cUSDC minted (Phase 4/6) — or
+//                         wrap_asset(amount) for SKR (no tier limit)
 //   Deposit(amount)        Token-2022: public -> pending confidential
 //   ApplyPendingBalance     pending -> available (needs the AES key — see prepareApplyPendingBalance)
 // `wrap` and `Deposit` are plain, deterministic instructions with no secret material, so they're
@@ -33,7 +34,7 @@ import {
 } from '@solana/kit'
 import { toByteArray } from 'react-native-quick-base64'
 import { useCallback } from 'react'
-import { requireMints } from '../../config/devnet-config'
+import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { useAppStore } from '../../store/app-store'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
@@ -41,11 +42,6 @@ import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { PLACEHOLDER_LIFETIME, useWalletSigning } from '../wallet/use-wallet-signing'
 import { useConfidentialAccount } from './use-confidential-account'
 import { recordNotification } from '../notifications/notification-log'
-
-// cUSDC's decimals — matches Phase 1's mint setup (scripts/setup-mints.ts) and every other place
-// this constant is duplicated (roundtrip.ts, envelope-vault.test.ts): no shared package to import
-// it from without pulling in a Node-only script dependency.
-const CUSDC_DECIMALS = 6
 
 export function useAddToPrivateBalance() {
   const bridge = useCBridge()
@@ -55,7 +51,7 @@ export function useAddToPrivateBalance() {
   const { ensureAccountReady } = useConfidentialAccount()
 
   const addToPrivateBalance = useCallback(
-    async (amount: bigint): Promise<void> => {
+    async (amount: bigint, assetId: AssetId = 'usdc'): Promise<void> => {
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
 
@@ -64,20 +60,32 @@ export function useAddToPrivateBalance() {
       // (e.g. an earlier attempt failed partway through), which otherwise fails Deposit's
       // simulation with no indication why: Deposit requires the account to already have the
       // ConfidentialTransferAccount extension configured.
-      await ensureAccountReady()
+      await ensureAccountReady(assetId)
 
       const owner = address(walletAddress)
-      const { usdc, cusdc } = requireMints()
-      const usdcMint = address(usdc)
-      const cusdcMint = address(cusdc)
+      const asset = getAsset(assetId)
+      const underlyingMint = address(asset.underlyingMint)
+      const confidentialMint = address(asset.confidentialMint)
 
-      const [configAddress] = await envelopeVault.findConfigPda()
-      const config = await envelopeVault.fetchConfig(client.rpc, configAddress)
+      // USDC's vault account lives in Config; any other token's in its AssetVault.
+      const vaultTokenAccount =
+        assetId === 'usdc'
+          ? (await envelopeVault.fetchConfig(client.rpc, (await envelopeVault.findConfigPda())[0])).data.vaultUsdc
+          : (
+              await envelopeVault.fetchAssetVault(
+                client.rpc,
+                (await envelopeVault.findAssetVaultPda({ underlyingMint }))[0],
+              )
+            ).data.vaultTokenAccount
 
-      const [userUsdc] = await findClassicAta({ owner, mint: usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS })
-      const [userCusdc] = await findAssociatedTokenPda({
+      const [userUnderlying] = await findClassicAta({
         owner,
-        mint: cusdcMint,
+        mint: underlyingMint,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      })
+      const [userConfidential] = await findAssociatedTokenPda({
+        owner,
+        mint: confidentialMint,
         tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
       })
 
@@ -87,32 +95,43 @@ export function useAddToPrivateBalance() {
       await retryOnExpiry(async () => {
         const { newDecryptableAvailableBalanceBase64, expectedPendingBalanceCreditCounter } = await bridge.call(
           'prepareApplyPendingBalance',
-          { rpcUrl: DEVNET_RPC_URL, mint: cusdc, owner: walletAddress, amount: amount.toString() },
+          { rpcUrl: DEVNET_RPC_URL, mint: asset.confidentialMint, owner: walletAddress, amount: amount.toString() },
         )
 
         // Only the address matters while building: the wallet itself signs the compiled
         // transaction below, as the authority on every instruction and the fee payer.
         const authority = createNoopSigner(owner)
 
-        const wrapInstruction = await envelopeVault.getWrapInstructionAsync({
-          user: authority,
-          userUsdc,
-          vaultUsdc: config.data.vaultUsdc,
-          cusdcMint,
-          userCusdc,
-          amount,
-        })
+        const wrapInstruction =
+          assetId === 'usdc'
+            ? await envelopeVault.getWrapInstructionAsync({
+                user: authority,
+                userUsdc: userUnderlying,
+                vaultUsdc: vaultTokenAccount,
+                cusdcMint: confidentialMint,
+                userCusdc: userConfidential,
+                amount,
+              })
+            : await envelopeVault.getWrapAssetInstructionAsync({
+                user: authority,
+                underlyingMint,
+                userUnderlying,
+                vaultTokenAccount,
+                confidentialMint,
+                userConfidential,
+                amount,
+              })
 
         const depositInstruction = getConfidentialDepositInstruction({
-          token: userCusdc,
-          mint: cusdcMint,
+          token: userConfidential,
+          mint: confidentialMint,
           authority,
           amount,
-          decimals: CUSDC_DECIMALS,
+          decimals: asset.decimals,
         })
 
         const applyInstruction = getApplyConfidentialPendingBalanceInstruction({
-          token: userCusdc,
+          token: userConfidential,
           authority,
           expectedPendingBalanceCreditCounter: BigInt(expectedPendingBalanceCreditCounter),
           newDecryptableAvailableBalance: toByteArray(newDecryptableAvailableBalanceBase64),
@@ -136,6 +155,7 @@ export function useAddToPrivateBalance() {
         id: `deposit-${Date.now()}`,
         kind: 'deposit',
         amount: amount.toString(),
+        asset: assetId,
       })
     },
     [bridge, walletAddress, client, signTransactions, ensureAccountReady],

@@ -8,6 +8,8 @@
 
 import type { ReadonlyUint8Array } from '@solana/kit'
 
+export const ASSET_SEED: ReadonlyUint8Array = new Uint8Array([97, 115, 115, 101, 116])
+
 export const CONFIG_SEED: ReadonlyUint8Array = new Uint8Array([99, 111, 110, 102, 105, 103])
 
 export const POT_SEED: ReadonlyUint8Array = new Uint8Array([112, 111, 116])

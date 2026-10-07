@@ -24,22 +24,30 @@ export const ENVELOPE_VAULT_ERROR__INVALID_STAKE_POSITION = 0x1772 // 6002
 export const ENVELOPE_VAULT_ERROR__MISSING_DELEGATE_APPROVAL = 0x1773 // 6003
 /** PotAlreadyClosed: Pot is already closed */
 export const ENVELOPE_VAULT_ERROR__POT_ALREADY_CLOSED = 0x1774 // 6004
+/** Unauthorized: Only the designated admin may call this instruction */
+export const ENVELOPE_VAULT_ERROR__UNAUTHORIZED = 0x1775 // 6005
+/** InvalidAssetMint: Confidential mint must be minted by the vault and match the underlying mint's decimals */
+export const ENVELOPE_VAULT_ERROR__INVALID_ASSET_MINT = 0x1776 // 6006
 
 export type EnvelopeVaultError =
   | typeof ENVELOPE_VAULT_ERROR__DAILY_LIMIT_EXCEEDED
+  | typeof ENVELOPE_VAULT_ERROR__INVALID_ASSET_MINT
   | typeof ENVELOPE_VAULT_ERROR__INVALID_STAKE_POSITION
   | typeof ENVELOPE_VAULT_ERROR__MISSING_DELEGATE_APPROVAL
   | typeof ENVELOPE_VAULT_ERROR__OVERFLOW
   | typeof ENVELOPE_VAULT_ERROR__POT_ALREADY_CLOSED
+  | typeof ENVELOPE_VAULT_ERROR__UNAUTHORIZED
 
 let envelopeVaultErrorMessages: Record<EnvelopeVaultError, string> | undefined
 if (process.env['NODE_ENV'] !== 'production') {
   envelopeVaultErrorMessages = {
     [ENVELOPE_VAULT_ERROR__DAILY_LIMIT_EXCEEDED]: `Daily wrap limit exceeded for this tier`,
+    [ENVELOPE_VAULT_ERROR__INVALID_ASSET_MINT]: `Confidential mint must be minted by the vault and match the underlying mint's decimals`,
     [ENVELOPE_VAULT_ERROR__INVALID_STAKE_POSITION]: `Stake position does not belong to this user`,
     [ENVELOPE_VAULT_ERROR__MISSING_DELEGATE_APPROVAL]: `VaultAuth is not the approved delegate on this account`,
     [ENVELOPE_VAULT_ERROR__OVERFLOW]: `Arithmetic overflow`,
     [ENVELOPE_VAULT_ERROR__POT_ALREADY_CLOSED]: `Pot is already closed`,
+    [ENVELOPE_VAULT_ERROR__UNAUTHORIZED]: `Only the designated admin may call this instruction`,
   }
 }
 

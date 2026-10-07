@@ -14,7 +14,7 @@ export function AutoApplyOnOpen() {
   const walletAddress = useAppStore((s) => s.walletAddress)
   const bridge = useCBridge()
   const { keysUnlocked } = useConfidentialKeys()
-  const { applyPendingBalance } = useApplyPendingBalance()
+  const { applyAllPending } = useApplyPendingBalance()
   const attempted = useRef(false)
 
   useEffect(() => {
@@ -24,16 +24,16 @@ export function AutoApplyOnOpen() {
     }
     if (attempted.current || !keysUnlocked || !bridge.ready) return
     attempted.current = true
-    void applyPendingBalance()
-  }, [walletAddress, bridge.ready, keysUnlocked, applyPendingBalance])
+    void applyAllPending()
+  }, [walletAddress, bridge.ready, keysUnlocked, applyAllPending])
 
   useEffect(() => {
     if (!keysUnlocked) return
     const subscription = Notifications.addNotificationReceivedListener(() => {
-      void applyPendingBalance()
+      void applyAllPending()
     })
     return () => subscription.remove()
-  }, [keysUnlocked, applyPendingBalance])
+  }, [keysUnlocked, applyAllPending])
 
   return null
 }

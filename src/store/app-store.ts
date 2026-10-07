@@ -5,6 +5,7 @@
 // hook, and `keysUnlocked` is a plain flag — the actual confidential keys live in the WebView
 // bridge's memory (`CBridgeHost`), never here.
 import { create } from 'zustand'
+import type { AssetId } from '../config/assets'
 
 export type Tier = 'free' | 'member' | 'business'
 
@@ -18,10 +19,13 @@ export type AppState = {
   keysUnlocked: boolean
   balances: Balances
   tier: Tier
+  // The token Home is showing (dollars or SKR); Add funds and Withdraw act on it.
+  selectedAsset: AssetId
   setWalletAddress: (address: string | null) => void
   setKeysUnlocked: (unlocked: boolean) => void
   setBalances: (balances: Partial<Balances>) => void
   setTier: (tier: Tier) => void
+  setSelectedAsset: (asset: AssetId) => void
   reset: () => void
 }
 
@@ -30,6 +34,7 @@ const initialState = {
   keysUnlocked: false,
   balances: { usdc: null, cusdc: null },
   tier: 'free' as Tier,
+  selectedAsset: 'usdc' as AssetId,
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -38,5 +43,6 @@ export const useAppStore = create<AppState>((set) => ({
   setKeysUnlocked: (keysUnlocked) => set({ keysUnlocked }),
   setBalances: (balances) => set((state) => ({ balances: { ...state.balances, ...balances } })),
   setTier: (tier) => set({ tier }),
+  setSelectedAsset: (selectedAsset) => set({ selectedAsset }),
   reset: () => set(initialState),
 }))

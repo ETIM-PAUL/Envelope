@@ -23,6 +23,7 @@ import {
   setTransactionMessageFeePayerSigner,
   singleInstructionPlan,
   SOLANA_ERROR__ACCOUNTS__ACCOUNT_NOT_FOUND,
+  some,
   unwrapOption,
   type Address,
   type Blockhash,
@@ -61,7 +62,12 @@ import {
   getConfidentialWithdrawInstructionPlan,
   getCreateConfidentialTransferAccountInstructionPlan,
 } from '@solana-program/token-2022/confidential'
-import zkInit, { BatchedGroupedCiphertext3HandlesValidityProofData, ElGamalCiphertext } from '@solana/zk-sdk/web'
+import zkInit, {
+  AeCiphertext,
+  BatchedGroupedCiphertext3HandlesValidityProofData,
+  ElGamalCiphertext,
+} from '@solana/zk-sdk/web'
+import { ristretto255 } from '@noble/curves/ed25519.js'
 import type { AeKey, ElGamalKeypair } from '@solana/zk-sdk/web'
 // Cross-workspace relative import (same pattern relayer/src/tier.ts already uses for the same
 // generated client) — esbuild (this package's bundler) resolves it fine, unlike Metro.
@@ -74,6 +80,8 @@ import { planMessages, signInstructionPlan, signPlannedMessages, type PlannedMes
 import type {
   ApplyPendingBalanceParams,
   ApplyPendingBalanceResult,
+  BuildBatchTransferPlanParams,
+  BuildBatchTransferPlanResult,
   BuildTransferPlanParams,
   BuildTransferPlanResult,
   BuildWithdrawPlanParams,
@@ -145,7 +153,7 @@ function bytesToBase64(bytes: ReadonlyUint8Array): string {
 }
 
 let wasmReady = false
-const wasmInit = zkInit(base64ToBytes(ZK_SDK_WASM_BASE64)).then(() => {
+const wasmInit = zkInit({ module_or_path: base64ToBytes(ZK_SDK_WASM_BASE64) }).then(() => {
   wasmReady = true
 })
 
@@ -362,6 +370,38 @@ channel.on('lockKeys', async (_params) => {
   return { ok: true } satisfies LockKeysResult
 })
 
+// Free-tier senders (owner asked the relayer's GET /tier/:wallet) prepend a small, separate SKR
+// fee transaction — same owner-signs/relayer-noop-payer pattern, built and signed here (not in
+// React Native) so it reuses the exact same MWA round-trip and never needs its own Solana
+// instruction-building code on the native side. Signed in the same call as the transfer(s) so the
+// wallet shows one approval for everything.
+async function buildFeePlan(
+  ownerAddress: Address,
+  relayerAddress: Address,
+  feeInstruction: NonNullable<BuildTransferPlanParams['feeInstruction']>,
+  signer: TransactionSigner,
+): Promise<InstructionPlan> {
+  const skrMintAddress = address(feeInstruction.skrMint)
+  const [ownerSkrAta] = await findClassicAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: skrMintAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  })
+  const [relayerSkrAta] = await findClassicAssociatedTokenPda({
+    owner: relayerAddress,
+    mint: skrMintAddress,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  })
+  return singleInstructionPlan(
+    getClassicTransferInstruction({
+      source: ownerSkrAta,
+      destination: relayerSkrAta,
+      authority: signer,
+      amount: BigInt(feeInstruction.amount),
+    }),
+  )
+}
+
 channel.on('buildTransferPlan', async (params) => {
   const { rpcUrl, mint, owner, destinationOwner, amount, feePayer, feeInstruction } = params as BuildTransferPlanParams
   await wasmInit
@@ -415,27 +455,7 @@ channel.on('buildTransferPlan', async (params) => {
   // React Native) so it reuses the exact same MWA round-trip and never needs its own Solana
   // instruction-building code on the native side. Signed in the same signInstructionPlan call as
   // the transfer so the wallet shows one approval for both, and each gets its own nonce.
-  let feePlan: InstructionPlan | null = null
-  if (feeInstruction) {
-    const skrMintAddress = address(feeInstruction.skrMint)
-    const [ownerSkrAta] = await findClassicAssociatedTokenPda({
-      owner: ownerAddress,
-      mint: skrMintAddress,
-      tokenProgram: TOKEN_PROGRAM_ADDRESS,
-    })
-    const [relayerSkrAta] = await findClassicAssociatedTokenPda({
-      owner: relayerAddress,
-      mint: skrMintAddress,
-      tokenProgram: TOKEN_PROGRAM_ADDRESS,
-    })
-    const feeIx = getClassicTransferInstruction({
-      source: ownerSkrAta,
-      destination: relayerSkrAta,
-      authority: signer,
-      amount: BigInt(feeInstruction.amount),
-    })
-    feePlan = singleInstructionPlan(feeIx)
-  }
+  const feePlan = feeInstruction ? await buildFeePlan(ownerAddress, relayerAddress, feeInstruction, signer) : null
 
   // Two stages (see BuildTransferPlanResult): every transaction before the first one the wallet
   // must sign is proof setup — signed now (relayer slot left empty, one-time keypairs sign here)
@@ -458,6 +478,100 @@ channel.on('buildTransferPlan', async (params) => {
   continuations.set(continuationId, finalMessages)
   const signedTransactions = await signPlannedMessages(setupMessages, rpc)
   return { signedTransactions, continuationId } satisfies BuildTransferPlanResult
+})
+
+// See BuildBatchTransferPlanParams. Each transfer's proofs are computed from the source balance
+// the previous transfer leaves behind: its encrypted available balance minus that transfer's
+// source-side ciphertexts (exactly what Token-2022 computes on-chain), and a fresh AES encryption
+// of the remaining amount (any encryption of the right amount works — only the equality proof's
+// ciphertext has to match the chain bit for bit).
+channel.on('buildBatchTransferPlan', async (params) => {
+  const { rpcUrl, mint, owner, transfers, feePayer, feeInstruction } = params as BuildBatchTransferPlanParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before buildBatchTransferPlan`)
+  if (transfers.length === 0) throw new Error('no transfers to send')
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const ownerAddress = address(owner)
+  const relayerAddress = address(feePayer)
+  const signer = createHostTransactionSigner(ownerAddress)
+  const relayerSigner = createNoopSigner(relayerAddress)
+
+  const [sourceToken] = await findAssociatedTokenPda({
+    owner: ownerAddress,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  let sourceState = (await fetchToken(rpc, sourceToken)).data
+  let remaining = keys.aesKey.decrypt(
+    AeCiphertext.fromBytes(new Uint8Array(confidentialAccountOf(sourceState).decryptableAvailableBalance))!,
+  )
+  const total = transfers.reduce((sum, transfer) => sum + BigInt(transfer.amount), 0n)
+  if (total > remaining) throw new Error('insufficient private balance for this batch')
+
+  const setupMessages: PlannedMessage[] = []
+  const finalMessages: PlannedMessage[] = feeInstruction
+    ? await planMessages(await buildFeePlan(ownerAddress, relayerAddress, feeInstruction, signer), relayerSigner)
+    : []
+
+  for (const { destinationOwner, amount } of transfers) {
+    const [destinationToken] = await findAssociatedTokenPda({
+      owner: address(destinationOwner),
+      mint: mintAddress,
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+    })
+    const destinationAccount = await fetchToken(rpc, destinationToken)
+    const plan = await getConfidentialTransferInstructionPlan({
+      sourceToken,
+      destinationToken,
+      mint: mintAddress,
+      sourceTokenAccount: sourceState,
+      destinationTokenAccount: destinationAccount.data,
+      authority: signer,
+      amount: BigInt(amount),
+      sourceElgamalKeypair: keys.elgamalKeypair,
+      aesKey: keys.aesKey,
+      payer: relayerSigner,
+      rpc,
+    })
+    const messages = await planMessages(plan, relayerSigner)
+    const firstWalletIndex = messages.findIndex((message) =>
+      getSignersFromTransactionMessage(message).some(isTransactionModifyingSigner),
+    )
+    if (firstWalletIndex <= 0) throw new Error('unexpected transfer plan shape')
+    const setup = messages.slice(0, firstWalletIndex)
+    setupMessages.push(...setup)
+    finalMessages.push(...messages.slice(firstWalletIndex))
+
+    // Advance the source balance to what this transfer leaves behind, for the next one's proofs.
+    const validityProof = setup
+      .flatMap((message) => message.instructions)
+      .find(
+        (instruction) =>
+          instruction.programAddress === ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS &&
+          instruction.data?.[0] === VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR,
+      )
+    if (!validityProof?.data) throw new Error('transfer plan has no ciphertext validity proof')
+    const [sourceLo, sourceHi] = proofInstructionCiphertexts(new Uint8Array(validityProof.data), SOURCE_HANDLE_INDEX)
+    remaining -= BigInt(amount)
+    sourceState = withAvailableBalance(
+      sourceState,
+      subtractWithLoHiCiphertexts(
+        new Uint8Array(confidentialAccountOf(sourceState).availableBalance),
+        sourceLo,
+        sourceHi,
+        TRANSFER_AMOUNT_LO_BIT_LENGTH,
+      ),
+      keys.aesKey.encrypt(remaining).toBytes(),
+    )
+  }
+
+  const continuationId = `batch-${owner}-${Date.now()}`
+  continuations.set(continuationId, finalMessages)
+  const signedTransactions = await signPlannedMessages(setupMessages, rpc)
+  return { signedTransactions, continuationId } satisfies BuildBatchTransferPlanResult
 })
 
 channel.on('decryptAvailable', async (params) => {
@@ -568,7 +682,7 @@ channel.on('ensureGasTank', async (params) => {
 })
 
 channel.on('buildWithdrawPlan', async (params) => {
-  const { rpcUrl, mint, usdcMint, owner, amount } = params as BuildWithdrawPlanParams
+  const { rpcUrl, mint, underlyingMint, owner, amount } = params as BuildWithdrawPlanParams
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before buildWithdrawPlan`)
@@ -620,24 +734,45 @@ channel.on('buildWithdrawPlan', async (params) => {
   const [configAddress] = await envelopeVault.findConfigPda()
   const [vaultAuthority] = await envelopeVault.findVaultAuthorityPda()
   const vaultConfig = await envelopeVault.fetchConfig(rpc, configAddress)
-  const [userUsdc] = await findClassicAssociatedTokenPda({
+  const underlyingMintAddress = address(underlyingMint)
+  const [userUnderlying] = await findClassicAssociatedTokenPda({
     owner: ownerAddress,
-    mint: address(usdcMint),
+    mint: underlyingMintAddress,
     tokenProgram: TOKEN_PROGRAM_ADDRESS,
   })
+  // USDC <-> cUSDC is the vault's original pair (`unwrap`, Config's own fields); any other asset
+  // (SKR <-> cSKR) is registered as an AssetVault and goes through `unwrap_asset`.
+  const isUsdc = underlyingMintAddress === vaultConfig.data.usdcMint
+  if (isUsdc && mintAddress !== vaultConfig.data.cusdcMint) throw new Error('mint is not cUSDC')
+  const unwrapInstruction = isUsdc
+    ? await envelopeVault.getUnwrapInstructionAsync({
+        user: signer,
+        cusdcMint: mintAddress,
+        userCusdc: token,
+        vaultUsdc: vaultConfig.data.vaultUsdc,
+        userUsdc: userUnderlying,
+        amount: BigInt(amount),
+      })
+    : await (async () => {
+        const [assetVaultAddress] = await envelopeVault.findAssetVaultPda({ underlyingMint: underlyingMintAddress })
+        const assetVault = await envelopeVault.fetchAssetVault(rpc, assetVaultAddress)
+        if (assetVault.data.confidentialMint !== mintAddress) throw new Error('mint does not match this asset')
+        return envelopeVault.getUnwrapAssetInstructionAsync({
+          user: signer,
+          underlyingMint: underlyingMintAddress,
+          confidentialMint: mintAddress,
+          userConfidential: token,
+          vaultTokenAccount: assetVault.data.vaultTokenAccount,
+          userUnderlying,
+          amount: BigInt(amount),
+        })
+      })()
   const unwrapInstructions = [
     getApproveInstruction(
       { source: token, delegate: vaultAuthority, owner: signer, amount: BigInt(amount) },
       { programAddress: TOKEN_2022_PROGRAM_ADDRESS },
     ),
-    await envelopeVault.getUnwrapInstructionAsync({
-      user: signer,
-      cusdcMint: mintAddress,
-      userCusdc: token,
-      vaultUsdc: vaultConfig.data.vaultUsdc,
-      userUsdc,
-      amount: BigInt(amount),
-    }),
+    unwrapInstruction,
   ]
   // The final transaction is the one the wallet approves, so the wallet pays for it like any
   // other transaction it signs (the gas tank still signs it too, to close the proof contexts).
@@ -723,18 +858,21 @@ async function buildEnsureAccountReadySteps(
 }
 
 channel.on('ensureAccountReady', async (params) => {
-  const { rpcUrl, mint, owner, payer } = params as EnsureAccountReadyParams
+  const { rpcUrl, mint, extraMints, owner, payer } = params as EnsureAccountReadyParams
   await wasmInit
   const keys = sessionKeys.get(owner)
   if (!keys) throw new Error(`call deriveKeys("${owner}") before ensureAccountReady`)
 
   const rpc = createSolanaRpc(rpcUrl)
-  const mintAddress = address(mint)
   const ownerAddress = address(owner)
   const signer = createHostTransactionSigner(ownerAddress)
   const payerSigner = payer ? createHostTransactionSigner(address(payer)) : signer
 
-  const { steps } = await buildEnsureAccountReadySteps(rpc, mintAddress, signer, payerSigner, keys)
+  // Every token's setup in one plan, so the wallet approves them all in a single request.
+  const steps = []
+  for (const tokenMint of [mint, ...(extraMints ?? [])]) {
+    steps.push(...(await buildEnsureAccountReadySteps(rpc, address(tokenMint), signer, payerSigner, keys)).steps)
+  }
 
   if (steps.length === 0) {
     return { alreadyReady: true, signedTransactions: [] } satisfies EnsureAccountReadyResult
@@ -823,6 +961,51 @@ function combineAmounts(lo: bigint, hi: bigint, bitLength: bigint): bigint {
   return (hi << bitLength) + lo
 }
 
+// ElGamal ciphertext arithmetic, as @solana-program/token-2022 does it internally (its
+// confidentialTransferArithmetic.ts — not exported): `left - (lo + hi << bitLength)`, applied to the
+// commitment and the handle alike. @solana/zk-sdk doesn't expose ciphertext arithmetic yet.
+function ciphertextPoints(ciphertext: Uint8Array) {
+  return {
+    commitment: ristretto255.Point.fromBytes(ciphertext.slice(0, 32)),
+    handle: ristretto255.Point.fromBytes(ciphertext.slice(32, 64)),
+  }
+}
+
+function subtractWithLoHiCiphertexts(left: Uint8Array, lo: Uint8Array, hi: Uint8Array, bitLength: bigint): Uint8Array {
+  const scale = 1n << bitLength
+  const [l, a, b] = [ciphertextPoints(left), ciphertextPoints(lo), ciphertextPoints(hi)]
+  const result = new Uint8Array(64)
+  result.set(l.commitment.subtract(a.commitment.add(b.commitment.multiply(scale))).toBytes(), 0)
+  result.set(l.handle.subtract(a.handle.add(b.handle.multiply(scale))).toBytes(), 32)
+  return result
+}
+
+type TokenAccountData = Awaited<ReturnType<typeof fetchToken>>['data']
+
+function confidentialAccountOf(account: TokenAccountData) {
+  const extension = (unwrapOption(account.extensions) ?? []).find(
+    (candidate) => candidate.__kind === 'ConfidentialTransferAccount',
+  )
+  if (extension?.__kind !== 'ConfidentialTransferAccount') {
+    throw new Error('account has no confidential transfer extension')
+  }
+  return extension
+}
+
+// The same account, as it will be once a transfer from it lands (see buildBatchTransferPlan).
+function withAvailableBalance(
+  account: TokenAccountData,
+  availableBalance: Uint8Array,
+  decryptableAvailableBalance: Uint8Array,
+): TokenAccountData {
+  const extensions = (unwrapOption(account.extensions) ?? []).map((extension) =>
+    extension.__kind === 'ConfidentialTransferAccount'
+      ? { ...extension, availableBalance, decryptableAvailableBalance }
+      : extension,
+  )
+  return { ...account, extensions: some(extensions) }
+}
+
 // Not exported by @solana-program/token-2022's public API (only leaks into its dist/types, never
 // re-exported from "." or "./confidential") despite being used internally — reimplemented from
 // its own doc comment: "32-byte commitment followed by N 32-byte handles. The returned 64-byte
@@ -834,13 +1017,9 @@ function extractCiphertextFromGroupedBytes(grouped: Uint8Array, handleIndex: num
   return result
 }
 
-// Decrypts one handle (source or destination) of a ciphertext-validity proof instruction's amount,
-// given that instruction's raw data (including its 1-byte discriminator prefix).
-function decryptProofInstructionAmount(
-  instructionData: Uint8Array,
-  secretKey: ElGamalSecretKeyLike,
-  handleIndex: number,
-): bigint {
+// One handle's lo/hi ciphertexts (64 bytes each: commitment + that handle) from a ciphertext-validity
+// proof instruction's raw data (including its 1-byte discriminator prefix).
+function proofInstructionCiphertexts(instructionData: Uint8Array, handleIndex: number): [Uint8Array, Uint8Array] {
   const proofDataBytes = instructionData.slice(1) // strip the 1-byte VerifyProof discriminator
   const proofData = BatchedGroupedCiphertext3HandlesValidityProofData.fromBytes(proofDataBytes)
   const contextBytes = proofData.context().toBytes()
@@ -849,8 +1028,20 @@ function decryptProofInstructionAmount(
     PROOF_CONTEXT_PUBKEYS_SIZE + GROUPED_CIPHERTEXT_SIZE,
     PROOF_CONTEXT_PUBKEYS_SIZE + 2 * GROUPED_CIPHERTEXT_SIZE,
   )
-  const handleLo = extractCiphertextFromGroupedBytes(loBytes, handleIndex)
-  const handleHi = extractCiphertextFromGroupedBytes(hiBytes, handleIndex)
+  return [
+    extractCiphertextFromGroupedBytes(loBytes, handleIndex),
+    extractCiphertextFromGroupedBytes(hiBytes, handleIndex),
+  ]
+}
+
+// Decrypts one handle (source or destination) of a ciphertext-validity proof instruction's amount,
+// given that instruction's raw data (including its 1-byte discriminator prefix).
+function decryptProofInstructionAmount(
+  instructionData: Uint8Array,
+  secretKey: ElGamalSecretKeyLike,
+  handleIndex: number,
+): bigint {
+  const [handleLo, handleHi] = proofInstructionCiphertexts(instructionData, handleIndex)
   const ciphertextLo = ElGamalCiphertext.fromBytes(handleLo)
   const ciphertextHi = ElGamalCiphertext.fromBytes(handleHi)
   if (!ciphertextLo || !ciphertextHi) throw new Error('invalid ciphertext bytes in proof instruction')
@@ -1023,7 +1214,7 @@ function encodePotName(name: string): Uint8Array {
 }
 
 channel.on('createPot', async (params) => {
-  const { rpcUrl, mint, host, potOwner, potId, name, closeTs } = params as CreatePotParams
+  const { rpcUrl, mint, extraMints, host, potOwner, potId, name, closeTs } = params as CreatePotParams
   await wasmInit
   const keys = sessionKeys.get(potOwner)
   if (!keys) throw new Error(`call derivePotKeys/restorePotKeys for "${potOwner}" before createPot`)
@@ -1049,7 +1240,12 @@ channel.on('createPot', async (params) => {
   // independent on-chain (create_pot just records `potTokenAccount` as a Pubkey field, it doesn't
   // verify the account exists), so create_pot goes first: it's sent the moment the wallet
   // returns, before its blockhash has aged any further.
-  const { steps } = await buildEnsureAccountReadySteps(rpc, mintAddress, potSigner, gasTank, keys)
+  // One confidential account per token the pot accepts (see CreatePotParams.extraMints) — which
+  // of them exist is what tells guests which tokens they can contribute.
+  const steps = []
+  for (const potMint of [mintAddress, ...(extraMints ?? []).map((extra) => address(extra))]) {
+    steps.push(...(await buildEnsureAccountReadySteps(rpc, potMint, potSigner, gasTank, keys)).steps)
+  }
 
   const createPotInstruction = await envelopeVault.getCreatePotInstructionAsync({
     host: hostSigner,
@@ -1078,13 +1274,12 @@ channel.on('createPot', async (params) => {
 // hasn't landed yet when the sweep is built — the same multi-transaction landing-order problem
 // Phase 13's relayer fix addressed, avoided here by keeping the two as separate calls instead.
 channel.on('closePot', async (params) => {
-  const { rpcUrl, mint, host, potOwner, potId } = params as ClosePotParams
+  const { rpcUrl, mints, host, potOwner, potId } = params as ClosePotParams
   await wasmInit
   const keys = sessionKeys.get(potOwner)
   if (!keys) throw new Error(`call derivePotKeys/restorePotKeys for "${potOwner}" before closePot`)
 
   const rpc = createSolanaRpc(rpcUrl)
-  const mintAddress = address(mint)
   const hostAddress = address(host)
   const potOwnerAddress = address(potOwner)
   const hostSigner = createHostTransactionSigner(hostAddress)
@@ -1097,30 +1292,34 @@ channel.on('closePot', async (params) => {
     potId: BigInt(potId),
   })
 
-  const [potToken] = await findAssociatedTokenPda({
-    owner: potOwnerAddress,
-    mint: mintAddress,
-    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
-  })
-  const [hostToken] = await findAssociatedTokenPda({
-    owner: hostAddress,
-    mint: mintAddress,
-    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
-  })
-
-  const balance = await fetchConfidentialTransferBalance({
-    token: potToken,
-    rpc,
-    elgamalSecretKey: keys.elgamalKeypair.secret(),
-    aesKey: keys.aesKey,
-  })
-
-  // The wallet signs only close_pot; the sweep back to the host is authorized by the pot's own
+  // The wallet signs only close_pot; each sweep back to the host is authorized by the pot's own
   // keypair and paid for by the gas tank, so its proof transactions need no approval and are
   // signed with a fresh blockhash right after the wallet returns.
   const messages = await planMessages(singleInstructionPlan(closePotInstruction), hostSigner)
 
-  if (balance.availableBalance > 0n) {
+  for (const mint of mints) {
+    const mintAddress = address(mint)
+    const [potToken] = await findAssociatedTokenPda({
+      owner: potOwnerAddress,
+      mint: mintAddress,
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+    })
+    const [hostToken] = await findAssociatedTokenPda({
+      owner: hostAddress,
+      mint: mintAddress,
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+    })
+    // A token the pot never accepted has no account: nothing to sweep.
+    if (!(await fetchMaybeToken(rpc, potToken)).exists) continue
+
+    const balance = await fetchConfidentialTransferBalance({
+      token: potToken,
+      rpc,
+      elgamalSecretKey: keys.elgamalKeypair.secret(),
+      aesKey: keys.aesKey,
+    })
+    if (balance.availableBalance === 0n) continue
+
     const [potAccount, hostAccount] = await Promise.all([fetchToken(rpc, potToken), fetchToken(rpc, hostToken)])
     const sweepPlan = await getConfidentialTransferInstructionPlan({
       sourceToken: potToken,

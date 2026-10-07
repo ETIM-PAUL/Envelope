@@ -3,10 +3,10 @@
 // once they fall outside what a fresh fetch re-decrypts.
 import { useCBridge } from '@envelope/rn-confidential'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { requireMints } from '../../config/devnet-config'
+import { availableAssetIds, getAsset } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { useAppStore } from '../../store/app-store'
-import { mergeActivityCache, readActivityCache } from './activity-cache'
+import { mergeActivityCache, readActivityCache, type CachedActivityEntry } from './activity-cache'
 import { useConfidentialKeys } from '../keys/use-confidential-keys'
 import { activityCacheQueryKey } from '../notifications/use-notifications'
 
@@ -25,17 +25,27 @@ export function useActivity() {
     // decrypting each transaction's proof instruction is real work, not instant.
     placeholderData: (previous) => previous,
     queryFn: async () => {
-      const { cusdc } = requireMints()
-      const [cached, { entries: fresh }] = await Promise.all([
-        readActivityCache(walletAddress!),
-        bridge.call('decryptActivity', {
-          rpcUrl: DEVNET_RPC_URL,
-          mint: cusdc,
-          owner: walletAddress!,
-          limit: FETCH_LIMIT,
-          known: (await readActivityCache(walletAddress!)).map((entry) => entry.signature),
+      const cached = await readActivityCache(walletAddress!)
+      const known = cached.map((entry) => entry.signature)
+      // One history per token. A token the wallet has never enabled has no account, so its
+      // history is empty (or the call fails) — that mustn't hide the other token's.
+      const perAsset = await Promise.all(
+        availableAssetIds().map(async (asset): Promise<CachedActivityEntry[]> => {
+          try {
+            const { entries } = await bridge.call('decryptActivity', {
+              rpcUrl: DEVNET_RPC_URL,
+              mint: getAsset(asset).confidentialMint,
+              owner: walletAddress!,
+              limit: FETCH_LIMIT,
+              known,
+            })
+            return entries.map((entry) => ({ ...entry, asset }))
+          } catch {
+            return []
+          }
         }),
-      ])
+      )
+      const fresh = perAsset.flat()
       if (fresh.length === 0) return cached
       const merged = await mergeActivityCache(walletAddress!, fresh)
       // The Notifications feed (and its tab badge) reads this cache directly.

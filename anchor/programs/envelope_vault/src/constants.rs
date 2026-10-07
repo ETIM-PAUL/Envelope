@@ -8,6 +8,8 @@ pub const VAULT_AUTH_SEED: &[u8] = b"vault";
 pub const USER_DAILY_SEED: &[u8] = b"daily";
 #[constant]
 pub const POT_SEED: &[u8] = b"pot";
+#[constant]
+pub const ASSET_SEED: &[u8] = b"asset";
 
 // Phase 18 self-audit: same reasoning as envelope_stake's own `ADMIN` constant — `initialize`
 // previously accepted any signer, letting anyone race the real deploy script to permanently

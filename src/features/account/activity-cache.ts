@@ -5,6 +5,7 @@
 // SecureStore is meant for small values, not an unbounded growing list.
 import * as SecureStore from 'expo-secure-store'
 import type { ActivityDirection } from '@envelope/cbridge'
+import type { AssetId } from '../../config/assets'
 
 const MAX_CACHED_ENTRIES = 30
 
@@ -13,6 +14,7 @@ export type CachedActivityEntry = {
   direction: ActivityDirection
   amount: string
   blockTime: number | null
+  asset?: AssetId // absent on entries cached before cSKR existed, which are all cUSDC
 }
 
 function keyFor(owner: string): string {

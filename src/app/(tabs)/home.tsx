@@ -1,29 +1,63 @@
 // Subpath import — see src/app/(tabs)/_layout.tsx for why not the `@expo/vector-icons` barrel.
 import Feather from '@expo/vector-icons/Feather'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'expo-router'
+import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { AppAddressLink } from '../../components/app-address-link'
+import { AssetToggle } from '../../components/asset-picker'
 import { BalanceSheen, DeltaStamp } from '../../components/balance-change-effects'
 import { Screen } from '../../components/screen'
+import { Button } from '../../components/button'
 import { SealMark } from '../../components/seal-mark'
 import { TierBadge } from '../../components/tier-badge'
 import { colors, fontFamily } from '../../design/tokens'
 import { useBalanceChange } from '../../features/account/use-balance-change'
+import { useConfidentialAccount } from '../../features/account/use-confidential-account'
 import { usePrivateBalance } from '../../features/account/use-private-balance'
 import { useTier } from '../../features/account/use-tier'
 import { useConfidentialKeys } from '../../features/keys/use-confidential-keys'
+import { ASSET_DECIMALS, formatAssetAmount, getAsset } from '../../config/assets'
 import { useAppStore } from '../../store/app-store'
-import { formatBaseUnits } from '../../utils/format-amount'
-
-const CUSDC_DECIMALS = 6
+import { formatError } from '../../utils/format-error'
 
 export default function Home() {
   const walletAddress = useAppStore((s) => s.walletAddress)
   const tier = useAppStore((s) => s.tier)
+  const asset = useAppStore((s) => s.selectedAsset)
+  const setAsset = useAppStore((s) => s.setSelectedAsset)
+  const { symbol, privateSymbol } = getAsset(asset)
   useTier(walletAddress)
   const { keysUnlocked } = useConfidentialKeys()
-  const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePrivateBalance()
-  const { displayed, change } = useBalanceChange(keysUnlocked ? availableBalance : null)
+  const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePrivateBalance(asset)
+  const { displayed, change } = useBalanceChange(keysUnlocked ? availableBalance : null, asset)
+
+  // Wallets enabled before cSKR existed have only a private dollar account; nobody can send them
+  // SKR until it's turned on (new wallets get both at onboarding).
+  const { isRecipientReady, ensureAccountReady } = useConfidentialAccount()
+  const queryClient = useQueryClient()
+  const { data: assetReady } = useQuery({
+    queryKey: ['own-asset-ready', walletAddress, asset],
+    enabled: Boolean(walletAddress && keysUnlocked),
+    queryFn: () => isRecipientReady(walletAddress!, asset),
+  })
+  const [turningOn, setTurningOn] = useState(false)
+  const [turnOnError, setTurnOnError] = useState<string | null>(null)
+
+  async function handleTurnOn() {
+    if (turningOn) return
+    setTurningOn(true)
+    setTurnOnError(null)
+    try {
+      await ensureAccountReady(asset)
+      await queryClient.invalidateQueries({ queryKey: ['own-asset-ready', walletAddress] })
+      await queryClient.invalidateQueries({ queryKey: ['receive-ready-assets', walletAddress] })
+    } catch (e) {
+      setTurnOnError(formatError(e))
+    } finally {
+      setTurningOn(false)
+    }
+  }
 
   return (
     <Screen>
@@ -57,20 +91,26 @@ export default function Home() {
         </View>
       ) : null}
 
+      {keysUnlocked ? (
+        <View className="mb-4">
+          <AssetToggle value={asset} onChange={setAsset} />
+        </View>
+      ) : null}
+
       <View className="bg-ink-900 border border-ink-800 rounded-3xl py-10 items-center overflow-hidden">
         <BalanceSheen change={change} />
         <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.ui }}>
           Private balance
         </Text>
         <Text className="text-paper-500" style={{ fontFamily: fontFamily.display, fontSize: 44, letterSpacing: -0.5 }}>
-          {keysUnlocked && displayed !== null ? `$${formatBaseUnits(displayed, CUSDC_DECIMALS)}` : '— cUSDC'}
+          {!keysUnlocked ? 'Sealed' : displayed !== null ? formatAssetAmount(displayed, asset) : `— ${privateSymbol}`}
         </Text>
-        <DeltaStamp change={change} decimals={CUSDC_DECIMALS} />
+        <DeltaStamp change={change} decimals={ASSET_DECIMALS} asset={asset} />
         <View className="flex-row items-center gap-1.5 mt-3">
           {keysUnlocked ? <View className="w-1.5 h-1.5 rounded-full bg-gold-500" /> : null}
           <Text className="text-mute-600 text-xs" style={{ fontFamily: fontFamily.ui }}>
             {!keysUnlocked
-              ? 'Enable a private balance to see it here'
+              ? 'Your private dollars and SKR show here once unlocked'
               : balanceLoading
                 ? 'Decrypting…'
                 : 'Sealed — only visible on this device'}
@@ -78,10 +118,29 @@ export default function Home() {
         </View>
         {keysUnlocked && pendingBalance !== null && pendingBalance > 0n ? (
           <Text className="text-gold-500 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
-            +${formatBaseUnits(pendingBalance, CUSDC_DECIMALS)} pending
+            +{formatAssetAmount(pendingBalance, asset)} pending
           </Text>
         ) : null}
       </View>
+
+      {keysUnlocked && assetReady === false ? (
+        <View className="mt-6">
+          <Text className="text-mute-500 text-sm mb-3 text-center" style={{ fontFamily: fontFamily.ui }}>
+            Private {symbol} isn&apos;t on yet. Turn it on so people can send you {symbol} privately.
+          </Text>
+          <Button
+            label={turningOn ? 'Turning on…' : `Turn on private ${symbol}`}
+            variant="secondary"
+            onPress={() => void handleTurnOn()}
+            busy={turningOn}
+          />
+          {turnOnError ? (
+            <Text className="text-seal-500 text-sm mt-2 text-center" style={{ fontFamily: fontFamily.ui }}>
+              {turnOnError}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {keysUnlocked ? (
         <Link href="/add-funds" asChild>
@@ -122,13 +181,16 @@ export default function Home() {
         </Link>
       )}
 
-      <Link href="/withdraw" asChild>
-        <Pressable className="mt-4 items-center">
-          <Text className="text-mute-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 14 }}>
-            Withdraw to USDC
-          </Text>
-        </Pressable>
-      </Link>
+      {/* Withdrawing decrypts the balance, so it needs the keys unlocked. */}
+      {keysUnlocked ? (
+        <Link href="/withdraw" asChild>
+          <Pressable className="mt-4 items-center">
+            <Text className="text-mute-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 14 }}>
+              Withdraw to {symbol}
+            </Text>
+          </Pressable>
+        </Link>
+      ) : null}
     </Screen>
   )
 }

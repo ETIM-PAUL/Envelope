@@ -11,6 +11,7 @@ import * as Haptics from 'expo-haptics'
 import { useIsFocused } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
 import { useReducedMotion } from 'react-native-reanimated'
+import type { AssetId } from '../../config/assets'
 import { useAppStore } from '../../store/app-store'
 
 const COUNT_DURATION_MS = 1100
@@ -19,13 +20,16 @@ export type BalanceChange = { delta: bigint; id: number }
 
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
 
-// Per-session memory only: after an app restart the first balance shown is just shown.
+// Per-session memory only: after an app restart the first balance shown is just shown. Keyed by
+// wallet and token, so switching Home between dollars and SKR shows the other balance as-is
+// instead of "animating" from one token's figure to the other's.
 const lastSeenByWallet = new Map<string, bigint>()
 
-export function useBalanceChange(balance: bigint | null) {
+export function useBalanceChange(balance: bigint | null, asset: AssetId = 'usdc') {
   const isFocused = useIsFocused()
   const reduceMotion = useReducedMotion()
-  const wallet = useAppStore((s) => s.walletAddress)
+  const walletAddress = useAppStore((s) => s.walletAddress)
+  const wallet = walletAddress ? `${walletAddress}:${asset}` : null
   const [counting, setCounting] = useState<bigint | null>(null) // the in-progress count, if any
   const [change, setChange] = useState<BalanceChange | null>(null)
   const frame = useRef<number | null>(null)

@@ -297,6 +297,156 @@
       ]
     },
     {
+      "name": "initialize_asset",
+      "docs": [
+        "Admin-only, once per asset. Registers another underlying <-> confidential mint pair",
+        "(e.g. SKR <-> cSKR) and creates the vault's account for the underlying."
+      ],
+      "discriminator": [
+        214,
+        153,
+        49,
+        248,
+        95,
+        248,
+        208,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "address": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1"
+        },
+        {
+          "name": "asset_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "underlying_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "vault token account); holds no account data of its own."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlying_mint",
+          "docs": [
+            "Classic SPL Token mint (SKR)."
+          ]
+        },
+        {
+          "name": "confidential_mint",
+          "docs": [
+            "Token-2022 confidential mint (cSKR). Checked here, once, so `wrap_asset` can never be",
+            "pointed at a mint the vault can't mint, or one whose units don't match 1:1."
+          ]
+        },
+        {
+          "name": "vault_token_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault_authority"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "underlying_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "unwrap",
       "docs": [
         "Public cUSDC -> USDC, 1:1. Requires a preceding top-level `Approve(vault_authority,",
@@ -369,6 +519,103 @@
         },
         {
           "name": "user_usdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "unwrap_asset",
+      "docs": [
+        "Public confidential tokens -> underlying, 1:1. Requires a preceding top-level",
+        "`Approve(vault_authority, amount)` in the same transaction, as `unwrap` does."
+      ],
+      "discriminator": [
+        182,
+        97,
+        106,
+        128,
+        122,
+        198,
+        168,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "asset_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "underlying_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "docs": [
+            "preceding top-level `Approve`) the delegate on `user_confidential` for at least `amount`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlying_mint"
+        },
+        {
+          "name": "confidential_mint",
+          "writable": true
+        },
+        {
+          "name": "user_confidential",
+          "writable": true
+        },
+        {
+          "name": "vault_token_account",
+          "writable": true
+        },
+        {
+          "name": "user_underlying",
           "writable": true
         },
         {
@@ -624,9 +871,118 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "wrap_asset",
+      "docs": [
+        "Underlying -> public confidential tokens, 1:1. No tier limit (see `AssetVault`)."
+      ],
+      "discriminator": [
+        75,
+        63,
+        96,
+        57,
+        92,
+        198,
+        158,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "asset_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "underlying_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlying_mint",
+          "docs": [
+            "Pins which asset this is; `asset_vault`'s seeds tie the two together."
+          ]
+        },
+        {
+          "name": "user_underlying",
+          "writable": true
+        },
+        {
+          "name": "vault_token_account",
+          "writable": true
+        },
+        {
+          "name": "confidential_mint",
+          "writable": true
+        },
+        {
+          "name": "user_confidential",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
+    {
+      "name": "AssetVault",
+      "discriminator": [
+        193,
+        119,
+        127,
+        25,
+        157,
+        102,
+        175,
+        164
+      ]
+    },
     {
       "name": "Config",
       "discriminator": [
@@ -697,9 +1053,53 @@
       "code": 6005,
       "name": "Unauthorized",
       "msg": "Only the designated admin may call this instruction"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidAssetMint",
+      "msg": "Confidential mint must be minted by the vault and match the underlying mint's decimals"
     }
   ],
   "types": [
+    {
+      "name": "AssetVault",
+      "docs": [
+        "A wrappable asset beyond the original USDC <-> cUSDC pair, which keeps its own `Config`",
+        "fields so existing deployments are untouched. One per underlying mint (e.g. SKR <-> cSKR),",
+        "PDA-seeded by that mint. No tier limits: those exist to cap dollars entering the private",
+        "system, and are enforced on `wrap` (USDC) only."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "underlying_mint",
+            "docs": [
+              "Classic SPL Token mint users deposit (SKR)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "confidential_mint",
+            "docs": [
+              "Token-2022 mint with the `ConfidentialTransferMint` extension, minted 1:1 (cSKR)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_token_account",
+            "docs": [
+              "The vault's ATA of `underlying_mint`, owned by the VaultAuth PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
     {
       "name": "Config",
       "type": {
@@ -862,6 +1262,11 @@
     }
   ],
   "constants": [
+    {
+      "name": "ASSET_SEED",
+      "type": "bytes",
+      "value": "[97, 115, 115, 101, 116]"
+    },
     {
       "name": "CONFIG_SEED",
       "type": "bytes",

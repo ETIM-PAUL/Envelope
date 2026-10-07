@@ -10,7 +10,8 @@
   "mints": {
     "usdc": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
     "skr": "5m3R8bdAZr5xMg7ioMXoPabsKGcRPAWLu2muzyUNzRKY",
-    "cusdc": "8wc4rgUPj4a2542YpgrjaxXW9XzBFZA1PLSvdNXmkjsf"
+    "cusdc": "8wc4rgUPj4a2542YpgrjaxXW9XzBFZA1PLSvdNXmkjsf",
+    "cskr": "2682Tp4wUvDPR3hkNPirinSUNLVYhytS7mZGzgSNRXUU"
   },
   "programs": {
     "envelope_stake": "331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx",

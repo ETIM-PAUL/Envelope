@@ -4,6 +4,7 @@
 // SecureStore like the activity cache — amounts here are exactly what the confidential balance
 // hides, so they stay encrypted at rest — and capped, since SecureStore is for small values.
 import * as SecureStore from 'expo-secure-store'
+import type { AssetId } from '../../config/assets'
 
 export type LoggedNotificationKind =
   | 'deposit'
@@ -20,6 +21,7 @@ export type LoggedNotification = {
   id: string
   kind: LoggedNotificationKind
   amount?: string // stringified bigint, base units (6 decimals: cUSDC, or SKR for staking)
+  asset?: AssetId // which token `amount` is in; absent on older entries, which are all dollars
   label?: string // pot name
   at: number // ms since epoch
 }

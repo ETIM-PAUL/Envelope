@@ -34,9 +34,12 @@ import {
   type SelfPlanAndSendFunctions,
 } from '@solana/kit/program-client-core'
 import {
+  getAssetVaultCodec,
   getConfigCodec,
   getPotCodec,
   getUserDailyCodec,
+  type AssetVault,
+  type AssetVaultArgs,
   type Config,
   type ConfigArgs,
   type Pot,
@@ -47,31 +50,44 @@ import {
 import {
   getClosePotInstructionAsync,
   getCreatePotInstructionAsync,
+  getInitializeAssetInstructionAsync,
   getInitializeInstructionAsync,
+  getUnwrapAssetInstructionAsync,
   getUnwrapInstructionAsync,
+  getWrapAssetInstructionAsync,
   getWrapInstructionAsync,
   parseClosePotInstruction,
   parseCreatePotInstruction,
+  parseInitializeAssetInstruction,
   parseInitializeInstruction,
+  parseUnwrapAssetInstruction,
   parseUnwrapInstruction,
+  parseWrapAssetInstruction,
   parseWrapInstruction,
   type ClosePotAsyncInput,
   type CreatePotAsyncInput,
+  type InitializeAssetAsyncInput,
   type InitializeAsyncInput,
   type ParsedClosePotInstruction,
   type ParsedCreatePotInstruction,
+  type ParsedInitializeAssetInstruction,
   type ParsedInitializeInstruction,
+  type ParsedUnwrapAssetInstruction,
   type ParsedUnwrapInstruction,
+  type ParsedWrapAssetInstruction,
   type ParsedWrapInstruction,
+  type UnwrapAssetAsyncInput,
   type UnwrapAsyncInput,
+  type WrapAssetAsyncInput,
   type WrapAsyncInput,
 } from '../instructions'
-import { findConfigPda, findPotPda, findUserDailyPda, findVaultAuthorityPda } from '../pdas'
+import { findAssetVaultPda, findConfigPda, findPotPda, findUserDailyPda, findVaultAuthorityPda } from '../pdas'
 
 export const ENVELOPE_VAULT_PROGRAM_ADDRESS =
   '43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi' as Address<'43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi'>
 
 export enum EnvelopeVaultAccount {
+  AssetVault,
   Config,
   Pot,
   UserDaily,
@@ -81,6 +97,15 @@ export function identifyEnvelopeVaultAccount(
   account: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
 ): EnvelopeVaultAccount {
   const data = 'data' in account ? account.data : account
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([193, 119, 127, 25, 157, 102, 175, 164])),
+      0,
+    )
+  ) {
+    return EnvelopeVaultAccount.AssetVault
+  }
   if (
     containsBytes(
       data,
@@ -118,8 +143,11 @@ export enum EnvelopeVaultInstruction {
   ClosePot,
   CreatePot,
   Initialize,
+  InitializeAsset,
   Unwrap,
+  UnwrapAsset,
   Wrap,
+  WrapAsset,
 }
 
 export function identifyEnvelopeVaultInstruction(
@@ -156,6 +184,15 @@ export function identifyEnvelopeVaultInstruction(
   if (
     containsBytes(
       data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([214, 153, 49, 248, 95, 248, 208, 179])),
+      0,
+    )
+  ) {
+    return EnvelopeVaultInstruction.InitializeAsset
+  }
+  if (
+    containsBytes(
+      data,
       fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([126, 175, 198, 14, 212, 69, 50, 44])),
       0,
     )
@@ -165,11 +202,29 @@ export function identifyEnvelopeVaultInstruction(
   if (
     containsBytes(
       data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([182, 97, 106, 128, 122, 198, 168, 105])),
+      0,
+    )
+  ) {
+    return EnvelopeVaultInstruction.UnwrapAsset
+  }
+  if (
+    containsBytes(
+      data,
       fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([178, 40, 10, 189, 228, 129, 186, 140])),
       0,
     )
   ) {
     return EnvelopeVaultInstruction.Wrap
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(new Uint8Array([75, 63, 96, 57, 92, 198, 158, 199])),
+      0,
+    )
+  ) {
+    return EnvelopeVaultInstruction.WrapAsset
   }
   throw new SolanaError(SOLANA_ERROR__PROGRAM_CLIENTS__FAILED_TO_IDENTIFY_INSTRUCTION, {
     instructionData: data,
@@ -181,8 +236,11 @@ export type ParsedEnvelopeVaultInstruction<TProgram extends string = '43kwURZxpD
   | ({ instructionType: EnvelopeVaultInstruction.ClosePot } & ParsedClosePotInstruction<TProgram>)
   | ({ instructionType: EnvelopeVaultInstruction.CreatePot } & ParsedCreatePotInstruction<TProgram>)
   | ({ instructionType: EnvelopeVaultInstruction.Initialize } & ParsedInitializeInstruction<TProgram>)
+  | ({ instructionType: EnvelopeVaultInstruction.InitializeAsset } & ParsedInitializeAssetInstruction<TProgram>)
   | ({ instructionType: EnvelopeVaultInstruction.Unwrap } & ParsedUnwrapInstruction<TProgram>)
+  | ({ instructionType: EnvelopeVaultInstruction.UnwrapAsset } & ParsedUnwrapAssetInstruction<TProgram>)
   | ({ instructionType: EnvelopeVaultInstruction.Wrap } & ParsedWrapInstruction<TProgram>)
+  | ({ instructionType: EnvelopeVaultInstruction.WrapAsset } & ParsedWrapAssetInstruction<TProgram>)
 
 export function parseEnvelopeVaultInstruction<TProgram extends string>(
   instruction: Instruction<TProgram> & InstructionWithData<ReadonlyUint8Array>,
@@ -201,13 +259,28 @@ export function parseEnvelopeVaultInstruction<TProgram extends string>(
       assertIsInstructionWithAccounts(instruction)
       return { instructionType: EnvelopeVaultInstruction.Initialize, ...parseInitializeInstruction(instruction) }
     }
+    case EnvelopeVaultInstruction.InitializeAsset: {
+      assertIsInstructionWithAccounts(instruction)
+      return {
+        instructionType: EnvelopeVaultInstruction.InitializeAsset,
+        ...parseInitializeAssetInstruction(instruction),
+      }
+    }
     case EnvelopeVaultInstruction.Unwrap: {
       assertIsInstructionWithAccounts(instruction)
       return { instructionType: EnvelopeVaultInstruction.Unwrap, ...parseUnwrapInstruction(instruction) }
     }
+    case EnvelopeVaultInstruction.UnwrapAsset: {
+      assertIsInstructionWithAccounts(instruction)
+      return { instructionType: EnvelopeVaultInstruction.UnwrapAsset, ...parseUnwrapAssetInstruction(instruction) }
+    }
     case EnvelopeVaultInstruction.Wrap: {
       assertIsInstructionWithAccounts(instruction)
       return { instructionType: EnvelopeVaultInstruction.Wrap, ...parseWrapInstruction(instruction) }
+    }
+    case EnvelopeVaultInstruction.WrapAsset: {
+      assertIsInstructionWithAccounts(instruction)
+      return { instructionType: EnvelopeVaultInstruction.WrapAsset, ...parseWrapAssetInstruction(instruction) }
     }
     default:
       throw new SolanaError(SOLANA_ERROR__PROGRAM_CLIENTS__UNRECOGNIZED_INSTRUCTION_TYPE, {
@@ -227,6 +300,7 @@ export type EnvelopeVaultPlugin = {
 }
 
 export type EnvelopeVaultPluginAccounts = {
+  assetVault: ReturnType<typeof getAssetVaultCodec> & SelfFetchFunctions<AssetVaultArgs, AssetVault>
   config: ReturnType<typeof getConfigCodec> & SelfFetchFunctions<ConfigArgs, Config>
   pot: ReturnType<typeof getPotCodec> & SelfFetchFunctions<PotArgs, Pot>
   userDaily: ReturnType<typeof getUserDailyCodec> & SelfFetchFunctions<UserDailyArgs, UserDaily>
@@ -238,14 +312,22 @@ export type EnvelopeVaultPluginInstructions = {
   initialize: (
     input: InitializeAsyncInput,
   ) => ReturnType<typeof getInitializeInstructionAsync> & SelfPlanAndSendFunctions
+  initializeAsset: (
+    input: InitializeAssetAsyncInput,
+  ) => ReturnType<typeof getInitializeAssetInstructionAsync> & SelfPlanAndSendFunctions
   unwrap: (input: UnwrapAsyncInput) => ReturnType<typeof getUnwrapInstructionAsync> & SelfPlanAndSendFunctions
+  unwrapAsset: (
+    input: UnwrapAssetAsyncInput,
+  ) => ReturnType<typeof getUnwrapAssetInstructionAsync> & SelfPlanAndSendFunctions
   wrap: (input: WrapAsyncInput) => ReturnType<typeof getWrapInstructionAsync> & SelfPlanAndSendFunctions
+  wrapAsset: (input: WrapAssetAsyncInput) => ReturnType<typeof getWrapAssetInstructionAsync> & SelfPlanAndSendFunctions
 }
 
 export type EnvelopeVaultPluginPdas = {
   pot: typeof findPotPda
   config: typeof findConfigPda
   vaultAuthority: typeof findVaultAuthorityPda
+  assetVault: typeof findAssetVaultPda
   userDaily: typeof findUserDailyPda
 }
 
@@ -260,6 +342,7 @@ export function envelopeVaultProgram() {
     return extendClient(client, {
       envelopeVault: <EnvelopeVaultPlugin>{
         accounts: {
+          assetVault: addSelfFetchFunctions(client, getAssetVaultCodec()),
           config: addSelfFetchFunctions(client, getConfigCodec()),
           pot: addSelfFetchFunctions(client, getPotCodec()),
           userDaily: addSelfFetchFunctions(client, getUserDailyCodec()),
@@ -268,13 +351,17 @@ export function envelopeVaultProgram() {
           closePot: (input) => addSelfPlanAndSendFunctions(client, getClosePotInstructionAsync(input)),
           createPot: (input) => addSelfPlanAndSendFunctions(client, getCreatePotInstructionAsync(input)),
           initialize: (input) => addSelfPlanAndSendFunctions(client, getInitializeInstructionAsync(input)),
+          initializeAsset: (input) => addSelfPlanAndSendFunctions(client, getInitializeAssetInstructionAsync(input)),
           unwrap: (input) => addSelfPlanAndSendFunctions(client, getUnwrapInstructionAsync(input)),
+          unwrapAsset: (input) => addSelfPlanAndSendFunctions(client, getUnwrapAssetInstructionAsync(input)),
           wrap: (input) => addSelfPlanAndSendFunctions(client, getWrapInstructionAsync(input)),
+          wrapAsset: (input) => addSelfPlanAndSendFunctions(client, getWrapAssetInstructionAsync(input)),
         },
         pdas: {
           pot: findPotPda,
           config: findConfigPda,
           vaultAuthority: findVaultAuthorityPda,
+          assetVault: findAssetVaultPda,
           userDaily: findUserDailyPda,
         },
         identifyAccount: identifyEnvelopeVaultAccount,

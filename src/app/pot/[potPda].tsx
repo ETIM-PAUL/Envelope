@@ -23,9 +23,9 @@ import { usePotBalance } from '../../features/pots/use-pot-balance'
 import { usePotContributions } from '../../features/pots/use-pot-contributions'
 import { usePotKeys } from '../../features/pots/use-pot-keys'
 import { ellipsify } from '../../utils/ellipsify'
-import { formatBaseUnits } from '../../utils/format-amount'
 import { formatError } from '../../utils/format-error'
-import { CUSDC_DECIMALS } from '../../utils/parse-amount'
+import { assetLabel, availableAssetIds, formatAssetAmount, type AssetId } from '../../config/assets'
+import { usePotAssets } from '../../features/pots/use-pot-assets'
 
 // close_ts is unix seconds (see decode-pot.ts).
 function formatCloseDate(closeTs: bigint): string {
@@ -107,13 +107,23 @@ function HostView({
       .catch((e) => setError(formatError(e)))
   }, [ensurePotKeys, potId])
 
-  const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePotBalance(keysReady ? potOwner : null)
+  const { data: potAssets } = usePotAssets(potOwner)
+  const accepts = (asset: AssetId) => potAssets?.includes(asset) ?? false
+  // One fixed hook per token (hooks can't be called in a loop); a token the pot doesn't accept
+  // is simply not queried.
+  const usdcBalance = usePotBalance(keysReady ? potOwner : null, 'usdc', accepts('usdc'))
+  const skrBalance = usePotBalance(keysReady ? potOwner : null, 'skr', accepts('skr'))
   // Contributions land in the pot's *pending* balance and only move to *available* when applied,
   // which happens when the pot is closed (useClosePot applies, then sweeps). Both are money the
-  // pot holds, so the host sees them as one total.
-  const totalRaised =
-    availableBalance === null && pendingBalance === null ? null : (availableBalance ?? 0n) + (pendingBalance ?? 0n)
-  const { data: contributions } = usePotContributions(keysReady ? potOwner : null)
+  // pot holds, so the host sees them as one total per token.
+  const totals = (potAssets ?? []).map((asset) => {
+    const { availableBalance, pendingBalance } = asset === 'usdc' ? usdcBalance : skrBalance
+    const total =
+      availableBalance === null && pendingBalance === null ? null : (availableBalance ?? 0n) + (pendingBalance ?? 0n)
+    return { asset, total }
+  })
+  const balanceLoading = !potAssets || totals.some(({ total }) => total === null)
+  const { data: contributions } = usePotContributions(keysReady ? potOwner : null, potAssets)
   const { closePot } = useClosePot()
   const [isClosing, setIsClosing] = useState(false)
 
@@ -150,6 +160,11 @@ function HostView({
           <Text className="text-mute-500 text-sm" style={{ fontFamily: fontFamily.ui }}>
             {closed ? 'Closed' : `Open · Closes ${formatCloseDate(closeTs)}`}
           </Text>
+          {potAssets && availableAssetIds().length > 1 ? (
+            <Text className="text-mute-500 text-sm mt-1" style={{ fontFamily: fontFamily.ui }}>
+              Accepts {potAssets.map(assetLabel).join(' and ')}
+            </Text>
+          ) : null}
         </View>
 
         {!closed ? (
@@ -165,9 +180,22 @@ function HostView({
           <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.ui }}>
             Total raised
           </Text>
-          <Text style={{ fontFamily: fontFamily.display, fontSize: 40, color: colors.paper[500] }}>
-            {balanceLoading || totalRaised === null ? '—' : `$${formatBaseUnits(totalRaised, CUSDC_DECIMALS)}`}
-          </Text>
+          {balanceLoading ? (
+            <Text style={{ fontFamily: fontFamily.display, fontSize: 40, color: colors.paper[500] }}>—</Text>
+          ) : (
+            totals.map(({ asset, total }, index) => (
+              <Text
+                key={asset}
+                style={{
+                  fontFamily: fontFamily.display,
+                  fontSize: index === 0 ? 40 : 26,
+                  color: index === 0 ? colors.paper[500] : colors.paper[400],
+                }}
+              >
+                {formatAssetAmount(total ?? 0n, asset)}
+              </Text>
+            ))
+          )}
         </View>
 
         <Text className="text-mute-500 text-sm mb-3" style={{ fontFamily: fontFamily.uiSemibold }}>
@@ -184,7 +212,7 @@ function HostView({
                   {ellipsify(c.contributor)}
                 </Text>
                 <Text className="text-paper-500 text-sm" style={{ fontFamily: fontFamily.uiSemibold }}>
-                  ${formatBaseUnits(BigInt(c.amount), CUSDC_DECIMALS)}
+                  {formatAssetAmount(BigInt(c.amount), c.asset)}
                 </Text>
               </View>
             ))
@@ -238,7 +266,7 @@ function GuestView({
 }: {
   potOwner: string
   closed: boolean
-  isRecipientReady: (address: string) => Promise<boolean>
+  isRecipientReady: (address: string, asset?: AssetId) => Promise<boolean>
 }) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -249,13 +277,19 @@ function GuestView({
     if (closed || attempted.current) return
     attempted.current = true
     setChecking(true)
-    isRecipientReady(potOwner)
+    // The tokens the pot accepts are the ones it has an account for; send-confirm offers just those.
+    const assets = availableAssetIds()
+    Promise.all(assets.map((asset) => isRecipientReady(potOwner, asset)))
       .then((ready) => {
-        if (!ready) {
+        const accepted = assets.filter((_, i) => ready[i])
+        if (accepted.length === 0) {
           setError("This pot isn't ready to receive contributions yet.")
           return
         }
-        router.replace({ pathname: '/send-confirm', params: { recipient: potOwner, quickAmounts: '1' } })
+        router.replace({
+          pathname: '/send-confirm',
+          params: { recipient: potOwner, quickAmounts: '1', assets: accepted.join(',') },
+        })
       })
       .catch((e) => setError(formatError(e)))
       .finally(() => setChecking(false))

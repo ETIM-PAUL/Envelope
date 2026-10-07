@@ -6,7 +6,7 @@ import { useCBridge } from '@envelope/rn-confidential'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import type { GetSignatureStatusesApi, Rpc, SendTransactionApi } from '@solana/kit'
 import { useCallback } from 'react'
-import { requireMints } from '../../config/devnet-config'
+import { availableAssetIds, getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
@@ -19,29 +19,39 @@ export function useApplyPendingBalance() {
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { refetchBalance } = usePrivateBalance()
 
-  const applyPendingBalance = useCallback(async (): Promise<boolean> => {
-    if (!walletAddress) throw new Error('connect a wallet first')
-    if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
-    const { cusdc } = requireMints()
+  const applyPendingBalance = useCallback(
+    async (asset: AssetId = 'usdc'): Promise<boolean> => {
+      if (!walletAddress) throw new Error('connect a wallet first')
+      if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
 
-    const applied = await retryOnExpiry(async () => {
-      const { signedTransactions } = await bridge.call('applyPendingBalance', {
-        rpcUrl: DEVNET_RPC_URL,
-        mint: cusdc,
-        owner: walletAddress,
+      const applied = await retryOnExpiry(async () => {
+        const { signedTransactions } = await bridge.call('applyPendingBalance', {
+          rpcUrl: DEVNET_RPC_URL,
+          mint: getAsset(asset).confidentialMint,
+          owner: walletAddress,
+        })
+        if (signedTransactions.length === 0) return false
+
+        await sendSignedTransactions(
+          client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
+          signedTransactions,
+        )
+        return true
       })
-      if (signedTransactions.length === 0) return false
-
-      await sendSignedTransactions(
-        client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>,
-        signedTransactions,
-      )
+      if (!applied) return false
+      await refetchBalance()
       return true
-    })
-    if (!applied) return false
-    await refetchBalance()
-    return true
-  }, [bridge, walletAddress, client, refetchBalance])
+    },
+    [bridge, walletAddress, client, refetchBalance],
+  )
 
-  return { applyPendingBalance }
+  // Every token, one after another; a token with no account yet (never enabled) has nothing
+  // pending and is skipped by the bridge. One token failing doesn't stop the others.
+  const applyAllPending = useCallback(async (): Promise<void> => {
+    for (const asset of availableAssetIds()) {
+      await applyPendingBalance(asset).catch(() => false)
+    }
+  }, [applyPendingBalance])
+
+  return { applyPendingBalance, applyAllPending }
 }

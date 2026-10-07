@@ -3,20 +3,19 @@
 // derived identity, not anything useMobileWallet() knows about.
 import { useCBridge } from '@envelope/rn-confidential'
 import { useQuery } from '@tanstack/react-query'
-import { requireMints } from '../../config/devnet-config'
+import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 
-export function usePotBalance(potOwnerAddress: string | null) {
+export function usePotBalance(potOwnerAddress: string | null, asset: AssetId = 'usdc', enabled = true) {
   const bridge = useCBridge()
 
   const query = useQuery({
-    queryKey: ['pot-balance', potOwnerAddress],
-    enabled: Boolean(potOwnerAddress && bridge.ready),
+    queryKey: ['pot-balance', potOwnerAddress, asset],
+    enabled: Boolean(enabled && potOwnerAddress && bridge.ready),
     queryFn: async () => {
-      const { cusdc } = requireMints()
       const { availableBalance, pendingBalance } = await bridge.call('decryptAvailable', {
         rpcUrl: DEVNET_RPC_URL,
-        mint: cusdc,
+        mint: getAsset(asset).confidentialMint,
         owner: potOwnerAddress!,
       })
       return { availableBalance: BigInt(availableBalance), pendingBalance: BigInt(pendingBalance) }

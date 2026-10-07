@@ -5,7 +5,7 @@ import devnetConfig from '../../config/devnet.json'
 export type DevnetConfig = {
   cluster: 'devnet'
   wallets: Record<string, string>
-  mints?: { usdc: string; skr: string; cusdc: string }
+  mints?: { usdc: string; skr: string; cusdc: string; cskr?: string }
   programs?: { envelope_stake: string; envelope_vault: string }
   accounts?: { envelope_stake_pool: string; envelope_vault_config: string; envelope_vault_authority: string }
 }

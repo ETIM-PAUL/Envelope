@@ -1,4 +1,4 @@
-// Phase 17: "private cUSDC back to spendable USDC." One wallet approval per withdraw (see
+// Phase 17: "private cUSDC back to spendable USDC" (or private cSKR back to SKR). One wallet approval per withdraw (see
 // packages/cbridge/src/protocol.ts's BuildWithdrawPlanParams for why it's structured this way):
 //   0. ensureGasTank (bridge) — only when the wallet's gas tank is low: one small SOL top-up the
 //      wallet approves, so the next step needs no approval at all.
@@ -13,7 +13,7 @@ import { useCBridge } from '@envelope/rn-confidential'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import type { GetSignatureStatusesApi, Rpc, SendTransactionApi } from '@solana/kit'
 import { useCallback } from 'react'
-import { requireMints } from '../../config/devnet-config'
+import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
@@ -32,10 +32,10 @@ export function useWithdraw() {
   const { ensureGasTank } = useGasTank()
 
   const withdraw = useCallback(
-    async (amount: bigint, onStep?: (step: WithdrawStep) => void): Promise<void> => {
+    async (amount: bigint, onStep?: (step: WithdrawStep) => void, assetId: AssetId = 'usdc'): Promise<void> => {
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
-      const { usdc, cusdc } = requireMints()
+      const asset = getAsset(assetId)
       const rpc = client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>
 
       onStep?.('unsealing')
@@ -43,8 +43,8 @@ export function useWithdraw() {
       const continuationId = await retryOnExpiry(async () => {
         const { signedTransactions, continuationId } = await bridge.call('buildWithdrawPlan', {
           rpcUrl: DEVNET_RPC_URL,
-          mint: cusdc,
-          usdcMint: usdc,
+          mint: asset.confidentialMint,
+          underlyingMint: asset.underlyingMint,
           owner: walletAddress,
           amount: amount.toString(),
         })
@@ -65,6 +65,7 @@ export function useWithdraw() {
         id: `withdraw-${continuationId}`,
         kind: 'withdraw',
         amount: amount.toString(),
+        asset: assetId,
       })
       await refetchBalance()
     },

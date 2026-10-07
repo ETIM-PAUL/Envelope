@@ -302,3 +302,32 @@ against the code:
 - **`bincode` 1.3.3 unmaintained** (Medium) — a transitive dependency of the Solana/Anchor crates,
   with no maintained replacement upstream yet. An advisory about maintenance, not a known
   vulnerability.
+
+## Confidential SKR (cSKR)
+
+`envelope_vault` gained a second wrappable asset alongside USDC <-> cUSDC: an `AssetVault` per
+underlying mint, registered by the admin with `initialize_asset` and used through `wrap_asset` /
+`unwrap_asset` (SKR <-> cSKR on devnet). The USDC path and its `Config` are unchanged.
+
+- **Registration is checked on-chain, once.** `initialize_asset` is admin-only (`address = ADMIN`)
+  and refuses a confidential mint the vault can't mint (`mint_authority` must be the vault PDA),
+  one whose decimals differ from the underlying's, or the underlying mint itself — so `wrap_asset`
+  can't be pointed at a mint that breaks the 1:1 backing.
+- **Every account is pinned.** The AssetVault PDA is seeded by the underlying mint; the vault's
+  token account and the confidential mint must match what it recorded (`address = …`); the user's
+  accounts must be owned by the signer and of the recorded mints.
+- **Unwrap burns as delegate**, exactly like `unwrap`: the client submits `[Approve(vault PDA,
+amount), unwrap_asset(amount)]` in one transaction, so CPI Guard can stay on.
+- **No tier limits on SKR.** Daily limits exist to cap dollars entering the private system; SKR
+  is the ecosystem's own token and wraps without a limit. A deliberate product choice.
+- **Supply invariant:** cSKR supply equals the SKR held by the vault, checked after every step of
+  `npm run devnet:cskr-roundtrip`. Seven Anchor tests cover the instructions, including the
+  rejections above.
+
+## Batch send
+
+A batch builds each transfer's proofs against the source balance the _previous_ transfer leaves
+behind, computed off-chain with the same Ristretto subtraction Token-2022 performs on-chain. A
+wrong computation can't move funds: the on-chain equality proof check fails and that transfer
+(and everything after it) is rejected. The relayer submits and confirms each transaction in order,
+which the chain of proofs requires. A batch carries one SKR fee per transfer (free tier).

@@ -6,6 +6,7 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from './assetVault'
 export * from './config'
 export * from './pot'
 export * from './userDaily'

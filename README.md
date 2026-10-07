@@ -14,11 +14,13 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 
 ## What Envelope does
 
-- **Private balance** — wrap USDC 1:1 into cUSDC, a confidential token. Your balance is stored on-chain as ciphertext; only your device can decrypt it.
-- **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL.
+- **Private balances in dollars and SKR** — wrap USDC 1:1 into cUSDC, or SKR 1:1 into cSKR, both confidential tokens. Balances are stored on-chain as ciphertext; only your device can decrypt them.
+- **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL. Scan any Envelope or Solana wallet QR code to fill in the recipient.
+- **Batch send** — pay up to 10 people in one approval (payroll, splitting a bill). Each person sees only their own amount.
 - **Receive** — share your address as a QR code or a tip link; incoming transfers are applied to your balance automatically.
-- **Event pots** — sealed group gifts (a wedding, a farewell): guests contribute privately, the host sees the total, and guests never see each other's amounts.
-- **Withdraw** — turn private cUSDC back into spendable USDC in one approval.
+- **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
+- **Withdraw** — turn private cUSDC or cSKR back into spendable USDC or SKR in one approval.
+- **Ask for the token you want** — your Receive code says whether you take dollars, SKR, or both; the payer's app only offers those.
 - **Staking tiers** — stake SKR to raise your daily limit and drop the send fee.
 - **Notifications** — every movement of your funds, decrypted on-device: deposits, withdrawals, transfers, pot activity.
 - **Biometric unlock** — reopening the app restores your keys behind your fingerprint, with no new wallet prompt.
@@ -57,7 +59,7 @@ flowchart LR
   subgraph Solana["Solana (devnet)"]
     CT["Token-2022<br/>Confidential Transfers"]
     ZK["ZK ElGamal<br/>Proof program"]
-    Vault["envelope_vault<br/>USDC ⇄ cUSDC, pots"]
+    Vault["envelope_vault<br/>USDC ⇄ cUSDC, SKR ⇄ cSKR, pots"]
     Stake["envelope_stake<br/>SKR tiers"]
   end
   App --> Relayer
@@ -69,7 +71,7 @@ flowchart LR
 2. **Proofs on the phone.** Confidential transfers need zero-knowledge proofs (equality, ciphertext validity, range). Envelope generates them on-device with Solana's `zk-sdk` compiled to WebAssembly, running in a locked-down WebView (React Native's JS engine has no WebAssembly).
 3. **Your wallet signs, nothing more.** Every transaction is signed in your own wallet through Mobile Wallet Adapter. Envelope never holds a wallet private key.
 4. **A relayer pays the gas.** Private sends are relayed: the relayer co-signs as fee payer only after checking every instruction against a strict policy, so it can't be drained or tricked into moving its own funds.
-5. **Programs enforce the rules.** `envelope_vault` wraps USDC into cUSDC 1:1, enforces daily limits by tier, and runs event pots; `envelope_stake` holds SKR stakes and computes tiers that both the vault and the relayer read.
+5. **Programs enforce the rules.** `envelope_vault` wraps USDC into cUSDC and SKR into cSKR 1:1, enforces daily dollar limits by tier, and runs event pots; `envelope_stake` holds SKR stakes and computes tiers that both the vault and the relayer read.
 
 ## Privacy, honestly
 
@@ -104,6 +106,7 @@ On devnet, the Stake tab has a test-SKR faucet (500 SKR a day, up to 6,000 held)
 | `envelope_vault`     | `43kwURZxpDniSpWPSfxyqUSc3kwuaCEmAJmSKtqdxMXi` |
 | `envelope_stake`     | `331WWNPRsoCJToHMrsbGPUC338DfqYEbMhiECL9jFqfx` |
 | cUSDC (confidential) | `8wc4rgUPj4a2542YpgrjaxXW9XzBFZA1PLSvdNXmkjsf` |
+| cSKR (confidential)  | `2682Tp4wUvDPR3hkNPirinSUNLVYhytS7mZGzgSNRXUU` |
 | USDC (Circle devnet) | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
 | SKR (test token)     | `5m3R8bdAZr5xMg7ioMXoPabsKGcRPAWLu2muzyUNzRKY` |
 
@@ -198,23 +201,27 @@ The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and 
 
 ## Useful commands
 
-| Command                                | What it does                                                        |
-| -------------------------------------- | ------------------------------------------------------------------- |
-| `npm run dev`                          | Start Metro for the dev client                                      |
-| `npm run relayer:dev`                  | Run the relayer locally (port 8787)                                 |
-| `npm run android:apk`                  | Build and sign a standalone release APK → `dist/envelope.apk`       |
-| `npm run cbridge:build`                | Rebuild the proof bridge bundle after changing `packages/cbridge`   |
-| `npm run devnet:roundtrip`             | CLI confidential transfer round trip on devnet                      |
-| `npm run devnet:withdraw-roundtrip`    | Wrap → confidential → withdraw → unwrap, checking supply invariants |
-| `npm run devnet:pot-roundtrip`         | Event pot lifecycle, including a guest-privacy negative check       |
-| `npm run relayer:test-policy`          | Check the relayer rejects a malicious tx and relays a valid one     |
-| `npm run anchor:build` / `anchor:test` | Build / test the Anchor programs                                    |
-| `npm run codama:js`                    | Regenerate the typed program clients from the IDLs                  |
-| `npm run ci`                           | Typecheck, lint, format check, and Android prebuild                 |
+| Command                                | What it does                                                                             |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `npm run dev`                          | Start Metro for the dev client                                                           |
+| `npm run relayer:dev`                  | Run the relayer locally (port 8787)                                                      |
+| `npm run android:apk`                  | Build and sign a standalone release APK → `dist/envelope.apk`                            |
+| `npm run cbridge:build`                | Rebuild the proof bridge bundle after changing `packages/cbridge`                        |
+| `npm run devnet:roundtrip`             | CLI confidential transfer round trip on devnet                                           |
+| `npm run devnet:withdraw-roundtrip`    | Wrap → confidential → withdraw → unwrap, checking supply invariants                      |
+| `npm run devnet:pot-roundtrip`         | Event pot lifecycle, including a guest-privacy negative check                            |
+| `npm run devnet:cskr-roundtrip`        | SKR → cSKR → private transfer → withdraw → SKR, with supply checks                       |
+| `npm run devnet:bridge-e2e`            | The shipped bridge bundle end to end: cSKR withdraw, a dollars-and-SKR pot, a batch send |
+| `npm run relayer:test-policy`          | Check the relayer rejects a malicious tx and relays a valid one                          |
+| `npm run anchor:build` / `anchor:test` | Build / test the Anchor programs                                                         |
+| `npm run codama:js`                    | Regenerate the typed program clients from the IDLs                                       |
+| `npm run ci`                           | Typecheck, lint, format check, and Android prebuild                                      |
 
 ## Design decisions
 
 - **Proofs in a WebView, not a server.** Generating proofs on-device keeps encryption keys on the phone. Hermes has no WebAssembly, so the zk-sdk runs in a sandboxed WebView with no network navigation or file access, talking to the app over a small RPC channel.
+- **One approval for a batch.** Each confidential transfer's proofs are computed against the sender's current encrypted balance. For a batch, the bridge computes the balance each transfer leaves behind — the same elliptic-curve subtraction Token-2022 performs on-chain — and builds the next transfer's proofs from it, so every transfer can be signed in one wallet request and landed in order.
+- **Pots know their tokens from the chain.** A pot accepts exactly the tokens it has a confidential account for, so the app can never offer a token the pot can't receive, and older pots need no migration.
 - **Proofs on phones the Play Store can't update.** The published zk-sdk WebAssembly needs Chrome 96+, but phones without Google services (Huawei, many budget devices) ship a frozen, older WebView. Envelope bundles the same zk-sdk version rebuilt without WebAssembly reference types, which brings support back to Chrome 85. Keys, ciphertexts, and proofs were cross-checked bit-for-bit against the published build, and [a script](packages/cbridge/scripts/build-zk-sdk-compat.sh) reproduces it from Solana's source.
 - **Wallet-agnostic signing.** Real wallets modify what they sign (Solflare adds priority-fee instructions), so the bridge adopts the wallet's returned transaction rather than assuming its own bytes were signed.
 - **One approval per action, nothing left to expire.** Proof setup is signed without a wallet prompt — by the relayer for sends, or by a small device-derived "gas tank" for withdrawals and pots — and lands first; you then approve a single transaction built on a fresh blockhash.

@@ -45,7 +45,10 @@
     "relayer:dev": "npm run dev -w relayer",
     "relayer:typecheck": "npm run typecheck -w relayer",
     "relayer:test-policy": "tsx scripts/test-relayer.ts",
-    "android:apk": "bash scripts/build-apk.sh"
+    "android:apk": "bash scripts/build-apk.sh",
+    "devnet:cskr": "tsx scripts/setup-cskr.ts",
+    "devnet:cskr-roundtrip": "tsx scripts/cskr-roundtrip.ts",
+    "devnet:bridge-e2e": "tsx scripts/bridge-cskr-e2e.ts"
   },
   "displayName": "Expo Kit Anchor example",
   "description": "A template for building a Solana mobile app with Expo, React Native, Solana Kit, Anchor, and Uniwind.",

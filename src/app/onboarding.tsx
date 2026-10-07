@@ -7,6 +7,7 @@ import { Button } from '../components/button'
 import { Screen } from '../components/screen'
 import { SealMark } from '../components/seal-mark'
 import { fontFamily } from '../design/tokens'
+import { availableAssetIds } from '../config/assets'
 import { useConfidentialAccount } from '../features/account/use-confidential-account'
 import { useConfidentialKeys } from '../features/keys/use-confidential-keys'
 import { formatError } from '../utils/format-error'
@@ -34,7 +35,9 @@ export default function Onboarding() {
       setStep('deriving')
       await enablePrivateBalance()
       setStep('configuring')
-      await ensureAccountReady()
+      // Private dollars and SKR from the start, in one approval: otherwise nobody can send this
+      // wallet SKR until it turns SKR on separately.
+      await ensureAccountReady(availableAssetIds())
       router.replace('/(tabs)/home')
     } catch (e) {
       setError(formatError(e))

@@ -14,4 +14,8 @@ pub enum ErrorCode {
     PotAlreadyClosed,
     #[msg("Only the designated admin may call this instruction")]
     Unauthorized,
+    #[msg(
+        "Confidential mint must be minted by the vault and match the underlying mint's decimals"
+    )]
+    InvalidAssetMint,
 }

@@ -303,6 +303,156 @@ export type EnvelopeVault = {
       ]
     },
     {
+      "name": "initializeAsset",
+      "docs": [
+        "Admin-only, once per asset. Registers another underlying <-> confidential mint pair",
+        "(e.g. SKR <-> cSKR) and creates the vault's account for the underlying."
+      ],
+      "discriminator": [
+        214,
+        153,
+        49,
+        248,
+        95,
+        248,
+        208,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "address": "7cTceTkWuAEuhFwinrdFqg5udxAKtrcihtxxJoDTbig1"
+        },
+        {
+          "name": "assetVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "underlyingMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vaultAuthority",
+          "docs": [
+            "vault token account); holds no account data of its own."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlyingMint",
+          "docs": [
+            "Classic SPL Token mint (SKR)."
+          ]
+        },
+        {
+          "name": "confidentialMint",
+          "docs": [
+            "Token-2022 confidential mint (cSKR). Checked here, once, so `wrap_asset` can never be",
+            "pointed at a mint the vault can't mint, or one whose units don't match 1:1."
+          ]
+        },
+        {
+          "name": "vaultTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vaultAuthority"
+              },
+              {
+                "kind": "account",
+                "path": "tokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "underlyingMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "unwrap",
       "docs": [
         "Public cUSDC -> USDC, 1:1. Requires a preceding top-level `Approve(vault_authority,",
@@ -375,6 +525,103 @@ export type EnvelopeVault = {
         },
         {
           "name": "userUsdc",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "unwrapAsset",
+      "docs": [
+        "Public confidential tokens -> underlying, 1:1. Requires a preceding top-level",
+        "`Approve(vault_authority, amount)` in the same transaction, as `unwrap` does."
+      ],
+      "discriminator": [
+        182,
+        97,
+        106,
+        128,
+        122,
+        198,
+        168,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "assetVault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "underlyingMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vaultAuthority",
+          "docs": [
+            "preceding top-level `Approve`) the delegate on `user_confidential` for at least `amount`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlyingMint"
+        },
+        {
+          "name": "confidentialMint",
+          "writable": true
+        },
+        {
+          "name": "userConfidential",
+          "writable": true
+        },
+        {
+          "name": "vaultTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "userUnderlying",
           "writable": true
         },
         {
@@ -630,9 +877,118 @@ export type EnvelopeVault = {
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "wrapAsset",
+      "docs": [
+        "Underlying -> public confidential tokens, 1:1. No tier limit (see `AssetVault`)."
+      ],
+      "discriminator": [
+        75,
+        63,
+        96,
+        57,
+        92,
+        198,
+        158,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "assetVault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "underlyingMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vaultAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlyingMint",
+          "docs": [
+            "Pins which asset this is; `asset_vault`'s seeds tie the two together."
+          ]
+        },
+        {
+          "name": "userUnderlying",
+          "writable": true
+        },
+        {
+          "name": "vaultTokenAccount",
+          "writable": true
+        },
+        {
+          "name": "confidentialMint",
+          "writable": true
+        },
+        {
+          "name": "userConfidential",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
+    {
+      "name": "assetVault",
+      "discriminator": [
+        193,
+        119,
+        127,
+        25,
+        157,
+        102,
+        175,
+        164
+      ]
+    },
     {
       "name": "config",
       "discriminator": [
@@ -703,9 +1059,53 @@ export type EnvelopeVault = {
       "code": 6005,
       "name": "unauthorized",
       "msg": "Only the designated admin may call this instruction"
+    },
+    {
+      "code": 6006,
+      "name": "invalidAssetMint",
+      "msg": "Confidential mint must be minted by the vault and match the underlying mint's decimals"
     }
   ],
   "types": [
+    {
+      "name": "assetVault",
+      "docs": [
+        "A wrappable asset beyond the original USDC <-> cUSDC pair, which keeps its own `Config`",
+        "fields so existing deployments are untouched. One per underlying mint (e.g. SKR <-> cSKR),",
+        "PDA-seeded by that mint. No tier limits: those exist to cap dollars entering the private",
+        "system, and are enforced on `wrap` (USDC) only."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "underlyingMint",
+            "docs": [
+              "Classic SPL Token mint users deposit (SKR)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "confidentialMint",
+            "docs": [
+              "Token-2022 mint with the `ConfidentialTransferMint` extension, minted 1:1 (cSKR)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultTokenAccount",
+            "docs": [
+              "The vault's ATA of `underlying_mint`, owned by the VaultAuth PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
     {
       "name": "config",
       "type": {
@@ -868,6 +1268,11 @@ export type EnvelopeVault = {
     }
   ],
   "constants": [
+    {
+      "name": "assetSeed",
+      "type": "bytes",
+      "value": "[97, 115, 115, 101, 116]"
+    },
     {
       "name": "configSeed",
       "type": "bytes",
