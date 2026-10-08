@@ -32,16 +32,20 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/home.png" width="200" alt="Home: the sealed private balance" /><br /><sub><b>Home</b> — your sealed balance</sub></td>
+    <td align="center"><img src="docs/screenshots/home.png" width="200" alt="Home: the sealed private balance in dollars and SKR" /><br /><sub><b>Home</b> — your sealed balance</sub></td>
     <td align="center"><img src="docs/screenshots/send.png" width="200" alt="Send privately" /><br /><sub><b>Send</b> — amount known only to you and the recipient</sub></td>
+    <td align="center"><img src="docs/screenshots/batch.png" width="200" alt="Batch send to several recipients" /><br /><sub><b>Batch send</b> — several people, one approval</sub></td>
     <td align="center"><img src="docs/screenshots/receive.png" width="200" alt="Receive privately with a QR code and tip link" /><br /><sub><b>Receive</b> — QR code and tip link</sub></td>
-    <td align="center"><img src="docs/screenshots/notifications.png" width="200" alt="Notifications feed" /><br /><sub><b>Notifications</b> — every movement of your funds</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/pots.png" width="200" alt="Event pots" /><br /><sub><b>Pots</b> — sealed group gifts</sub></td>
     <td align="center"><img src="docs/screenshots/pot-detail.png" width="200" alt="An event pot: total raised, contributors, invite QR code" /><br /><sub><b>Pot</b> — host sees the total; guests see only their own</sub></td>
-    <td align="center"><img src="docs/screenshots/withdraw.png" width="200" alt="Withdraw private cUSDC back to USDC" /><br /><sub><b>Withdraw</b> — back to regular USDC in one approval</sub></td>
-    <td align="center"><img src="docs/screenshots/stake.png" width="200" alt="Membership plans paid in SKR" /><br /><sub><b>Membership</b> — plans paid in SKR</sub></td>
+    <td align="center"><img src="docs/screenshots/pot-dual.png" width="200" alt="A pot that accepts both dollars and SKR" /><br /><sub><b>Two-token pot</b> — collects dollars and SKR</sub></td>
+    <td align="center"><img src="docs/screenshots/notifications.png" width="200" alt="Notifications feed" /><br /><sub><b>Notifications</b> — every movement of your funds</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/withdraw.png" width="200" alt="Withdraw private balance back to USDC or SKR" /><br /><sub><b>Withdraw</b> — back to regular USDC or SKR</sub></td>
+    <td align="center"><img src="docs/screenshots/membership.png" width="200" alt="Membership: Free, Member and Business plans paid in SKR" /><br /><sub><b>Membership</b> — Free, Member and Business plans, paid in SKR</sub></td>
   </tr>
 </table>
 
