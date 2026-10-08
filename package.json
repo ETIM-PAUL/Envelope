@@ -46,6 +46,7 @@
     "relayer:typecheck": "npm run typecheck -w relayer",
     "relayer:test-policy": "tsx scripts/test-relayer.ts",
     "android:apk": "bash scripts/build-apk.sh",
+    "android:apk:arm64": "bash scripts/build-apk.sh arm64-v8a",
     "devnet:cskr": "tsx scripts/setup-cskr.ts",
     "devnet:cskr-roundtrip": "tsx scripts/cskr-roundtrip.ts",
     "devnet:bridge-e2e": "tsx scripts/bridge-cskr-e2e.ts",
