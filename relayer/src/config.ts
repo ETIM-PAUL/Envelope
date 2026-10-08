@@ -100,9 +100,9 @@ export const policyConfig = {
   // Must sit above what wallets inject on their own while signing (Solflare: 100,000) or every
   // relayed transaction signed there is rejected. Worst case at 200,000 × 1.4M CU = 0.00028 SOL.
   maxComputeUnitPriceMicroLamports: BigInt(process.env.MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS ?? '200000'),
-  // Free-tier wallets must pay a small SKR fee to the relayer per relayed transaction (Members/
-  // Business are exempt — see tier.ts). A devnet placeholder, not a tuned economic parameter.
-  freeTierFeeAmount: BigInt(process.env.FREE_TIER_FEE_AMOUNT ?? '1000'),
+  // Free-tier wallets pay the relayer this much SKR per private transfer (Members/Business are
+  // exempt — see tier.ts). 1 SKR, in base units (6 decimals).
+  freeTierFeeAmount: BigInt(process.env.FREE_TIER_FEE_AMOUNT ?? '1000000'),
   // Requests per wallet per window, sliding.
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
   rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 10),

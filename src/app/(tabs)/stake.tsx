@@ -15,7 +15,7 @@ import { useStakeActions } from '../../features/stake/use-stake-actions'
 import { useMembership, type PaidTier } from '../../features/stake/use-membership'
 import type { TierPerks } from '../../features/account/use-tier'
 import { formatAssetAmount } from '../../config/assets'
-import { formatBaseUnits } from '../../utils/format-amount'
+import { formatBaseUnits, formatExactBaseUnits } from '../../utils/format-amount'
 import { formatError } from '../../utils/format-error'
 import type { Tier } from '../../store/app-store'
 
@@ -81,7 +81,7 @@ function useCountdown(unlockAt: number | null) {
 const UNLIMITED = 18_446_744_073_709_551_615n // u64::MAX: the vault's "no limit"
 const TIER_NAME: Record<Tier, string> = { free: 'Free', member: 'Member', business: 'Business' }
 
-function perkLines(perks: TierPerks, dailyLimit: bigint | undefined): string[] {
+function perkLines(perks: TierPerks, dailyLimit: bigint | undefined, sendFee?: bigint): string[] {
   return [
     perks.fuelIncluded ? 'No SOL needed — fees and rent covered' : 'Network fees paid in SKR (2 SKR per refill)',
     dailyLimit === undefined
@@ -89,7 +89,11 @@ function perkLines(perks: TierPerks, dailyLimit: bigint | undefined): string[] {
       : dailyLimit >= UNLIMITED
         ? 'Add unlimited dollars a day'
         : `Add up to ${formatAssetAmount(dailyLimit, 'usdc')} a day`,
-    perks.sendFeeWaived ? 'No send fees' : '0.001 SKR per private send',
+    perks.sendFeeWaived
+      ? 'No send fees'
+      : sendFee === undefined
+        ? 'SKR fee per private send'
+        : `${formatExactBaseUnits(sendFee, SKR_DECIMALS)} SKR per private send`,
     `Send to ${perks.maxBatchRecipients} people at once`,
     perks.maxOpenPots === null
       ? 'Unlimited open pots'
@@ -151,7 +155,12 @@ export default function Membership() {
       </View>
 
       {status ? (
-        <FreePlanCard perks={status.allPerks.free} dailyLimit={plans?.dailyLimits.free} isCurrent={tier === 'free'} />
+        <FreePlanCard
+          perks={status.allPerks.free}
+          dailyLimit={plans?.dailyLimits.free}
+          sendFee={BigInt(status.freeTierFeeAmount)}
+          isCurrent={tier === 'free'}
+        />
       ) : null}
 
       {(['member', 'business'] as const).map((planTier) => (
@@ -187,10 +196,12 @@ export default function Membership() {
 function FreePlanCard({
   perks,
   dailyLimit,
+  sendFee,
   isCurrent,
 }: {
   perks: TierPerks
   dailyLimit: bigint | undefined
+  sendFee: bigint
   isCurrent: boolean
 }) {
   return (
@@ -202,7 +213,7 @@ function FreePlanCard({
         </Text>
       </View>
       <View className="gap-1.5">
-        {[...perkLines(perks, dailyLimit), 'First fuel refill on us'].map((line) => (
+        {[...perkLines(perks, dailyLimit, sendFee), 'First fuel refill on us'].map((line) => (
           <Text key={line} className="text-paper-400 text-sm" style={{ fontFamily: fontFamily.ui }}>
             ✓ {line}
           </Text>

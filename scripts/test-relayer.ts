@@ -101,7 +101,7 @@ async function main() {
     owner: alice.address,
     mint: skrMint,
     mintAuthority: admin,
-    amount: 10_000n,
+    amount: 10_000_000n,
     decimals: 6,
   })
   await sendInstructionPlan(mintPlan, admin, clients)
@@ -131,7 +131,7 @@ async function main() {
             source: aliceSkrAta,
             destination: relayerSkrAta,
             authority: alice, // alice really signs this one
-            amount: 1_000n,
+            amount: 1_000_000n, // the free-tier send fee, 1 SKR
           }),
         ],
         m,

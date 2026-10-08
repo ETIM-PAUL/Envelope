@@ -52,7 +52,8 @@ import { createDevnetClients } from './lib/rpc.ts'
 
 const DECIMALS = 6
 const TRANSFER_AMOUNT = 100_000n // 0.1 cUSDC, alice -> bob, relayer-sponsored
-const FREE_TIER_FEE_AMOUNT = 1_000n // matches relayer/src/config.ts's FREE_TIER_FEE_AMOUNT default
+const RELAYER_URL = process.env.RELAYER_URL ?? 'http://localhost:8787'
+const FREE_TIER_FEE_AMOUNT = 1_000_000n // 1 SKR; matches relayer/src/config.ts's FREE_TIER_FEE_AMOUNT default
 
 // Mirrors packages/cbridge/src/signPlan.ts's signInstructionPlan — same "leave payer's signature
 // slot empty" contract, just without the WebView-bridge plumbing around it.
@@ -89,7 +90,7 @@ async function signWithNoopPayer(
 }
 
 async function relay(owner: string, transactions: string[]) {
-  const response = await fetch('http://localhost:8787/relay', {
+  const response = await fetch(`${RELAYER_URL}/relay`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ owner, transactions }),
@@ -253,7 +254,7 @@ async function main() {
 
   console.log('confirming each signature landed...')
   for (const sig of body.signatures) {
-    const statusResponse = await fetch(`http://localhost:8787/status/${sig}`)
+    const statusResponse = await fetch(`${RELAYER_URL}/status/${sig}`)
     console.log(sig, await statusResponse.json())
   }
 

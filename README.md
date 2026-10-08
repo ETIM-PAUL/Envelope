@@ -96,11 +96,11 @@ Wallet addresses and the fact that a transfer happened are public; only amounts 
 
 SKR runs Envelope. A **membership pass** is bought with SKR — spent, not staked — and the tier is enforced on-chain by the vault (daily limits) and by the relayer (fees, batch size).
 
-| Plan     | Price             | Network fees and rent            | Add dollars a day | Send fee  | Batch send | Open pots | Pots in dollars + SKR |
-| -------- | ----------------- | -------------------------------- | ----------------- | --------- | ---------- | --------- | --------------------- |
-| Free     | —                 | 2 SKR per refill (first is free) | 100 USDC          | 0.001 SKR | 2 people   | 1         | —                     |
-| Member   | 100 SKR / 30 days | Included                         | 10,000 USDC       | None      | 5 people   | 5         | ✓                     |
-| Business | 500 SKR / 30 days | Included                         | Unlimited         | None      | 20 people  | Unlimited | ✓                     |
+| Plan     | Price             | Network fees and rent            | Add dollars a day | Send fee | Batch send | Open pots | Pots in dollars + SKR |
+| -------- | ----------------- | -------------------------------- | ----------------- | -------- | ---------- | --------- | --------------------- |
+| Free     | —                 | 2 SKR per refill (first is free) | 100 USDC          | 1 SKR    | 2 people   | 1         | —                     |
+| Member   | 100 SKR / 30 days | Included                         | 10,000 USDC       | None     | 5 people   | 5         | ✓                     |
+| Business | 500 SKR / 30 days | Included                         | Unlimited         | None     | 20 people  | Unlimited | ✓                     |
 
 **You never need SOL.** Each device has a gas tank — a keypair derived from your wallet, like your encryption keys — that pays rent and network fees for account setup, deposits, withdrawals, pots and passes. When it runs low, the relayer refuels it with SOL: free for members, 2 SKR otherwise, and every wallet's first refill is on the house so a new user can start with nothing. Private sends are paid by the relayer directly. Wallets that hold SOL can still top the tank up themselves.
 

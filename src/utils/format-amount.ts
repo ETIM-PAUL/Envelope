@@ -7,8 +7,8 @@ export function formatBaseUnits(amount: bigint, decimals: number): string {
   return `${whole}.${fraction}`
 }
 
-// Exact, for small token amounts where two decimals would round to a misleading "0.00" (e.g. the
-// free-tier send fee, 0.001 SKR): every significant decimal, trailing zeros trimmed.
+// Exact, for token amounts where two decimals would round or pad misleadingly (e.g. the free-tier
+// send fee, "1 SKR" rather than "1.00 SKR"): every significant decimal, trailing zeros trimmed.
 export function formatExactBaseUnits(amount: bigint, decimals: number): string {
   const divisor = 10n ** BigInt(decimals)
   const fraction = (amount % divisor).toString().padStart(decimals, '0').replace(/0+$/, '')
