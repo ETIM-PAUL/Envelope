@@ -120,10 +120,10 @@ export type TierPerks = {
   fuelIncluded: boolean // gas-tank refills (rent and network fees) without paying SKR
 }
 export const tierPerks: Record<'free' | 'member' | 'business', TierPerks> = {
-  free: { maxBatchRecipients: 3, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
-  member: { maxBatchRecipients: 10, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
+  free: { maxBatchRecipients: 2, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
+  member: { maxBatchRecipients: 5, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
   business: {
-    maxBatchRecipients: 25,
+    maxBatchRecipients: 20,
     maxOpenPots: null,
     multiTokenPots: true,
     sendFeeWaived: true,

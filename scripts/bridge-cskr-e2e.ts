@@ -224,7 +224,7 @@ async function main() {
 
   // 3b. Batch send: three transfers from one balance, one approval — including the same recipient
   // twice, so each transfer's proofs must chain off the balance the previous one leaves.
-  console.log('3b. batch: 1 cSKR to bob, 0.5 to the pot, 0.25 to bob again — one approval')
+  console.log('3b. batch (Free tier: 2 people): 1 cSKR to bob, then 0.25 to bob again — one approval')
   const bob = 'DCuGm6sfoc6tBZaU829aFb3VtAMyVksEkvekkoVd3MVG'
   // Bob's amounts are his to decrypt; what's visible is his incoming-transfer counter.
   const [bobToken] = await findAta2022({
@@ -241,7 +241,6 @@ async function main() {
   const aliceBeforeBatch = await privateBalance(cskr, aliceAddress)
   const batchTransfers = [
     { destinationOwner: bob, amount: '1000000' },
-    { destinationOwner: potOwnerAddress, amount: '500000' },
     { destinationOwner: bob, amount: '250000' },
   ]
   const batch = await call('buildBatchTransferPlan', {
@@ -261,10 +260,9 @@ async function main() {
   check('one wallet approval for the whole batch', signRequests - approvals === 1, `${signRequests - approvals}`)
   check('bob received 2 transfers', (await bobCredits()) - bobCreditsBefore === 2n)
   check(
-    'alice private cSKR -1.75',
-    aliceBeforeBatch.available - (await privateBalance(cskr, aliceAddress)).available === 1_750_000n,
+    'alice private cSKR -1.25',
+    aliceBeforeBatch.available - (await privateBalance(cskr, aliceAddress)).available === 1_250_000n,
   )
-  check('pot +0.5 cSKR', (await privateBalance(cskr, potOwnerAddress)).pending === 2_500_000n)
 
   // 4. Close: apply the pot's pending SKR, then close_pot + sweep every token back to alice.
   console.log('4. close the pot')
@@ -286,7 +284,7 @@ async function main() {
     ).signedTransactions,
   )
   const hostAfter = await privateBalance(cskr, aliceAddress)
-  check("alice got the pot's 2.5 cSKR back", hostAfter.pending - hostBefore.pending === 2_500_000n)
+  check("alice got the pot's 2 cSKR back", hostAfter.pending - hostBefore.pending === 2_000_000n)
   // 5. A user whose wallet never holds SOL: SKR fuel pays rent and fees throughout.
   console.log('5. zero-SOL user (dave): welcome fuel, setup, receive, withdraw, pot — no SOL in the wallet')
   const dave = await generateKeyPairSigner()

@@ -49,7 +49,8 @@
     "devnet:cskr": "tsx scripts/setup-cskr.ts",
     "devnet:cskr-roundtrip": "tsx scripts/cskr-roundtrip.ts",
     "devnet:bridge-e2e": "tsx scripts/bridge-cskr-e2e.ts",
-    "devnet:pass": "tsx scripts/setup-pass.ts"
+    "devnet:pass": "tsx scripts/setup-pass.ts",
+    "relayer:test-fuel": "tsx scripts/test-fuel.ts"
   },
   "displayName": "Expo Kit Anchor example",
   "description": "A template for building a Solana mobile app with Expo, React Native, Solana Kit, Anchor, and Uniwind.",

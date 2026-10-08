@@ -15,7 +15,7 @@ import { fetchTierInfo } from './use-tier'
 import type { SendStep } from './use-send-privately'
 
 // The most any tier allows (Business); each tier's own cap comes from the relayer (TierPerks).
-export const MAX_BATCH_RECIPIENTS = 25
+export const MAX_BATCH_RECIPIENTS = 20
 
 export type BatchRecipient = { address: string; amount: bigint }
 

@@ -55,7 +55,7 @@ export default function SendBatch() {
   const { availableBalance } = usePrivateBalance(asset)
   const { data: tierInfo } = useTier(walletAddress)
   // The tier's cap, from the relayer (which enforces it too); Free's until the tier has loaded.
-  const maxRecipients = Math.min(tierInfo?.perks.maxBatchRecipients ?? 3, MAX_BATCH_RECIPIENTS)
+  const maxRecipients = Math.min(tierInfo?.perks.maxBatchRecipients ?? 2, MAX_BATCH_RECIPIENTS)
   const { data: stakeInfo } = useStakeInfo()
   const { sendBatch, step, isBusy } = useSendBatch()
 

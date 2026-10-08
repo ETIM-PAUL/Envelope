@@ -142,13 +142,17 @@ export default function Membership() {
             ? `Until ${formatDate(pass!.expiresAt)}`
             : viaStake
               ? 'Through your staked SKR'
-              : 'Upgrade with SKR — spent, not staked'}
+              : 'Upgrade with SKR — spent'}
         </Text>
         <Text className="text-mute-600 text-xs mt-4" style={{ fontFamily: fontFamily.ui }}>
           {info ? `${formatBaseUnits(info.skrBalance, SKR_DECIMALS)} SKR in your wallet` : 'Loading…'}
         </Text>
         <FaucetRow />
       </View>
+
+      {status ? (
+        <FreePlanCard perks={status.allPerks.free} dailyLimit={plans?.dailyLimits.free} isCurrent={tier === 'free'} />
+      ) : null}
 
       {(['member', 'business'] as const).map((planTier) => (
         <PlanCard
@@ -174,19 +178,42 @@ export default function Membership() {
         </Text>
       ) : null}
 
-      {status ? (
-        <View className="mb-6">
-          <Text className="text-mute-500 text-sm mb-2" style={{ fontFamily: fontFamily.uiSemibold }}>
-            Free plan
-          </Text>
-          <Text className="text-mute-600 text-sm" style={{ fontFamily: fontFamily.ui }}>
-            {perkLines(status.allPerks.free, plans?.dailyLimits.free).join(' · ')}. Your first fuel refill is on us.
-          </Text>
-        </View>
-      ) : null}
-
       {info && info.stakedAmount > 0n ? <LegacyStake /> : null}
     </Screen>
+  )
+}
+
+// The Free plan: what every wallet gets, nothing to buy.
+function FreePlanCard({
+  perks,
+  dailyLimit,
+  isCurrent,
+}: {
+  perks: TierPerks
+  dailyLimit: bigint | undefined
+  isCurrent: boolean
+}) {
+  return (
+    <View className={`bg-ink-900 border rounded-3xl p-5 mb-4 ${isCurrent ? 'border-paper-400' : 'border-ink-800'}`}>
+      <View className="flex-row justify-between items-center mb-3">
+        <TierBadge tier="free" />
+        <Text className="text-paper-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 15 }}>
+          Free
+        </Text>
+      </View>
+      <View className="gap-1.5">
+        {[...perkLines(perks, dailyLimit), 'First fuel refill on us'].map((line) => (
+          <Text key={line} className="text-paper-400 text-sm" style={{ fontFamily: fontFamily.ui }}>
+            ✓ {line}
+          </Text>
+        ))}
+      </View>
+      {isCurrent ? (
+        <Text className="text-mute-500 text-sm mt-4 text-center" style={{ fontFamily: fontFamily.uiSemibold }}>
+          Your current plan
+        </Text>
+      ) : null}
+    </View>
   )
 }
 
