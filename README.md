@@ -294,6 +294,13 @@ and devnet transaction links):
 - Durable storage for the relayer's fuel records, and more than one relayer instance.
 - Free welcome fuel gated on the Seeker Genesis Token, which is one per device and non-transferable, so fresh wallets can't farm it.
 
+**A built-in wallet**
+
+- Envelope creates the wallet and signs on the phone, so there's no separate wallet app to install or switch to. Every key Envelope uses already comes from one wallet signature, and the proof bridge asks for signatures in one place, so this mostly changes who answers those requests.
+- A standard 12-word recovery phrase, importable into Phantom or Solflare, with reminders until it's backed up. Envelope shows its own confirmation and asks for a fingerprint on every send.
+- An app PIN for phones that can't keep keys behind a fingerprint, such as Huawei phones without Google services.
+- The trade-off: Envelope would hold keys that can move funds, not only read amounts, so key handling joins the external audit's scope before mainnet.
+
 **Plans and limits**
 
 - Pot limits per plan enforced on-chain rather than in the app.
