@@ -99,6 +99,10 @@ export default function SendBatch() {
       updateRow(rowId, { address: code.address })
       return
     }
+    if (code.kind === 'gift') {
+      setError("That's a gift link, not an address — open it from the Send tab to claim it.")
+      return
+    }
     // A pot invite carries the pot's PDA; transfers go to the pot's own address (`pot_owner`).
     try {
       const rpc = client.rpc as unknown as Rpc<GetAccountInfoApi>

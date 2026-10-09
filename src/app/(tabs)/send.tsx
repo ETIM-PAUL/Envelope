@@ -44,6 +44,10 @@ export default function Send() {
       router.push({ pathname: '/pot/[potPda]', params: { potPda: code.potPda } })
       return
     }
+    if (code.kind === 'gift') {
+      router.push({ pathname: '/gift', params: { k: code.secret } })
+      return
+    }
     setAddressText(code.address)
     setScannedAssets(code.assets ? { address: code.address, assets: code.assets } : null)
   }
@@ -126,6 +130,13 @@ export default function Send() {
         <Feather name="users" size={15} color={colors.mute[500]} />
         <Text className="text-mute-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 14 }}>
           Send to several people
+        </Text>
+      </Pressable>
+
+      <Pressable onPress={() => router.push('/send-gift')} className="mt-4 flex-row items-center justify-center gap-2">
+        <Feather name="gift" size={15} color={colors.mute[500]} />
+        <Text className="text-mute-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 14 }}>
+          Send as a gift link
         </Text>
       </Pressable>
 

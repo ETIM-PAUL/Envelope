@@ -11,15 +11,16 @@ transaction link opens on Solana Explorer.
   `.keys/` (gitignored). The programs only accept their own admin key, and only that key can mint
   the test SKR. The logs and transaction links below are what those runs produced.
 
-| Claim                                                           | Check                                                        | Result                     |
-| --------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------- |
-| Proofs run on old WebViews (Chrome 85+), same crypto as the SDK | `npm run cbridge:verify-zk-sdk`                              | 23/23 checks pass          |
-| Private sends, pots and batch send work end to end              | `npm run devnet:bridge-e2e`                                  | All checks pass            |
-| Amounts never appear on-chain (privacy negative checks)         | part of `devnet:bridge-e2e`                                  | 17 transactions scanned    |
-| Guests can't read a pot's total                                 | `npm run devnet:pot-roundtrip`                               | 3 guests, none can decrypt |
-| The relayer can't be drained                                    | `npm run relayer:test-attacks`, `npm run relayer:test-fuel`  | Every attack refused       |
-| The scanner's three "high" Anchor leads are not exploitable     | `anchor test --validator legacy --skip-build` (in `anchor/`) | 36/36 tests pass           |
-| Background network retry and biometric fallback behave          | `npm run test:unit`                                          | 7/7 tests pass             |
+| Claim                                                           | Check                                                        | Result                       |
+| --------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------- |
+| Proofs run on old WebViews (Chrome 85+), same crypto as the SDK | `npm run cbridge:verify-zk-sdk`                              | 23/23 checks pass            |
+| Private sends, pots and batch send work end to end              | `npm run devnet:bridge-e2e`                                  | All checks pass              |
+| Amounts never appear on-chain (privacy negative checks)         | part of `devnet:bridge-e2e`                                  | 17 transactions scanned      |
+| Guests can't read a pot's total                                 | `npm run devnet:pot-roundtrip`                               | 3 guests, none can decrypt   |
+| Gift links: a new wallet claims with only the link's secret     | part of `devnet:bridge-e2e`                                  | Claimed, no approval, no SOL |
+| The relayer can't be drained                                    | `npm run relayer:test-attacks`, `npm run relayer:test-fuel`  | Every attack refused         |
+| The scanner's three "high" Anchor leads are not exploitable     | `anchor test --validator legacy --skip-build` (in `anchor/`) | 36/36 tests pass             |
+| Background network retry and biometric fallback behave          | `npm run test:unit`                                          | 7/7 tests pass               |
 
 ## 1. Proofs on old WebViews
 
@@ -114,6 +115,30 @@ would carry, and check that the recipients' token-balance metadata never moves o
 weren't found anywhere. A second check shows that a pot's decryption key can't be derived by
 anyone but the host: it comes from the host's wallet signature, so another wallet asking for "the
 same pot" gets an unrelated key.
+
+**Gift links.** The same run sends a gift link and has a brand-new wallet (no SOL, no SKR,
+never used Envelope) claim it with nothing but the link's secret. A second gift is taken back by
+the sender, unclaimed:
+
+```
+6. gift link: alice gifts 0.5 cSKR, a brand-new wallet claims it; alice takes back a second gift
+  ok   the link opens the gift: 0.5 cSKR waiting
+  ok   the gift amount appears nowhere on-chain — 6 transactions scanned
+  ok   new wallet: welcome fuel
+  ok   claimed with no wallet approval — 0
+  ok   the new wallet received 0.5 cSKR
+  ok   the gift is spent: its account is closed
+  ok   the new wallet still holds 0 SOL
+  ok   alice took the unclaimed 0.2 cSKR back
+```
+
+| What                                                      | Transaction                                                                                                                                         |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gift account set up (sender's gas tank pays, no approval) | [3fWC3W7n…](https://explorer.solana.com/tx/3fWC3W7nYft2CC1KRiCuVF7YvQGWJeEvtr669DBRcPU9iqnRx8j7kz8uM9Ccj9w6R3KFsCmF2Xpijkru84iEgBg8?cluster=devnet) |
+| Gift funded: a private transfer, amount hidden            | [4jiAgEAb…](https://explorer.solana.com/tx/4jiAgEAbiNzZkCvQL1igh49mZ1fKiq9H7yQDBoUZpXBZTsn57tXRonkM7urdjBL67yoScB9UF1zdYHX16RDeJmgD?cluster=devnet) |
+| Claim: the gift's pending balance applied                 | [26RSxMfF…](https://explorer.solana.com/tx/26RSxMfFVnLWe2NDtNRseeRvzAPjcfEY3DfdZteNgmK7vt2aBVAXGi9J1Kpamud3r8TzZeedLSfEFKSkeXmvXE49?cluster=devnet) |
+| Claim: the gift moved to the new wallet, amount hidden    | [3mQErLLB…](https://explorer.solana.com/tx/3mQErLLBBtX4wbAxocsqDo9M5wqoD4B2f8fV8o5H53oGxhKBXowwHrT3ztN59LzKZGLEJUjjZjWW1B1NZRoTwE79?cluster=devnet) |
+| Claim: the gift account emptied and closed (link spent)   | [4CBEPRZ7…](https://explorer.solana.com/tx/4CBEPRZ7dhgPT9YSWv5fb4JNkHjQ4pEAEvnitwAhgDAVrPKB42iFHc1p3yRrfPkvjdiacBWEPU4UwJiopdirDhLB?cluster=devnet) |
 
 **A guest can't read the pot.** [`pot-roundtrip.ts`](../scripts/pot-roundtrip.ts) has three fresh
 guest wallets contribute different amounts to a host's pot. The host decrypts the total, and each

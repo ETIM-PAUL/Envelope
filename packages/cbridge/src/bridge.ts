@@ -45,6 +45,7 @@ import {
   fetchToken,
   findAssociatedTokenPda,
   getApproveInstruction,
+  getCloseAccountInstruction,
   getEnableCpiGuardInstruction,
   getReallocateInstruction,
   TOKEN_2022_PROGRAM_ADDRESS,
@@ -62,6 +63,7 @@ import {
   getConfidentialTransferInstructionPlan,
   getConfidentialWithdrawInstructionPlan,
   getCreateConfidentialTransferAccountInstructionPlan,
+  getEmptyConfidentialTransferAccountInstructionPlan,
 } from '@solana-program/token-2022/confidential'
 import zkInit, {
   AeCiphertext,
@@ -91,6 +93,14 @@ import type {
   BuildTransferPlanResult,
   BuildWithdrawPlanParams,
   BuildWithdrawPlanResult,
+  ClaimGiftParams,
+  ClaimGiftResult,
+  CloseGiftParams,
+  CloseGiftResult,
+  CreateGiftParams,
+  CreateGiftResult,
+  OpenGiftParams,
+  OpenGiftResult,
   ClosePotParams,
   ClosePotResult,
   CreatePotParams,
@@ -1381,6 +1391,170 @@ channel.on('closePot', async (params) => {
 
   const signedTransactions = await signPlannedMessages(messages, rpc)
   return { signedTransactions } satisfies ClosePotResult
+})
+
+// --- Gift links (see CreateGiftParams) ---
+
+// A gift's whole identity — signing key and confidential keys — comes from its 32-byte secret,
+// domain-separated so it can never collide with a wallet's or a pot's derivation.
+async function deriveGiftSigner(secret: Uint8Array): Promise<KeyPairSigner> {
+  const domain = new TextEncoder().encode('envelope-gift:')
+  const input = new Uint8Array(domain.length + secret.length)
+  input.set(domain)
+  input.set(secret, domain.length)
+  const seed = new Uint8Array(await crypto.subtle.digest('SHA-256', input))
+  return createKeyPairSignerFromPrivateKeyBytes(seed)
+}
+
+// Registers the gift's keypair like a pot's (potSigners: signed here, never sent to a wallet).
+async function openGiftKeys(secretBase58: string) {
+  const secret = base58ToBytes(secretBase58)
+  if (secret.length !== 32) throw new Error('this is not a valid gift link')
+  const signer = await deriveGiftSigner(secret)
+  potSigners.set(signer.address, signer)
+  let keys = sessionKeys.get(signer.address)
+  if (!keys) {
+    keys = await deriveWalletConfidentialKeys(signer)
+    sessionKeys.set(signer.address, keys)
+  }
+  return { signer, keys }
+}
+
+function giftKeysFor(giftOwner: string) {
+  const signer = potSigners.get(giftOwner)
+  const keys = sessionKeys.get(giftOwner)
+  if (!signer || !keys) throw new Error('open the gift (openGift) first')
+  return { signer, keys }
+}
+
+channel.on('createGift', async (params) => {
+  const { rpcUrl, mint, sender } = params as CreateGiftParams
+  await wasmInit
+  const gasTank = gasTanks.get(sender)
+  if (!gasTank) throw new Error(`call deriveKeys("${sender}") before createGift`)
+
+  const secret = getBase58Decoder().decode(crypto.getRandomValues(new Uint8Array(32)))
+  const { signer, keys } = await openGiftKeys(secret)
+  const rpc = createSolanaRpc(rpcUrl)
+  // The gift's own keypair authorizes its account setup and the sender's gas tank pays the rent:
+  // no wallet approval. The funds follow as an ordinary private send.
+  const { steps } = await buildEnsureAccountReadySteps(rpc, address(mint), signer, gasTank, keys)
+  const signedTransactions = await signInstructionPlan(sequentialInstructionPlan(steps), gasTank, rpc)
+  return { secret, giftOwnerAddress: signer.address, signedTransactions } satisfies CreateGiftResult
+})
+
+channel.on('openGift', async (params) => {
+  const { rpcUrl, mints, secret } = params as OpenGiftParams
+  await wasmInit
+  const { signer, keys } = await openGiftKeys(secret)
+  const rpc = createSolanaRpc(rpcUrl)
+  const balances = await Promise.all(
+    mints.map(async (mint) => {
+      const [token] = await findAssociatedTokenPda({
+        owner: signer.address,
+        mint: address(mint),
+        tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+      })
+      const account = await fetchMaybeToken(rpc, token)
+      if (!account.exists) return { mint, exists: false, available: '0', pending: '0' }
+      try {
+        const balance = decryptConfidentialTransferBalance({
+          tokenAccount: account.data,
+          elgamalSecretKey: keys.elgamalKeypair.secret(),
+          aesKey: keys.aesKey,
+        })
+        return {
+          mint,
+          exists: true,
+          available: balance.availableBalance.toString(),
+          pending: balance.pendingBalance.toString(),
+        }
+      } catch {
+        // The account exists but its confidential setup hasn't landed: nothing in it yet.
+        return { mint, exists: true, available: '0', pending: '0' }
+      }
+    }),
+  )
+  return { giftOwnerAddress: signer.address, balances } satisfies OpenGiftResult
+})
+
+channel.on('claimGift', async (params) => {
+  const { rpcUrl, mint, giftOwner, claimer } = params as ClaimGiftParams
+  await wasmInit
+  const { signer, keys } = giftKeysFor(giftOwner)
+  const gasTank = gasTanks.get(claimer)
+  if (!gasTank) throw new Error(`call deriveKeys("${claimer}") before claimGift`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const mintAddress = address(mint)
+  const [giftToken] = await findAssociatedTokenPda({
+    owner: signer.address,
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const [claimerToken] = await findAssociatedTokenPda({
+    owner: address(claimer),
+    mint: mintAddress,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const [giftAccount, claimerAccount] = await Promise.all([fetchToken(rpc, giftToken), fetchToken(rpc, claimerToken)])
+  const { availableBalance } = decryptConfidentialTransferBalance({
+    tokenAccount: giftAccount.data,
+    elgamalSecretKey: keys.elgamalKeypair.secret(),
+    aesKey: keys.aesKey,
+  })
+  if (availableBalance === 0n) return { amount: '0', signedTransactions: [] } satisfies ClaimGiftResult
+
+  // Authorized by the gift's own keypair, paid by the claimer's gas tank: no approval, no SOL.
+  const plan = await getConfidentialTransferInstructionPlan({
+    sourceToken: giftToken,
+    destinationToken: claimerToken,
+    mint: mintAddress,
+    sourceTokenAccount: giftAccount.data,
+    destinationTokenAccount: claimerAccount.data,
+    authority: signer,
+    amount: availableBalance,
+    sourceElgamalKeypair: keys.elgamalKeypair,
+    aesKey: keys.aesKey,
+    payer: gasTank,
+    rpc,
+  })
+  const signedTransactions = await signPlannedMessages(await planMessages(plan, gasTank), rpc)
+  return { amount: availableBalance.toString(), signedTransactions } satisfies ClaimGiftResult
+})
+
+channel.on('closeGift', async (params) => {
+  const { rpcUrl, mint, giftOwner, claimer } = params as CloseGiftParams
+  await wasmInit
+  const { signer, keys } = giftKeysFor(giftOwner)
+  const gasTank = gasTanks.get(claimer)
+  if (!gasTank) throw new Error(`call deriveKeys("${claimer}") before closeGift`)
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const [giftToken] = await findAssociatedTokenPda({
+    owner: signer.address,
+    mint: address(mint),
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  const giftAccount = await fetchMaybeToken(rpc, giftToken)
+  if (!giftAccount.exists) return { signedTransactions: [] } satisfies CloseGiftResult
+
+  // EmptyAccount proves the (now zero) available balance is zero; only then can it close. The
+  // rent goes to the claimer's gas tank — the sender's tank paid it, but the claim is the end of
+  // the gift and the claimer is the one paying for these transactions.
+  const plan = sequentialInstructionPlan([
+    await getEmptyConfidentialTransferAccountInstructionPlan({
+      token: giftToken,
+      tokenAccount: giftAccount.data,
+      authority: signer,
+      elgamalKeypair: keys.elgamalKeypair,
+      payer: gasTank,
+      rpc,
+    }),
+    getCloseAccountInstruction({ account: giftToken, destination: gasTank.address, owner: signer }),
+  ])
+  const signedTransactions = await signPlannedMessages(await planMessages(plan, gasTank), rpc)
+  return { signedTransactions } satisfies CloseGiftResult
 })
 
 channel.on('decryptPotActivity', async (params) => {

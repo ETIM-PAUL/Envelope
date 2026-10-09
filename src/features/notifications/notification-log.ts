@@ -17,6 +17,9 @@ export type LoggedNotificationKind =
   | 'unstake-withdrawn'
   | 'faucet'
   | 'pass'
+  | 'gift-sent'
+  | 'gift-received'
+  | 'gift-returned'
 
 export type LoggedNotification = {
   id: string
@@ -24,6 +27,9 @@ export type LoggedNotification = {
   amount?: string // stringified bigint, base units (6 decimals: cUSDC, or SKR for staking)
   asset?: AssetId // which token `amount` is in; absent on older entries, which are all dollars
   label?: string // pot name
+  // Transfer signatures this entry stands for: the feed hides those plain "sent"/"received" rows
+  // (a gift is a private transfer to or from a gift wallet; the gift entry says what it was).
+  covers?: string[]
   at: number // ms since epoch
 }
 

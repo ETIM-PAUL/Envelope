@@ -222,6 +222,37 @@ export type PotContribution = {
 export type DecryptPotActivityParams = { rpcUrl: string; mint: string; potOwner: string; limit?: number }
 export type DecryptPotActivityResult = { contributions: PotContribution[] }
 
+// Gift links: private funds parked behind a link. A gift is a one-off "gift wallet" derived from a
+// random secret (SHA-256 of "envelope-gift:" + secret gives its Ed25519 seed, and its confidential
+// keys come from that keypair like any wallet's). The secret travels only in the link — after the
+// `#`, so no server ever sees it — and whoever holds it can claim the funds; the sender keeps it
+// to take an unclaimed gift back. The bridge holds the gift's keypair, so claiming needs no
+// wallet approval from anyone: the claimer's gas tank pays.
+//
+// createGift: generates the secret and sets up the gift's confidential account for `mint`, rent
+// paid by the sender's gas tank (call deriveKeys(sender) first). The funds then go in as an
+// ordinary private send to `giftOwnerAddress` (buildTransferPlan), so the amount is hidden.
+export type CreateGiftParams = { rpcUrl: string; mint: string; sender: string }
+export type CreateGiftResult = { secret: string; giftOwnerAddress: string; signedTransactions: string[] }
+
+// openGift: derives the gift from its secret (base58) and reports what it holds per mint —
+// `exists: false` once the gift has been claimed (claiming closes its accounts).
+export type GiftBalance = { mint: string; exists: boolean; available: string; pending: string }
+export type OpenGiftParams = { rpcUrl: string; mints: string[]; secret: string }
+export type OpenGiftResult = { giftOwnerAddress: string; balances: GiftBalance[] }
+
+// claimGift: the gift's whole available balance to `claimer`'s own confidential account, paid by
+// the claimer's gas tank. Call openGift first, then applyPendingBalance({ owner: giftOwner,
+// payer: claimer }) and let it land (the transfer's proofs need the applied balance, as with
+// closePot). The sender taking a gift back is the same call with claimer = sender.
+export type ClaimGiftParams = { rpcUrl: string; mint: string; giftOwner: string; claimer: string }
+export type ClaimGiftResult = { amount: string; signedTransactions: string[] }
+
+// closeGift: once the claim has landed (balance zero), empties the gift's confidential state and
+// closes its account, returning the rent to the claimer's gas tank.
+export type CloseGiftParams = { rpcUrl: string; mint: string; giftOwner: string; claimer: string }
+export type CloseGiftResult = { signedTransactions: string[] }
+
 // Phase 17: the confidential half of "withdraw to USDC" — moves `amount` from `owner`'s
 // confidential available balance to their account's *public* cUSDC balance (equality + range
 // proofs, context accounts, same machinery buildTransferPlan/applyPendingBalance already use).
@@ -289,6 +320,10 @@ export type BridgeMethodMap = {
   ensureGasTank: { params: EnsureGasTankParams; result: EnsureGasTankResult }
   buildWithdrawPlan: { params: BuildWithdrawPlanParams; result: BuildWithdrawPlanResult }
   signContinuation: { params: SignContinuationParams; result: SignContinuationResult }
+  createGift: { params: CreateGiftParams; result: CreateGiftResult }
+  openGift: { params: OpenGiftParams; result: OpenGiftResult }
+  claimGift: { params: ClaimGiftParams; result: ClaimGiftResult }
+  closeGift: { params: CloseGiftParams; result: CloseGiftResult }
 }
 
 export type BridgeMethod = keyof BridgeMethodMap

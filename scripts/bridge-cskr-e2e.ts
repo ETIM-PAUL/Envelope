@@ -5,7 +5,9 @@
 // sends through the hosted relayer. Covers: withdraw cSKR -> SKR, a pot that accepts dollars *and*
 // SKR, a private cSKR contribution to it (with privacy negative checks: the amount appears nowhere
 // on-chain in plaintext), a one-approval batch to two different recipients, closing the pot (sweep
-// back to the host), and a zero-SOL user. Prints an Explorer link for every transaction.
+// back to the host), a zero-SOL user, and gift links (a brand-new wallet claims a gift with only
+// the link's secret; the sender takes back an unclaimed one). Prints an Explorer link for every
+// transaction.
 //
 // Needs `npm run cbridge:build`, `npm run devnet:cskr`, and alice holding private cSKR (run
 // `npm run devnet:cskr-roundtrip` once). RELAYER_URL defaults to the hosted relayer.
@@ -459,6 +461,133 @@ async function main() {
   )
   check('dave created a pot', (await call('isAccountReady', { rpcUrl, mint: cskr, owner: davePot })).ready)
   check('dave still holds 0 SOL', (await rpc.getBalance(dave.address).send()).value === 0n)
+
+  // 6. Gift links: alice parks cSKR behind a link's secret; a brand-new wallet (no SOL, no SKR,
+  // never used Envelope) claims it with nothing but that secret. Then alice takes back a second,
+  // unclaimed gift.
+  console.log('6. gift link: alice gifts 0.5 cSKR, a brand-new wallet claims it; alice takes back a second gift')
+  step = 'gift: create, 0.5 cSKR'
+  await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
+  const gift = await call('createGift', { rpcUrl, mint: cskr, sender: aliceAddress })
+  await send(gift.signedTransactions)
+  const giftPlan = await call('buildTransferPlan', {
+    rpcUrl,
+    mint: cskr,
+    owner: aliceAddress,
+    destinationOwner: gift.giftOwnerAddress,
+    amount: '500000',
+    feePayer: tier.relayerAddress,
+    feeInstruction: tier.tier === 'free' ? { skrMint: tier.skrMint, amount: tier.freeTierFeeAmount } : undefined,
+  })
+  const giftSends = [
+    ...(await relay(giftPlan.signedTransactions)),
+    ...(await relay(
+      (await call('signContinuation', { rpcUrl, continuationId: giftPlan.continuationId })).signedTransactions,
+    )),
+  ]
+  const giftCskr = (opened: { balances: { mint: string; exists: boolean; pending: string }[] }) =>
+    opened.balances.find((balance) => balance.mint === cskr)!
+  check(
+    'the link opens the gift: 0.5 cSKR waiting',
+    giftCskr(await call('openGift', { rpcUrl, mints: [cusdc, cskr], secret: gift.secret })).pending === '500000',
+  )
+  check(
+    'the gift amount appears nowhere on-chain',
+    await amountHiddenOnChain(giftSends, 500_000n, gift.giftOwnerAddress),
+    `${giftSends.length} transactions scanned`,
+  )
+
+  step = 'gift: a new wallet claims it'
+  const erin = await generateKeyPairSigner()
+  wallets.set(erin.address, erin.keyPair)
+  await call('deriveKeys', { owner: erin.address })
+  const { address: erinTank } = await call('gasTankAddress', { owner: erin.address })
+  const erinFuel = (await (
+    await fetch(`${RELAYER_URL}/fuel`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ owner: erin.address, tank: erinTank }),
+    })
+  ).json()) as { status?: string }
+  check('new wallet: welcome fuel', erinFuel.status === 'sent', JSON.stringify(erinFuel))
+  await send(
+    (
+      await call('ensureAccountReady', {
+        rpcUrl,
+        mint: cusdc,
+        extraMints: [cskr],
+        owner: erin.address,
+        payWithGasTank: true,
+      })
+    ).signedTransactions,
+  )
+  const claimRequests = signRequests
+  await call('openGift', { rpcUrl, mints: [cusdc, cskr], secret: gift.secret })
+  await send(
+    (await call('applyPendingBalance', { rpcUrl, mint: cskr, owner: gift.giftOwnerAddress, payer: erin.address }))
+      .signedTransactions,
+  )
+  const claim = await call('claimGift', { rpcUrl, mint: cskr, giftOwner: gift.giftOwnerAddress, claimer: erin.address })
+  await send(claim.signedTransactions)
+  await send(
+    (await call('closeGift', { rpcUrl, mint: cskr, giftOwner: gift.giftOwnerAddress, claimer: erin.address }))
+      .signedTransactions,
+  )
+  check('claimed with no wallet approval', signRequests === claimRequests, `${signRequests - claimRequests}`)
+  check('the new wallet received 0.5 cSKR', (await privateBalance(cskr, erin.address)).pending === 500_000n)
+  check(
+    'the gift is spent: its account is closed',
+    !giftCskr(await call('openGift', { rpcUrl, mints: [cusdc, cskr], secret: gift.secret })).exists,
+  )
+  check('the new wallet still holds 0 SOL', (await rpc.getBalance(erin.address).send()).value === 0n)
+
+  step = 'gift: create 0.2 cSKR, then take it back'
+  const unclaimed = await call('createGift', { rpcUrl, mint: cskr, sender: aliceAddress })
+  await send(unclaimed.signedTransactions)
+  const unclaimedPlan = await call('buildTransferPlan', {
+    rpcUrl,
+    mint: cskr,
+    owner: aliceAddress,
+    destinationOwner: unclaimed.giftOwnerAddress,
+    amount: '200000',
+    feePayer: tier.relayerAddress,
+    feeInstruction: tier.tier === 'free' ? { skrMint: tier.skrMint, amount: tier.freeTierFeeAmount } : undefined,
+  })
+  await relay(unclaimedPlan.signedTransactions)
+  await relay(
+    (await call('signContinuation', { rpcUrl, continuationId: unclaimedPlan.continuationId })).signedTransactions,
+  )
+  const aliceBeforeTakeBack = await privateBalance(cskr, aliceAddress)
+  await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
+  await call('openGift', { rpcUrl, mints: [cskr], secret: unclaimed.secret })
+  await send(
+    (
+      await call('applyPendingBalance', {
+        rpcUrl,
+        mint: cskr,
+        owner: unclaimed.giftOwnerAddress,
+        payer: aliceAddress,
+      })
+    ).signedTransactions,
+  )
+  await send(
+    (
+      await call('claimGift', {
+        rpcUrl,
+        mint: cskr,
+        giftOwner: unclaimed.giftOwnerAddress,
+        claimer: aliceAddress,
+      })
+    ).signedTransactions,
+  )
+  await send(
+    (await call('closeGift', { rpcUrl, mint: cskr, giftOwner: unclaimed.giftOwnerAddress, claimer: aliceAddress }))
+      .signedTransactions,
+  )
+  check(
+    'alice took the unclaimed 0.2 cSKR back',
+    (await privateBalance(cskr, aliceAddress)).pending - aliceBeforeTakeBack.pending === 200_000n,
+  )
 
   console.log('\nTransactions (devnet):')
   for (const { label, signature } of landed) console.log(`  ${label}: ${explorer(signature)}`)

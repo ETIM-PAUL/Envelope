@@ -72,13 +72,16 @@ export function useNotifications() {
   )
 
   const items = useMemo<AppNotification[]>(() => {
-    const fromTransfers: AppNotification[] = (transfers.data ?? []).map((entry) => ({
-      id: entry.signature,
-      kind: entry.direction === 'incoming' ? 'received' : 'sent',
-      amount: entry.amount,
-      asset: entry.asset,
-      at: (entry.blockTime ?? 0) * 1000,
-    }))
+    const covered = new Set((log.data ?? []).flatMap((entry) => entry.covers ?? []))
+    const fromTransfers: AppNotification[] = (transfers.data ?? [])
+      .filter((entry) => !covered.has(entry.signature))
+      .map((entry) => ({
+        id: entry.signature,
+        kind: entry.direction === 'incoming' ? 'received' : 'sent',
+        amount: entry.amount,
+        asset: entry.asset,
+        at: (entry.blockTime ?? 0) * 1000,
+      }))
     return [...(log.data ?? []), ...fromTransfers].sort((a, b) => b.at - a.at)
   }, [log.data, transfers.data])
 

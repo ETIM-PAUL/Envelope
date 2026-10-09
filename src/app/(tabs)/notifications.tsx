@@ -42,6 +42,9 @@ function present(item: AppNotification): Presentation {
     'unstake-withdrawn': { icon: 'corner-up-left', text: 'Unstaked SKR returned to wallet', inbound: true },
     faucet: { icon: 'droplet', text: `${amount} test SKR received from the faucet`, inbound: true },
     pass: { icon: 'award', text: `${item.label ?? 'Membership'} membership — ${amount} SKR`, inbound: false },
+    'gift-sent': { icon: 'gift', text: `Gift link created — ${amount} ${token}`, inbound: false },
+    'gift-received': { icon: 'gift', text: `${amount} ${token} gift claimed`, inbound: true },
+    'gift-returned': { icon: 'corner-up-left', text: `${amount} ${token} gift taken back`, inbound: true },
   }
   return copy[item.kind]
 }

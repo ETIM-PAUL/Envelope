@@ -31,6 +31,7 @@ import { getPushTokens, registerPushToken } from './push-store.ts'
 import { claimFromFaucet, FaucetRefusal, getFaucetStatus } from './faucet.ts'
 import { FuelRefusal, requestFuel, submitFuel } from './fuel.ts'
 import { sendPushNotification } from './expo-push.ts'
+import { giftPage } from './gift-page.ts'
 
 // The outermost SolanaError is usually generic ("Transaction simulation failed"); the reason that
 // matters to the client — e.g. "Blockhash not found", which it retries by re-asking the wallet —
@@ -49,6 +50,16 @@ function describeFailure(err: unknown): string {
 const app = new Hono()
 
 app.get('/', (c) => c.json({ ok: true, relayer: relayerAddress }))
+
+// GET /gift — the page a gift link (`/gift#<secret>`) opens; see gift-page.ts. The secret is in
+// the fragment, so it never reaches this server.
+const APP_DOWNLOAD_URL =
+  process.env.APP_DOWNLOAD_URL ?? 'https://github.com/ETIM-PAUL/Envelope/releases/latest/download/envelope.apk'
+app.get('/gift', (c) => {
+  c.header('Cache-Control', 'public, max-age=300')
+  c.header('Referrer-Policy', 'no-referrer')
+  return c.html(giftPage(APP_DOWNLOAD_URL))
+})
 
 // GET /tier/:wallet — read-only, no auth: lets a client (the phone app) show an accurate fee line
 // before building a transfer, and know whether to include the free-tier SKR fee instruction at

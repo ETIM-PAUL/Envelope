@@ -18,6 +18,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 - **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL. Scan any Envelope or Solana wallet QR code to fill in the recipient.
 - **Batch send** — pay up to 20 people in one approval (payroll, splitting a bill). Each person sees only their own amount.
 - **Receive** — share your address as a QR code or a tip link; incoming transfers are applied to your balance automatically.
+- **Gift links** — put private dollars or SKR behind a link and send it to someone who isn't on Envelope yet. They open it, install the app, and claim it into their own private balance with no SOL and no approval beyond enabling their account. The amount stays hidden, and you can take back any gift that hasn't been claimed.
 - **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
 - **Withdraw** — turn private cUSDC or cSKR back into spendable USDC or SKR in one approval.
 - **Ask for the token you want** — your Receive code says whether you take dollars, SKR, or both; the payer's app only offers those.
@@ -90,7 +91,7 @@ flowchart LR
 | The relayer                | No                   | Yes                 |
 | Anyone watching the chain  | No — only ciphertext | Yes                 |
 
-Wallet addresses and the fact that a transfer happened are public; only amounts and balances are hidden. The full analysis — relayer trust, linkability, key storage, and audit findings — is in [THREAT_MODEL.md](THREAT_MODEL.md).
+Wallet addresses and the fact that a transfer happened are public; only amounts and balances are hidden. A gift link works like cash: whoever opens it first can claim it, so it should only go to the person it's for. On-chain, a gift shows up as a transfer from the sender to a one-off gift account, and later from that account to whoever claimed it. The full analysis — relayer trust, linkability, key storage, and audit findings — is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
 ## Membership and SKR fuel
 
@@ -283,6 +284,35 @@ and devnet transaction links):
 | Test SKR mint and faucet                                    | Devnet only; mainnet uses real SKR (one mint address in config, plus the pass and cSKR vault configs)      |
 | USDC                                                        | Circle's devnet USDC                                                                                       |
 | App                                                         | Release-signed APK; Android only (Mobile Wallet Adapter)                                                   |
+
+## Future work
+
+**Before mainnet**
+
+- An external audit of `envelope_vault` and `envelope_stake`, and handing the confidential mints' authority over as the threat model describes.
+- Real SKR in place of the test mint, with the pass and cSKR vault configs set up on mainnet.
+- Durable storage for the relayer's fuel records, and more than one relayer instance.
+- Free welcome fuel gated on the Seeker Genesis Token, which is one per device and non-transferable, so fresh wallets can't farm it.
+
+**Plans and limits**
+
+- Pot limits per plan enforced on-chain rather than in the app.
+- A per-plan cap on how much a private balance can hold, alongside today's daily deposit limit.
+- Genesis Token holders as a plan of their own: Seeker owners get Member perks without buying a pass.
+
+**Privacy**
+
+- Selective disclosure: share a read-only view of your balance and history with an accountant or auditor, revocable.
+- Proof of funds: prove a balance is above an amount without revealing it, for rent deposits, escrow or a creator's minimum.
+- One-time receive addresses, so repeated payments to the same person can't be linked by their address.
+
+**Payments**
+
+- Gift links that expire and return to the sender automatically, with a short private message inside the gift.
+- Verified app links, so a gift or tip link opens Envelope directly, and claim-after-install once Envelope is in the Solana dApp Store.
+- Scheduled and recurring payments: payroll and allowances built on batch send.
+- More private assets through the same vault, such as other stablecoins.
+- A hosted tip page for creators, replacing the placeholder tip link.
 
 ## License
 

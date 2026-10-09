@@ -329,6 +329,39 @@ amount), unwrap_asset(amount)]` in one transaction, so CPI Guard can stay on.
   `npm run devnet:cskr-roundtrip`. Seven Anchor tests cover the instructions, including the
   rejections above.
 
+## Gift links
+
+A gift is a one-off "gift wallet" whose keys come from a random 32-byte secret: SHA-256 of
+`envelope-gift:` and the secret gives its Ed25519 seed, and its confidential keys are derived from
+that keypair the way any wallet's are. The sender's phone generates the secret, sets up the gift's
+confidential account (rent from the sender's gas tank), and funds it with an ordinary private
+send. The amount is hidden exactly as in any transfer. The link is
+`<relayer>/gift#<secret>`.
+
+- **The secret never reaches a server.** It's after the `#`, which browsers don't send. The
+  relayer's `/gift` page is static: its own script reads the fragment and builds the
+  `envelope://gift?k=…` app link. The page sets `Referrer-Policy: no-referrer`.
+- **A gift link is a bearer instrument.** Whoever opens it first can claim it, and a claim can't
+  be undone. The app says so when the link is created. Until a gift is claimed, the sender can
+  take it back: the secret is kept on the sending phone in SecureStore (Keystore-encrypted). It is
+  deliberately not behind the biometric gate, because losing it would mean losing the only way
+  to take an unclaimed gift back, and the same secret is already in the shared link.
+- **Claiming needs no approval and no SOL.** The bridge holds the gift's keypair, which
+  authorizes applying its pending balance, moving the whole available balance to the claimer, and
+  closing the account. The claimer's gas tank pays (a new user's first, free fuel refill covers
+  it). The account's rent goes to the claimer's gas tank on close, and a closed account spends the
+  link.
+- **Linkability.** On-chain, a gift is a transfer from the sender to the gift account, then one
+  from the gift account to the claimer, so who-paid-whom is visible through the intermediary.
+  The relayer sees the funding transfer like any send; it isn't involved in the claim.
+- **Race.** If a link leaks, whoever claims first wins, the sender's take-back included. Expiring
+  gifts that return to the sender automatically would need on-chain support (see Future work in
+  the README).
+
+Verified on devnet in [docs/VERIFY.md](docs/VERIFY.md): a brand-new wallet with no SOL claims a
+gift with only the secret and no wallet approval, the gift account ends up closed, and the amount
+appears nowhere in the gift's transactions.
+
 ## Batch send
 
 A batch builds each transfer's proofs against the source balance the _previous_ transfer leaves
