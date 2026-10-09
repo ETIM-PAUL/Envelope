@@ -17,6 +17,7 @@ import {
   PASS_MEMBER_PRICE,
   PASS_PERIOD_SECS,
 } from './lib/constants'
+import { CONSTRAINT_SEEDS, expectProgramError } from './lib/expect-program-error'
 import { createMint, mintTo } from './lib/mints'
 import { ensurePassConfig, ensureStakePool } from './lib/setup-stake-pool'
 import { testAdminSigner } from './lib/test-admin'
@@ -317,6 +318,153 @@ describe('envelope_vault', () => {
       amount: 1_000_000n,
     })
     await expect(sendInstructions({ instructions: instruction, payer: user, rpc, sendAndConfirm })).rejects.toThrow()
+  })
+
+  // The leads automated scanners raise against `wrap` (THREAT_MODEL.md, "Automated security
+  // scan"), each pinned down on-chain: `init_if_needed` on `user_daily`, and type cosplay through
+  // the `stake_position` / `pass` reads.
+  describe('audit leads', () => {
+    async function stakeFor(user: KeyPairSigner, amount: bigint) {
+      await mintTo(clients, admin, skrMint, user.address, amount)
+      const [userSkr] = await findAssociatedTokenPda({
+        owner: user.address,
+        mint: skrMint,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      })
+      const pool = await envelopeStake.fetchPool(rpc, (await envelopeStake.findPoolPda())[0])
+      const instruction = await envelopeStake.getStakeInstructionAsync({
+        user,
+        userSkr,
+        vaultSkr: pool.data.vaultSkr,
+        amount,
+      })
+      await sendInstructions({ instructions: instruction, payer: user, rpc, sendAndConfirm })
+    }
+
+    it('init_if_needed on user_daily: a second wrap updates the same record, never re-creates it', async () => {
+      const user = await freshFreeUser(10_000_000n)
+      const gasTank = await createFundedSigner({ rpc, rpcSubscriptions })
+      const [userDailyAddress] = await envelopeVault.findUserDailyPda({ user: user.address })
+
+      await sendInstructions({
+        instructions: await wrapInstruction(user, 1_000_000n),
+        payer: user,
+        rpc,
+        sendAndConfirm,
+      })
+      const first = await envelopeVault.fetchUserDaily(rpc, userDailyAddress)
+
+      // Second wrap, rent payer swapped for a different signer (the app's gas tank): still the
+      // same account, accumulating — not a fresh, zeroed one.
+      const secondWithTank = await envelopeVault.getWrapInstructionAsync({
+        user,
+        payer: gasTank,
+        userUsdc: await userUsdcAddress(user),
+        vaultUsdc,
+        cusdcMint: cusdcMint.address,
+        userCusdc: await userCusdcAddress(user.address),
+        amount: 2_000_000n,
+      })
+      await sendInstructions({ instructions: secondWithTank, payer: gasTank, rpc, sendAndConfirm })
+      const after = await envelopeVault.fetchUserDaily(rpc, userDailyAddress)
+
+      expect(after.data.user).toEqual(user.address)
+      // A 20-second test "day" can roll over between the two wraps; then (and only then) the
+      // handler itself resets the total.
+      const expected = after.data.dayIndex === first.data.dayIndex ? 3_000_000n : 2_000_000n
+      expect(after.data.depositedToday).toEqual(expected)
+    })
+
+    it("rejects another wallet's daily record: it's bound to the signer by its seeds", async () => {
+      const alice = await freshFreeUser(10_000_000n)
+      const bob = await freshFreeUser(10_000_000n)
+      await sendInstructions({
+        instructions: await wrapInstruction(alice, 1_000_000n),
+        payer: alice,
+        rpc,
+        sendAndConfirm,
+      })
+      const [aliceDaily] = await envelopeVault.findUserDailyPda({ user: alice.address })
+
+      const instruction = await envelopeVault.getWrapInstructionAsync({
+        user: bob,
+        payer: bob,
+        userUsdc: await userUsdcAddress(bob),
+        vaultUsdc,
+        cusdcMint: cusdcMint.address,
+        userCusdc: await userCusdcAddress(bob.address),
+        userDaily: aliceDaily,
+        amount: 1_000_000n,
+      })
+      await expectProgramError(
+        sendInstructions({ instructions: instruction, payer: bob, rpc, sendAndConfirm }),
+        CONSTRAINT_SEEDS,
+      )
+    })
+
+    it("type cosplay: rejects another wallet's real StakePosition in the stake_position slot", async () => {
+      const alice = await freshFreeUser(10_000_000n)
+      await stakeFor(alice, MEMBER_THRESHOLD)
+      const [aliceStake] = await envelopeStake.findStakePositionPda({ user: alice.address })
+      expect((await envelopeStake.fetchStakePosition(rpc, aliceStake)).data.user).toEqual(alice.address)
+
+      const bob = await freshFreeUser(MEMBER_LIMIT)
+      const instruction = await envelopeVault.getWrapInstructionAsync({
+        user: bob,
+        payer: bob,
+        userUsdc: await userUsdcAddress(bob),
+        vaultUsdc,
+        cusdcMint: cusdcMint.address,
+        userCusdc: await userCusdcAddress(bob.address),
+        stakePosition: aliceStake,
+        amount: FREE_LIMIT + 1n, // would only pass with alice's Member stake
+      })
+      await expectProgramError(
+        sendInstructions({ instructions: instruction, payer: bob, rpc, sendAndConfirm }),
+        CONSTRAINT_SEEDS,
+      )
+    })
+
+    it('type cosplay: rejects a different envelope_stake account type (a Pass) as the stake position', async () => {
+      const { treasury } = await ensurePassConfig(clients, admin, skrMint)
+      const user = await freshFreeUser(MEMBER_LIMIT)
+      await mintTo(clients, admin, skrMint, user.address, PASS_MEMBER_PRICE)
+      const [userSkr] = await findAssociatedTokenPda({
+        owner: user.address,
+        mint: skrMint,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      })
+      await sendInstructions({
+        instructions: await envelopeStake.getBuyPassInstructionAsync({
+          user,
+          payer: user,
+          userSkr,
+          treasury,
+          tier: 1,
+          periods: 1,
+        }),
+        payer: user,
+        rpc,
+        sendAndConfirm,
+      })
+      // Owned by envelope_stake, holds this user's key — but it's a Pass, not a StakePosition.
+      const [passAddress] = await envelopeStake.findPassPda({ user: user.address })
+
+      const instruction = await envelopeVault.getWrapInstructionAsync({
+        user,
+        payer: user,
+        userUsdc: await userUsdcAddress(user),
+        vaultUsdc,
+        cusdcMint: cusdcMint.address,
+        userCusdc: await userCusdcAddress(user.address),
+        stakePosition: passAddress,
+        amount: 1_000_000n,
+      })
+      await expectProgramError(
+        sendInstructions({ instructions: instruction, payer: user, rpc, sendAndConfirm }),
+        CONSTRAINT_SEEDS,
+      )
+    })
   })
 
   it('rejects a wrong vault_usdc account', async () => {

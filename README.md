@@ -222,6 +222,9 @@ The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and 
 | `npm run devnet:bridge-e2e`            | The shipped bridge end to end: cSKR withdraw, pots, batch send, and a zero-SOL user on SKR fuel |
 | `npm run relayer:test-policy`          | Check the relayer rejects a malicious tx and relays a valid one                                 |
 | `npm run relayer:test-fuel`            | SKR fuel: paid and included refills, tank binding, and a tampered transaction                   |
+| `npm run relayer:test-attacks`         | Relayer drain attempts (policy test + fuzz cases) are refused                                   |
+| `npm run cbridge:verify-zk-sdk`        | The rebuilt zk-sdk matches the published one: keys, ciphertexts, cross-verified proofs          |
+| `npm run test:unit`                    | App unit tests: background-network retry, biometric storage fallback                            |
 | `npm run devnet:cskr`                  | Create the cSKR mint and register SKR ⇄ cSKR with the vault (admin, once)                       |
 | `npm run anchor:build` / `anchor:test` | Build / test the Anchor programs                                                                |
 | `npm run codama:js`                    | Regenerate the typed program clients from the IDLs                                              |
@@ -239,16 +242,47 @@ The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and 
 - **Membership is spent, not staked.** A pass is SKR paid for 30 days of a tier, recorded on-chain and read by both the vault and the relayer; perks the chain can't see (pots) are applied in the app.
 - **A relayer that can't be drained.** Every relayed instruction is checked against an allow-list with exact discriminators, account-role checks, and a priority-fee cap — tested by a fuzz script that throws drain attempts at it.
 
-## Security & limitations
+## Security
 
-Envelope runs on **devnet only** and has not been externally audited. Known limitations, all documented in [THREAT_MODEL.md](THREAT_MODEL.md):
+**Status:** devnet only, not externally audited. A self-audit and two automated scans (6 and
+9 October 2026) are triaged in [THREAT_MODEL.md](THREAT_MODEL.md#automated-security-scans--triage);
+none found a confirmed defect in Envelope's own code.
 
-- Who paid whom is public; only amounts are hidden.
+**Verified, with checks you can rerun** ([docs/VERIFY.md](docs/VERIFY.md) has the commands, logs
+and devnet transaction links):
+
+- The rebuilt zk-sdk that runs on old WebViews produces the same keys and ciphertexts as the
+  published SDK, and each build's proofs verify in the other.
+- Private sends, pots and a batch to two recipients work end to end on devnet through the shipped
+  bridge bundle. The amounts appear nowhere in the transactions' bytes.
+- Every attempt to drain the relayer or over-claim fuel is refused.
+- The scanners' three "high" Anchor leads are pinned down by tests asserting the exact error.
+
+**Known open items**, all documented in [THREAT_MODEL.md](THREAT_MODEL.md):
+
+- Who paid whom is public; only amounts and balances are hidden.
 - The relayer sees sender and recipient (never amounts).
-- Mainnet would first require revoking the confidential mint's authority and the other pre-launch steps listed in the threat model.
-- Every wallet's first fuel refill is free so new users need nothing to start; on mainnet that must be gated (e.g. on the Seeker Genesis Token) so fresh wallets can't farm it.
 - Pot limits per plan are applied by the app, not on-chain.
+- Every wallet's first fuel refill is free, and the hosted relayer's fuel records reset when it
+  redeploys. Mainnet needs the welcome refill gated (e.g. on the Seeker Genesis Token) and the
+  records in durable storage.
+- `decode-uri-component` 0.2.2 (via `expo-router`) has a slow-decoding advisory. The fix needs an
+  Expo upgrade; the worst case is the app freezing while parsing a crafted link.
+- `bincode` 1.3.3 (via the Solana and Anchor crates) is unmaintained, with no known vulnerability.
 - Push notifications need an EAS project (`eas init`); everything else works without one.
+
+**Devnet-only versus production-ready:**
+
+| Part                                                        | Status                                                                                                     |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Token-2022 confidential transfers, ZK ElGamal Proof program | Solana's own, live on mainnet                                                                              |
+| On-phone proofs and encryption (zk-sdk, bridge)             | Production-ready design; keys never leave the phone                                                        |
+| `envelope_vault`, `envelope_stake` programs                 | Devnet; needs an external audit, and the cUSDC mint authority handling in the threat model, before mainnet |
+| Relayer policy (what it will co-sign)                       | Fuzzed and attack-tested; one hosted instance on a free tier that sleeps when idle                         |
+| SKR fuel                                                    | Logic tested; welcome refill and non-durable records are devnet-only                                       |
+| Test SKR mint and faucet                                    | Devnet only; mainnet uses real SKR (one mint address in config, plus the pass and cSKR vault configs)      |
+| USDC                                                        | Circle's devnet USDC                                                                                       |
+| App                                                         | Release-signed APK; Android only (Mobile Wallet Adapter)                                                   |
 
 ## License
 

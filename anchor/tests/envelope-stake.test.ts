@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { envelopeStake } from '../src'
 import { createFundedSigner } from './create-funded-signer'
 import { COOLDOWN_SECS, PASS_BUSINESS_PRICE, PASS_MEMBER_PRICE, PASS_PERIOD_SECS } from './lib/constants'
+import { CONSTRAINT_SEEDS, expectProgramError } from './lib/expect-program-error'
 import { mintTo } from './lib/mints'
 import { ensurePassConfig, ensureStakePool } from './lib/setup-stake-pool'
 import { testAdminSigner } from './lib/test-admin'
@@ -74,6 +75,30 @@ describe('envelope_stake', () => {
     const [stakePositionAddress] = await envelopeStake.findStakePositionPda({ user: user.address })
     const position = await envelopeStake.fetchStakePosition(rpc, stakePositionAddress)
     expect(position.data.amount).toEqual(1_500_000_000n)
+  })
+
+  // Audit lead (THREAT_MODEL.md): `init_if_needed` on `stake_position`. The test above shows an
+  // existing position is added to, not re-created; this one shows nobody else can reach it.
+  it("init_if_needed on stake_position: rejects staking into another wallet's position", async () => {
+    const alice = await stakeAsFreshUser(1_000_000_000n)
+    const [aliceStake] = await envelopeStake.findStakePositionPda({ user: alice.address })
+
+    const bob = await createFundedSigner({ rpc, rpcSubscriptions })
+    await mintTo(clients, admin, skrMint, bob.address, 1_000_000n)
+    const instruction = await envelopeStake.getStakeInstructionAsync({
+      user: bob,
+      userSkr: await userSkrAddress(bob),
+      vaultSkr: await vaultSkrAddress(),
+      stakePosition: aliceStake,
+      amount: 1_000_000n,
+    })
+    await expectProgramError(
+      sendInstructions({ instructions: instruction, payer: bob, rpc, sendAndConfirm }),
+      CONSTRAINT_SEEDS,
+    )
+    const position = await envelopeStake.fetchStakePosition(rpc, aliceStake)
+    expect(position.data.user).toEqual(alice.address)
+    expect(position.data.amount).toEqual(1_000_000_000n)
   })
 
   it('rejects staking zero', async () => {

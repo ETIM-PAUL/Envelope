@@ -51,7 +51,10 @@
     "devnet:cskr-roundtrip": "tsx scripts/cskr-roundtrip.ts",
     "devnet:bridge-e2e": "tsx scripts/bridge-cskr-e2e.ts",
     "devnet:pass": "tsx scripts/setup-pass.ts",
-    "relayer:test-fuel": "tsx scripts/test-fuel.ts"
+    "relayer:test-fuel": "tsx scripts/test-fuel.ts",
+    "test:unit": "vitest run src",
+    "cbridge:verify-zk-sdk": "tsx packages/cbridge/scripts/compare-zk-sdk.ts",
+    "relayer:test-attacks": "tsx scripts/test-relayer.ts && tsx scripts/fuzz-relayer-policy.ts"
   },
   "displayName": "Expo Kit Anchor example",
   "description": "A template for building a Solana mobile app with Expo, React Native, Solana Kit, Anchor, and Uniwind.",
@@ -123,11 +126,13 @@
   },
   "overrides": {
     "react-native-reanimated": "4.5.4",
-    "react-native-worklets": "0.10.4"
+    "react-native-worklets": "0.10.4",
+    "uuid": "^11.1.1"
   },
   "resolutions": {
     "react-native-reanimated": "4.5.4",
-    "react-native-worklets": "0.10.4"
+    "react-native-worklets": "0.10.4",
+    "uuid": "^11.1.1"
   },
   "private": true
 }

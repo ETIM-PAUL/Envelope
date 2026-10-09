@@ -262,12 +262,15 @@ envelope_stake::ID` instead of `lamports() == 0` — a pre-funded-but-uninitiali
    since adding a time gate would be a behavior change worth a deliberate product decision, not a
    bug fix.
 
-## Automated security scan — triage (6 October 2026)
+## Automated security scans — triage
 
-A static-analysis scan (source patterns, dependency advisories, credentials, deployment config,
-Anchor program structure; 279 files) reported **no confirmed defects** in Envelope's own code. It
-flagged 26 pattern matches for review and 5 package or configuration findings. Each was checked
-against the code:
+Two automated scans have run: a static-analysis scan on 6 October 2026 (source patterns,
+dependency advisories, credentials, deployment config, Anchor program structure; 279 files), and
+the hackathon's AI scanner on 9 October 2026. Neither reported a confirmed defect in Envelope's own
+code. Both flagged the same three "high" Anchor leads for review, plus package and configuration
+findings. Each was checked against the code. The three Anchor leads are also pinned down by tests
+that assert the exact on-chain error, and the checks, results and transaction links are in
+[docs/VERIFY.md](docs/VERIFY.md).
 
 ### Fixed
 
@@ -276,19 +279,23 @@ against the code:
   image is pinned to a `sha256` digest.
 - **Program crates had no license** — `anchor/Cargo.toml` now declares Apache-2.0 for the
   workspace (metadata only; the deployed programs are unchanged).
+- **`uuid` 7.0.3** (Medium, GHSA-w5hq-g745-h8pq) — now 11.1.1 through an npm `overrides` entry.
+  Only Expo's Xcode project tooling uses it, at build time, and only `uuid.v4()`, which 11.x
+  keeps. The Android prebuild still passes. (The advisory covers v3/v5/v6 with a caller-supplied
+  buffer, so 7.0.3 wasn't affected in practice.)
 
 ### Checked, not a defect
 
-| Finding (severity as reported)                                                                                            | Why it doesn't apply                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init_if_needed` on `stake_position` / `user_daily` (High)                                                                | Both are PDAs seeded by the signer, so an existing account can only be the caller's own. Neither handler relies on init-time zeroing: `stake` rejects a pending unstake and adds to the balance; `wrap` re-checks `day_index` and resets the daily total itself. Both re-set the owner field every call. |
-| Type cosplay in `wrap`'s stake-position read (High)                                                                       | The account is checked to be owned by `envelope_stake`, deserialized with Anchor's discriminator check, its `user` field must equal the signer, and its address is pinned by `seeds::program`.                                                                                                           |
-| User and vault token accounts "not constrained to be distinct" in `stake`, `withdraw_unstaked`, `wrap`, `unwrap` (Medium) | The vault accounts are ATAs owned by program PDAs (`pool_authority`, `vault_authority`) and pinned by `address = …`; the user accounts must be owned by the signer. One account can't satisfy both, since a signer can't equal an off-curve PDA.                                                         |
-| `stake_position` written after a CPI without reload in `withdraw_unstaked` (Medium)                                       | The CPI is an SPL Token transfer between token accounts; it can't modify a `StakePosition`, which only `envelope_stake` owns.                                                                                                                                                                            |
-| "Missing owner check" on admin, host, and user accounts (Low)                                                             | Anchor's `Account<T>` checks the program owner; authorization is enforced by `address = ADMIN`, `has_one = host`/`user`, and signer-derived seeds.                                                                                                                                                       |
-| "Account reinitialization" on `init` (Low)                                                                                | Anchor's `init` fails if the account already exists.                                                                                                                                                                                                                                                     |
-| "CpiContext target unresolved" (Low)                                                                                      | The target comes from `Program<'info, Token>` / `Program<'info, Token2022>`, which Anchor checks against the real program ID.                                                                                                                                                                            |
-| `hello_world` findings (Low)                                                                                              | Leftover template program, not deployed and not used by Envelope.                                                                                                                                                                                                                                        |
+| Finding (severity as reported)                                                                                            | Why it doesn't apply                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init_if_needed` on `stake_position` / `user_daily` (High)                                                                | Both are PDAs seeded by the signer, so an existing account can only be the caller's own. Neither handler relies on init-time zeroing: `stake` rejects a pending unstake and adds to the balance; `wrap` re-checks `day_index` and resets the daily total itself. Both re-set the owner field every call. Tests: a second wrap (with a different rent payer) updates the same record; another wallet's daily record or stake position is refused with `ConstraintSeeds`. |
+| Type cosplay in `wrap`'s stake-position read (High)                                                                       | The account is checked to be owned by `envelope_stake`, deserialized with Anchor's discriminator check, its `user` field must equal the signer, and its address is pinned by `seeds::program`. Tests: another wallet's real `StakePosition`, and a `Pass` (an `envelope_stake` account of another type), are both refused with `ConstraintSeeds`.                                                                                                                       |
+| User and vault token accounts "not constrained to be distinct" in `stake`, `withdraw_unstaked`, `wrap`, `unwrap` (Medium) | The vault accounts are ATAs owned by program PDAs (`pool_authority`, `vault_authority`) and pinned by `address = …`; the user accounts must be owned by the signer. One account can't satisfy both, since a signer can't equal an off-curve PDA.                                                                                                                                                                                                                        |
+| `stake_position` written after a CPI without reload in `withdraw_unstaked` (Medium)                                       | The CPI is an SPL Token transfer between token accounts; it can't modify a `StakePosition`, which only `envelope_stake` owns.                                                                                                                                                                                                                                                                                                                                           |
+| "Missing owner check" on admin, host, and user accounts (Low)                                                             | Anchor's `Account<T>` checks the program owner; authorization is enforced by `address = ADMIN`, `has_one = host`/`user`, and signer-derived seeds.                                                                                                                                                                                                                                                                                                                      |
+| "Account reinitialization" on `init` (Low)                                                                                | Anchor's `init` fails if the account already exists.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| "CpiContext target unresolved" (Low)                                                                                      | The target comes from `Program<'info, Token>` / `Program<'info, Token2022>`, which Anchor checks against the real program ID.                                                                                                                                                                                                                                                                                                                                           |
+| `hello_world` findings (Low)                                                                                              | Leftover template program, not deployed and not used by Envelope.                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Packages — accepted for now
 
@@ -297,8 +304,6 @@ against the code:
   link a user chose to open is parsed; no funds or keys are reachable. The fixed release (0.5.0) is
   ESM-only and `query-string` 7 `require()`s it, so forcing it would break link handling — it'll
   be picked up when Expo moves to a fixed `query-string`.
-- **`uuid` 7.0.3** (Medium) — comes in through Expo's Xcode project tooling, which runs only at
-  build time for iOS. Not in the Android app.
 - **`bincode` 1.3.3 unmaintained** (Medium) — a transitive dependency of the Solana/Anchor crates,
   with no maintained replacement upstream yet. An advisory about maintenance, not a known
   vulnerability.
@@ -363,3 +368,10 @@ never needs any. Bounded so it can't be drained:
 - **Devnet-only allowance:** every wallet's first refill is free, so a brand-new user with neither
   SOL nor SKR can start. A fresh wallet costs nothing to make, so on mainnet this must be gated
   (e.g. on the Seeker Genesis Token) or removed.
+- **The fuel ledger isn't durable on the hosted relayer** (found 9 October 2026). Tank bindings,
+  daily refill counts and who has had the welcome refill live in a JSON file
+  (`relayer/.data/fuel.json`). The devnet relayer runs on Render's free tier, whose disk is wiped
+  on every deploy or restart. After one, every wallet can take the welcome refill again, daily
+  caps restart, and tanks can be re-bound. The amounts per refill are still capped, so this is a
+  devnet cost, not a way to take funds. Mainnet needs a persistent store (a database, or a
+  mounted disk) before fuel is enabled.

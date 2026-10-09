@@ -3,7 +3,9 @@
 // script plays the app's side of the channel — answering signMessage/signTransactions with
 // alice's key (a wallet that signs as-is), sending what the bridge returns, and relaying private
 // sends through the hosted relayer. Covers: withdraw cSKR -> SKR, a pot that accepts dollars *and*
-// SKR, a private cSKR contribution to it, and closing it (sweep back to the host).
+// SKR, a private cSKR contribution to it (with privacy negative checks: the amount appears nowhere
+// on-chain in plaintext), a one-approval batch to two different recipients, closing the pot (sweep
+// back to the host), and a zero-SOL user. Prints an Explorer link for every transaction.
 //
 // Needs `npm run cbridge:build`, `npm run devnet:cskr`, and alice holding private cSKR (run
 // `npm run devnet:cskr-roundtrip` once). RELAYER_URL defaults to the hosted relayer.
@@ -119,6 +121,11 @@ async function main() {
   const call = <M extends keyof BridgeMethodMap>(method: M, params: BridgeMethodMap[M]['params']) =>
     host.call<BridgeMethodMap[M]['result']>(method, params)
 
+  // Every transaction this run lands, for the Explorer links printed at the end.
+  const landed: { label: string; signature: string }[] = []
+  let step = ''
+  const explorer = (signature: string) => `https://explorer.solana.com/tx/${signature}?cluster=devnet`
+
   async function send(transactions: string[]) {
     for (const tx of transactions) {
       const signature = await rpc.sendTransaction(tx as never, { encoding: 'base64' }).send()
@@ -130,10 +137,11 @@ async function main() {
         if (i > 60) throw new Error(`not confirmed: ${signature}`)
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
+      landed.push({ label: step, signature })
     }
   }
-  async function relay(transactions: string[]) {
-    if (transactions.length === 0) return
+  async function relay(transactions: string[]): Promise<string[]> {
+    if (transactions.length === 0) return []
     const response = await fetch(`${RELAYER_URL}/relay`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -141,6 +149,29 @@ async function main() {
     })
     const body = (await response.json()) as { signatures?: string[]; error?: string }
     if (!response.ok || body.error) throw new Error(`relay: ${body.error ?? response.status}`)
+    for (const signature of body.signatures ?? []) landed.push({ label: `${step} (relayed)`, signature })
+    return body.signatures ?? []
+  }
+  // Privacy negative check: the plaintext amount (the u64 a classic transfer would carry) appears
+  // nowhere in the transactions' bytes, and their token-balance metadata shows `owner`'s accounts
+  // at 0 before and after — a confidential balance lives only as ciphertext.
+  async function amountHiddenOnChain(signatures: string[], amount: bigint, owner: string) {
+    const needle = Buffer.alloc(8)
+    needle.writeBigUInt64LE(amount)
+    for (const signature of signatures) {
+      const tx = await rpc
+        .getTransaction(signature as never, {
+          encoding: 'base64',
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed',
+        })
+        .send()
+      if (!tx) throw new Error(`no transaction ${signature}`)
+      if (Buffer.from(tx.transaction[0], 'base64').includes(needle)) return false
+      const balances = [...(tx.meta?.preTokenBalances ?? []), ...(tx.meta?.postTokenBalances ?? [])]
+      if (balances.some((b) => b.owner === owner && b.uiTokenAmount.amount !== '0')) return false
+    }
+    return true
   }
   const privateBalance = async (mint: string, owner: string) => {
     const { availableBalance, pendingBalance } = await call('decryptAvailable', { rpcUrl, mint, owner })
@@ -164,8 +195,23 @@ async function main() {
 
   // 1. Withdraw 1 cSKR -> SKR (bridge picks unwrap_asset from the underlying mint).
   console.log('1. withdraw 1 cSKR to SKR')
-  const before = await privateBalance(cskr, aliceAddress)
-  if (before.available < 3_000_000n) throw new Error('alice needs 3+ private cSKR — run devnet:cskr-roundtrip')
+  step = 'withdraw 1 cSKR to SKR'
+  let before = await privateBalance(cskr, aliceAddress)
+  if (before.available < 6_000_000n && before.pending > 0n) {
+    // Earlier runs return the pot's cSKR to alice as pending; make it spendable.
+    step = "apply alice's pending cSKR"
+    await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
+    await send(
+      (await call('applyPendingBalance', { rpcUrl, mint: cskr, owner: aliceAddress, payer: aliceAddress }))
+        .signedTransactions,
+    )
+    before = await privateBalance(cskr, aliceAddress)
+    step = 'withdraw 1 cSKR to SKR'
+  }
+  if (before.available < 6_000_000n)
+    throw new Error(
+      `alice needs 6+ private cSKR (has ${before.available} available, ${before.pending} pending) — run devnet:cskr-roundtrip`,
+    )
   const skrBefore = await skrWallet()
   await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
   const withdrawPlan = await call('buildWithdrawPlan', {
@@ -184,6 +230,7 @@ async function main() {
 
   // 2. A pot that accepts dollars and SKR.
   console.log('2. create a pot accepting dollars and SKR')
+  step = 'create a pot (dollars + SKR)'
   await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
   const potId = Date.now().toString()
   const { potOwnerAddress } = await call('derivePotKeys', { owner: aliceAddress, potId })
@@ -203,6 +250,7 @@ async function main() {
 
   // 3. Contribute 2 cSKR privately, through the relayer (the app's send path).
   console.log('3. send 2 cSKR to the pot through the relayer')
+  step = 'contribute 2 cSKR to the pot'
   const tier = (await (await fetch(`${RELAYER_URL}/tier/${aliceAddress}`)).json()) as {
     tier: string
     relayerAddress: string
@@ -218,13 +266,36 @@ async function main() {
     feePayer: tier.relayerAddress,
     feeInstruction: tier.tier === 'free' ? { skrMint: tier.skrMint, amount: tier.freeTierFeeAmount } : undefined,
   })
-  await relay(transfer.signedTransactions)
-  await relay((await call('signContinuation', { rpcUrl, continuationId: transfer.continuationId })).signedTransactions)
-  check('pot holds 2 cSKR (pending)', (await privateBalance(cskr, potOwnerAddress)).pending === 2_000_000n)
+  const contribution = [
+    ...(await relay(transfer.signedTransactions)),
+    ...(await relay(
+      (await call('signContinuation', { rpcUrl, continuationId: transfer.continuationId })).signedTransactions,
+    )),
+  ]
+  check(
+    'pot holds 2 cSKR (pending), readable with the host-derived pot key',
+    (await privateBalance(cskr, potOwnerAddress)).pending === 2_000_000n,
+  )
+  // Privacy negative checks: what anyone else (another guest, an indexer) can see on-chain.
+  const [potCskr] = await findAta2022({
+    owner: potOwnerAddress as Address,
+    mint: cskr as Address,
+    tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+  })
+  check(
+    "pot's public token balance still reads 0",
+    (await rpc.getTokenAccountBalance(potCskr).send()).value.amount === '0',
+  )
+  check(
+    'the 2 cSKR amount appears nowhere in the contribution transactions',
+    await amountHiddenOnChain(contribution, 2_000_000n, potOwnerAddress),
+    `${contribution.length} transactions scanned`,
+  )
 
-  // 3b. Batch send: three transfers from one balance, one approval — including the same recipient
-  // twice, so each transfer's proofs must chain off the balance the previous one leaves.
-  console.log('3b. batch (Free tier: 2 people): 1 cSKR to bob, then 0.25 to bob again — one approval')
+  // 3b. Batch send: two transfers from one balance to two different recipients, one approval —
+  // the second transfer's proofs must chain off the balance the first one leaves.
+  console.log('3b. batch (Free tier: 2 people): 1.1 cSKR to bob and 0.35 cSKR into the pot — one approval')
+  step = 'batch: 1.1 cSKR to bob + 0.35 cSKR to the pot'
   const bob = 'DCuGm6sfoc6tBZaU829aFb3VtAMyVksEkvekkoVd3MVG'
   // Bob's amounts are his to decrypt; what's visible is his incoming-transfer counter.
   const [bobToken] = await findAta2022({
@@ -240,8 +311,8 @@ async function main() {
   const bobCreditsBefore = await bobCredits()
   const aliceBeforeBatch = await privateBalance(cskr, aliceAddress)
   const batchTransfers = [
-    { destinationOwner: bob, amount: '1000000' },
-    { destinationOwner: bob, amount: '250000' },
+    { destinationOwner: bob, amount: '1100000' },
+    { destinationOwner: potOwnerAddress, amount: '350000' },
   ]
   const batch = await call('buildBatchTransferPlan', {
     rpcUrl,
@@ -254,18 +325,30 @@ async function main() {
         ? { skrMint: tier.skrMint, amount: String(BigInt(tier.freeTierFeeAmount) * BigInt(batchTransfers.length)) }
         : undefined,
   })
-  await relay(batch.signedTransactions)
+  const batchSignatures = await relay(batch.signedTransactions)
   const approvals = signRequests
-  await relay((await call('signContinuation', { rpcUrl, continuationId: batch.continuationId })).signedTransactions)
+  batchSignatures.push(
+    ...(await relay(
+      (await call('signContinuation', { rpcUrl, continuationId: batch.continuationId })).signedTransactions,
+    )),
+  )
   check('one wallet approval for the whole batch', signRequests - approvals === 1, `${signRequests - approvals}`)
-  check('bob received 2 transfers', (await bobCredits()) - bobCreditsBefore === 2n)
+  check('bob received 1 transfer', (await bobCredits()) - bobCreditsBefore === 1n)
+  check('pot now holds 2.35 cSKR (pending)', (await privateBalance(cskr, potOwnerAddress)).pending === 2_350_000n)
   check(
-    'alice private cSKR -1.25',
-    aliceBeforeBatch.available - (await privateBalance(cskr, aliceAddress)).available === 1_250_000n,
+    'alice private cSKR -1.45',
+    aliceBeforeBatch.available - (await privateBalance(cskr, aliceAddress)).available === 1_450_000n,
+  )
+  check(
+    "neither recipient's amount appears in the batch transactions",
+    (await amountHiddenOnChain(batchSignatures, 1_100_000n, bob)) &&
+      (await amountHiddenOnChain(batchSignatures, 350_000n, potOwnerAddress)),
+    `${batchSignatures.length} transactions scanned`,
   )
 
   // 4. Close: apply the pot's pending SKR, then close_pot + sweep every token back to alice.
   console.log('4. close the pot')
+  step = 'close the pot'
   await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
   const hostBefore = await privateBalance(cskr, aliceAddress)
   await send(
@@ -284,12 +367,19 @@ async function main() {
     ).signedTransactions,
   )
   const hostAfter = await privateBalance(cskr, aliceAddress)
-  check("alice got the pot's 2 cSKR back", hostAfter.pending - hostBefore.pending === 2_000_000n)
+  check("alice got the pot's 2.35 cSKR back", hostAfter.pending - hostBefore.pending === 2_350_000n)
   // 5. A user whose wallet never holds SOL: SKR fuel pays rent and fees throughout.
   console.log('5. zero-SOL user (dave): welcome fuel, setup, receive, withdraw, pot — no SOL in the wallet')
+  step = 'zero-SOL user'
   const dave = await generateKeyPairSigner()
   wallets.set(dave.address, dave.keyPair)
   await call('deriveKeys', { owner: dave.address })
+  // A guest can't get at a pot's decryption key: it's derived from the host's wallet signature,
+  // so anyone else deriving "the same pot" gets an unrelated key and account.
+  check(
+    "another wallet can't derive alice's pot key",
+    (await call('derivePotKeys', { owner: dave.address, potId })).potOwnerAddress !== potOwnerAddress,
+  )
   const { address: daveTank } = await call('gasTankAddress', { owner: dave.address })
   const fuelResponse = await fetch(`${RELAYER_URL}/fuel`, {
     method: 'POST',
@@ -370,6 +460,8 @@ async function main() {
   check('dave created a pot', (await call('isAccountReady', { rpcUrl, mint: cskr, owner: davePot })).ready)
   check('dave still holds 0 SOL', (await rpc.getBalance(dave.address).send()).value === 0n)
 
+  console.log('\nTransactions (devnet):')
+  for (const { label, signature } of landed) console.log(`  ${label}: ${explorer(signature)}`)
   console.log('bridge cSKR e2e OK')
   process.exit(0)
 }
