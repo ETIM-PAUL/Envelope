@@ -72,16 +72,20 @@ export type BuildTransferPlanParams = {
 // relay that second. Retrying an expired second batch re-signs it against the same proofs.
 export type BuildTransferPlanResult = { signedTransactions: string[]; continuationId: string }
 
-// Several private sends from one balance, approved once: every transfer's proof setup is relayed
-// first (no approval), then `signContinuation` signs all the transfers in one wallet request and
-// they're relayed in order. Each transfer's proofs are built against the balance the previous one
-// leaves behind, so they must land in the order given — the relayer submits and confirms each in
-// turn. `feeInstruction.amount` is the whole batch's fee (one per transfer).
+// Several private sends from one balance: every transfer's proof setup is relayed first (no
+// approval), then the transfers themselves, packed two to a transaction (the most that fit). Each
+// transfer's proofs are built against the balance the previous one leaves behind, so they land in
+// the order given. A wallet previews each transaction against the chain as it is, so a transaction
+// whose transfers depend on an earlier, unlanded one would show "Simulation failed": sign them one
+// at a time (`signContinuation` with `from`/`count`), relaying each before signing the next.
+// `feeInstruction.amount` is the whole batch's fee (one per transfer).
 export type BatchTransfer = { destinationOwner: string; amount: string }
 export type BuildBatchTransferPlanParams = Omit<BuildTransferPlanParams, 'destinationOwner' | 'amount'> & {
   transfers: BatchTransfer[]
 }
-export type BuildBatchTransferPlanResult = BuildTransferPlanResult
+// `transfersPerTransaction[i]`: how many of `transfers` (in order) the continuation's i-th
+// transaction carries, so a partly sent batch can say who was paid.
+export type BuildBatchTransferPlanResult = BuildTransferPlanResult & { transfersPerTransaction: number[] }
 
 export type DecryptAvailableParams = { rpcUrl: string; mint: string; owner: string }
 export type DecryptAvailableResult = { availableBalance: string; pendingBalance: string }
@@ -293,9 +297,11 @@ export type BuildWithdrawPlanResult = { signedTransactions: string[]; continuati
 
 // Signs the deferred remainder of a staged plan (see BuildWithdrawPlanParams) with a fresh
 // blockhash. Safe to call again for the same id after an expired attempt — nothing from an
-// expired attempt lands, and the proof setup it depends on stays valid.
-export type SignContinuationParams = { rpcUrl: string; continuationId: string }
-export type SignContinuationResult = { signedTransactions: string[] }
+// expired attempt lands, and the proof setup it depends on stays valid. `from`/`count` sign only
+// that slice of the continuation's transactions (a batch, one transaction per approval); `total`
+// is how many it has.
+export type SignContinuationParams = { rpcUrl: string; continuationId: string; from?: number; count?: number }
+export type SignContinuationResult = { signedTransactions: string[]; total: number }
 
 export type BridgeMethodMap = {
   ping: { params: PingParams; result: PingResult }

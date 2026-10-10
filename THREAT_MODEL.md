@@ -367,8 +367,17 @@ appears nowhere in the gift's transactions.
 A batch builds each transfer's proofs against the source balance the _previous_ transfer leaves
 behind, computed off-chain with the same Ristretto subtraction Token-2022 performs on-chain. A
 wrong computation can't move funds: the on-chain equality proof check fails and that transfer
-(and everything after it) is rejected. The relayer submits and confirms each transaction in order,
-which the chain of proofs requires. A batch carries one SKR fee per transfer (free tier).
+(and everything after it) is rejected.
+
+Two transfers fit in one transaction, so a batch is packed two to a transaction. The app has the
+wallet approve one transaction at a time, each after the previous one has landed, because a
+wallet previews a transaction against the chain as it is: a transaction whose transfers depend on
+an unlanded one would show "Simulation failed" even though it would land fine in order. Batches
+are a paid-plan perk, enforced by the relayer per request: Member up to 2 transfers, Business up
+to 4 (two approvals). If a batch stops partway (a rejected approval, a network failure), the
+recipients before that point are paid and the rest aren't; the app says how many were paid, the
+unsent amounts stay in the sender's balance, and no transfer can be paid twice, since each one's
+proofs are single-use.
 
 ## Membership passes and SKR fuel
 

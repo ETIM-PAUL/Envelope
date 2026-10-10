@@ -16,7 +16,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 
 - **Private balances in dollars and SKR** — wrap USDC 1:1 into cUSDC, or SKR 1:1 into cSKR, both confidential tokens. Balances are stored on-chain as ciphertext; only your device can decrypt them. Switch between them on Home.
 - **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL. Scan any Envelope or Solana wallet QR code to fill in the recipient.
-- **Batch send** — pay up to 20 people in one approval (payroll, splitting a bill). Each person sees only their own amount.
+- **Batch send** — Members pay 2 people at once and Business 4 (splitting a bill, small payrolls), with one wallet approval for every two. Each person sees only their own amount.
 - **Receive** — share your address as a QR code or a tip link; incoming transfers show on Home as pending, and one tap adds them to your balance (no SOL needed).
 - **Gift links** — put private dollars or SKR behind a link and send it to someone who isn't on Envelope yet. They open it, install the app, and claim it into their own private balance with no SOL and no approval beyond enabling their account. The amount stays hidden, and you can take back any gift that hasn't been claimed.
 - **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
@@ -35,7 +35,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
   <tr>
     <td align="center"><img src="docs/screenshots/home.png" width="200" alt="Home: the sealed private balance in dollars and SKR" /><br /><sub><b>Home</b> — your sealed balance</sub></td>
     <td align="center"><img src="docs/screenshots/send.png" width="200" alt="Send privately" /><br /><sub><b>Send</b> — amount known only to you and the recipient</sub></td>
-    <td align="center"><img src="docs/screenshots/batch.png" width="200" alt="Batch send to several recipients" /><br /><sub><b>Batch send</b> — several people, one approval</sub></td>
+    <td align="center"><img src="docs/screenshots/batch.png" width="200" alt="Batch send to several recipients" /><br /><sub><b>Batch send</b> — several people at once</sub></td>
     <td align="center"><img src="docs/screenshots/receive.png" width="200" alt="Receive privately with a QR code and tip link" /><br /><sub><b>Receive</b> — QR code and tip link</sub></td>
   </tr>
   <tr>
@@ -99,9 +99,9 @@ SKR runs Envelope. A **membership pass** is bought with SKR — spent, not stake
 
 | Plan     | Price             | Network fees and rent            | Add dollars a day | Send fee | Batch send | Open pots | Pots in dollars + SKR |
 | -------- | ----------------- | -------------------------------- | ----------------- | -------- | ---------- | --------- | --------------------- |
-| Free     | —                 | 2 SKR per refill (first is free) | 100 USDC          | 1 SKR    | 2 people   | 1         | —                     |
-| Member   | 100 SKR / 30 days | Included                         | 10,000 USDC       | None     | 5 people   | 5         | ✓                     |
-| Business | 500 SKR / 30 days | Included                         | Unlimited         | None     | 20 people  | Unlimited | ✓                     |
+| Free     | —                 | 2 SKR per refill (first is free) | 100 USDC          | 1 SKR    | —          | 1         | —                     |
+| Member   | 100 SKR / 30 days | Included                         | 10,000 USDC       | None     | 2 people   | 5         | ✓                     |
+| Business | 500 SKR / 30 days | Included                         | Unlimited         | None     | 4 people   | Unlimited | ✓                     |
 
 **You never need SOL.** Each device has a gas tank — a keypair derived from your wallet, like your encryption keys — that pays rent and network fees for account setup, deposits, withdrawals, pots and passes. When it runs low, the relayer refuels it with SOL: free for members, 2 SKR otherwise, and every wallet's first refill is on the house so a new user can start with nothing. Private sends are paid by the relayer directly. Wallets that hold SOL can still top the tank up themselves.
 
@@ -234,7 +234,7 @@ The repo includes a Dockerfile ([`relayer/Dockerfile`](relayer/Dockerfile)) and 
 ## Design decisions
 
 - **Proofs in a WebView, not a server.** Generating proofs on-device keeps encryption keys on the phone. Hermes has no WebAssembly, so the zk-sdk runs in a sandboxed WebView with no network navigation or file access, talking to the app over a small RPC channel.
-- **One approval for a batch.** Each confidential transfer's proofs are computed against the sender's current encrypted balance. For a batch, the bridge computes the balance each transfer leaves behind — the same elliptic-curve subtraction Token-2022 performs on-chain — and builds the next transfer's proofs from it, so every transfer can be signed in one wallet request and landed in order.
+- **Batches the wallet can preview.** Each confidential transfer's proofs are computed against the sender's current encrypted balance. For a batch, the bridge computes the balance each transfer leaves behind — the same elliptic-curve subtraction Token-2022 performs on-chain — and builds the next transfer's proofs from it. Two transfers fill a Solana transaction and run in order inside it. Each transaction is approved only after the one before it has landed, so the wallet's simulation of every approval passes: 2 people take one approval, 4 take two.
 - **Pots know their tokens from the chain.** A pot accepts exactly the tokens it has a confidential account for, so the app can never offer a token the pot can't receive, and older pots need no migration.
 - **Proofs on phones the Play Store can't update.** The published zk-sdk WebAssembly needs Chrome 96+, but phones without Google services (Huawei, many budget devices) ship a frozen, older WebView. Envelope bundles the same zk-sdk version rebuilt without WebAssembly reference types, which brings support back to Chrome 85. Keys, ciphertexts, and proofs were cross-checked bit-for-bit against the published build, and [a script](packages/cbridge/scripts/build-zk-sdk-compat.sh) reproduces it from Solana's source.
 - **Wallet-agnostic signing.** Real wallets modify what they sign (Solflare adds priority-fee instructions), so the bridge adopts the wallet's returned transaction rather than assuming its own bytes were signed.
@@ -254,7 +254,7 @@ and devnet transaction links):
 
 - The rebuilt zk-sdk that runs on old WebViews produces the same keys and ciphertexts as the
   published SDK, and each build's proofs verify in the other.
-- Private sends, pots and a batch to two recipients work end to end on devnet through the shipped
+- Private sends, pots and a batch to four recipients work end to end on devnet through the shipped
   bridge bundle. The amounts appear nowhere in the transactions' bytes.
 - Every attempt to drain the relayer or over-claim fuel is refused.
 - The scanners' three "high" Anchor leads are pinned down by tests asserting the exact error.

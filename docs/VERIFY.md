@@ -1,6 +1,6 @@
 # Verifying Envelope's claims
 
-Each claim below has a check you can run, plus the output of our last run on **9 October 2026**
+Each claim below has a check you can run, plus the output of our runs on **9 and 10 October 2026**
 (Solana devnet, against the hosted relayer at `https://envelope-relayer.onrender.com`). Every
 transaction link opens on Solana Explorer.
 
@@ -15,7 +15,7 @@ transaction link opens on Solana Explorer.
 | --------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------- |
 | Proofs run on old WebViews (Chrome 85+), same crypto as the SDK | `npm run cbridge:verify-zk-sdk`                              | 23/23 checks pass            |
 | Private sends, pots and batch send work end to end              | `npm run devnet:bridge-e2e`                                  | All checks pass              |
-| Amounts never appear on-chain (privacy negative checks)         | part of `devnet:bridge-e2e`                                  | 17 transactions scanned      |
+| Amounts never appear on-chain (privacy negative checks)         | part of `devnet:bridge-e2e`                                  | 23 transactions scanned      |
 | Guests can't read a pot's total                                 | `npm run devnet:pot-roundtrip`                               | 3 guests, none can decrypt   |
 | Gift links: a new wallet claims with only the link's secret     | part of `devnet:bridge-e2e`                                  | Claimed, no approval, no SOL |
 | The relayer can't be drained                                    | `npm run relayer:test-attacks`, `npm run relayer:test-fuel`  | Every attack refused         |
@@ -71,15 +71,18 @@ the hosted relayer.
 3. send 2 cSKR to the pot through the relayer
   ok   pot holds 2 cSKR (pending), readable with the host-derived pot key
   ok   pot's public token balance still reads 0
-  ok   the 2 cSKR amount appears nowhere in the contribution transactions — 6 transactions scanned
-3b. batch (Free tier: 2 people): 1.1 cSKR to bob and 0.35 cSKR into the pot — one approval
-  ok   one wallet approval for the whole batch — 1
-  ok   bob received 1 transfer
-  ok   pot now holds 2.35 cSKR (pending)
-  ok   alice private cSKR -1.45
-  ok   neither recipient's amount appears in the batch transactions — 11 transactions scanned
+  ok   the 2 cSKR amount appears nowhere in the contribution transactions — 5 transactions scanned
+3b. batch (Business: 4 people): bob and the pot, twice each — two approvals
+  ok   two transfers per transaction — 2 + 2
+  ok   approval 1: the wallet's preview simulates cleanly
+  ok   approval 2: the wallet's preview simulates cleanly
+  ok   one wallet approval per transaction — 2
+  ok   bob received 2 transfers
+  ok   pot now holds 2.5 cSKR (pending)
+  ok   alice private cSKR -1.81
+  ok   no amount appears in the batch transactions — 18 transactions scanned
 4. close the pot
-  ok   alice got the pot's 2.35 cSKR back
+  ok   alice got the pot's 2.5 cSKR back
 5. zero-SOL user (dave): welcome fuel, setup, receive, withdraw, pot — no SOL in the wallet
   ok   another wallet can't derive alice's pot key
   ok   welcome fuel sent with no approval
@@ -94,20 +97,21 @@ bridge cSKR e2e OK
 
 Key transactions from that run:
 
-| What                                                    | Transaction                                                                                                                                         |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Private contribution to a pot (2 cSKR, amount hidden)   | [5avbmAgv…](https://explorer.solana.com/tx/5avbmAgv6HQSozSj4LvbEgQkyfJLbz99ZUjrvhjTpv8f8zFLgcvmcxYUP2WMxK3XT5EoPD64m2NtPnVQw7yvbnxV?cluster=devnet) |
-| The Free-plan send fee for it (1 SKR, public by design) | [5uNi7SdU…](https://explorer.solana.com/tx/5uNi7SdUAWQWy3VbCn6CD3W4JEaeur3hdcQG7oMMr8q2wmuec2PVW2D7KJdcWP5HLPMefBj9qdn9Nr2SQsYGnGxZ?cluster=devnet) |
-| Batch transfer 1: to bob (1.1 cSKR, hidden)             | [4KKQFLWw…](https://explorer.solana.com/tx/4KKQFLWwKzpegwV1TBnqrQi2TVQqE73fH5dWiJA7V3amkiUTDMeuBRZKQPnQGsqC8mZR13EfKwkpnrjFymJvZE6W?cluster=devnet) |
-| Batch transfer 2: to the pot (0.35 cSKR, hidden)        | [2GyT28Zy…](https://explorer.solana.com/tx/2GyT28ZYcfUtzNEFB45KLGgJ55V1hrmUnD1Vj3oRMhKqtc7zgWWD9Gf3y1eniwwRuU67R9U8rQaXvKQ5aQjnBTBw?cluster=devnet) |
-| The batch's send fee (2 × 1 SKR)                        | [5QL9iVUe…](https://explorer.solana.com/tx/5QL9iVUeJRBWhqdkN9MtLZgMQQZfojsygicRG3SkUPg5BFDj8hEArLdF2wYxLoNMNVjxkYfGa4CZy2hotixR2i7b?cluster=devnet) |
-| Pot created (accepts dollars and SKR)                   | [61FUFZSR…](https://explorer.solana.com/tx/61FUFZSRjfLZ3hhmKCM3YZozhQJTgLGea1JdPEQV2eetuoKx2dczBQsiD4JyPe4yjex9pwUogKtaXaMTZLUNJ8sg?cluster=devnet) |
-| Pot closed, funds swept back to the host                | [4cBP4P4x…](https://explorer.solana.com/tx/4cBP4P4xoxddvEQpMJJAJwJZ3XsNZpov4cAYwqeqEC3Sv3VLaapmc1W2Yy8dDfgt4ML7z3znDxrZdY1SaE6rGJ2b?cluster=devnet) |
-| Welcome fuel for a zero-SOL wallet                      | [3HsD6Nkn…](https://explorer.solana.com/tx/3HsD6NkneVudb6SYSwNzCkyPBr9wC9mAYkpvpU35NYBpozVAgMa8tq46h7grYKD1Aimkkhz3GV7mhfU97tn1Uhrp?cluster=devnet) |
+| What                                                                 | Transaction                                                                                                                                         |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Private contribution to a pot (2 cSKR, amount hidden)                | [5avbmAgv…](https://explorer.solana.com/tx/5avbmAgv6HQSozSj4LvbEgQkyfJLbz99ZUjrvhjTpv8f8zFLgcvmcxYUP2WMxK3XT5EoPD64m2NtPnVQw7yvbnxV?cluster=devnet) |
+| The Free-plan send fee for it (1 SKR, public by design)              | [5uNi7SdU…](https://explorer.solana.com/tx/5uNi7SdUAWQWy3VbCn6CD3W4JEaeur3hdcQG7oMMr8q2wmuec2PVW2D7KJdcWP5HLPMefBj9qdn9Nr2SQsYGnGxZ?cluster=devnet) |
+| Batch, approval 1: two transfers (bob, then the pot), amounts hidden | [3js852Bc…](https://explorer.solana.com/tx/3js852BcaMFbvDgRAhszZdKU3KuSKnrAR9JZH6EcD6d4NHbq3TKNw9LhA1pghBYCqPU29z2TfuHxqupr8k7MxEZS?cluster=devnet) |
+| Batch, approval 2: two more, built on what the first left            | [334vDrgg…](https://explorer.solana.com/tx/334vDrggXZk2BBZJgjTdFa6SQLYt8KGya7XcMHVG9C8TZytYo8NdVrdSCiCq9EzBpqhXxnhAFAKzzTBKqGkzZ7qe?cluster=devnet) |
+| Pot created (accepts dollars and SKR)                                | [61FUFZSR…](https://explorer.solana.com/tx/61FUFZSRjfLZ3hhmKCM3YZozhQJTgLGea1JdPEQV2eetuoKx2dczBQsiD4JyPe4yjex9pwUogKtaXaMTZLUNJ8sg?cluster=devnet) |
+| Pot closed, funds swept back to the host                             | [4cBP4P4x…](https://explorer.solana.com/tx/4cBP4P4xoxddvEQpMJJAJwJZ3XsNZpov4cAYwqeqEC3Sv3VLaapmc1W2Yy8dDfgt4ML7z3znDxrZdY1SaE6rGJ2b?cluster=devnet) |
+| Welcome fuel for a zero-SOL wallet                                   | [3HsD6Nkn…](https://explorer.solana.com/tx/3HsD6NkneVudb6SYSwNzCkyPBr9wC9mAYkpvpU35NYBpozVAgMa8tq46h7grYKD1Aimkkhz3GV7mhfU97tn1Uhrp?cluster=devnet) |
 
-Each batch transfer carries three ZK ElGamal proof accounts. The second transfer's proofs are
-built on the balance the first one leaves, which the phone works out from the ciphertext before
-the wallet opens. That is how a batch needs only one approval.
+Each transfer carries three ZK ElGamal proof accounts, and two transfers fill a transaction. Each
+transfer's proofs are built on the balance the one before leaves, which the phone works out from
+the ciphertext. Each transaction is approved on its own, after the one before has landed, so the
+wallet's preview of every approval simulates cleanly: a Member's 2 people take one approval, a
+Business batch of 4 takes two.
 
 **The privacy negative checks** scan the raw bytes of every transaction in the contribution and
 the batch. They look for the transferred amount encoded as the `u64` a normal token transfer

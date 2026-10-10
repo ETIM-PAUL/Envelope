@@ -109,7 +109,9 @@ export const policyConfig = {
 }
 
 // What each tier gets beyond the vault's on-chain daily limits. The relayer enforces
-// maxBatchRecipients and sendFeeWaived itself; the app enforces the pot rules (they aren't
+// maxBatchRecipients (private transfers per request) and sendFeeWaived itself. Batch sizes stay
+// small on purpose: two private transfers fill a transaction, and a batch spanning transactions is
+// approved one transaction at a time so the wallet can preview each (see the app's use-send-batch); the app enforces the pot rules (they aren't
 // on-chain) and shows all of it on the Membership screen — /tier returns this table so the two
 // never disagree.
 export type TierPerks = {
@@ -120,10 +122,10 @@ export type TierPerks = {
   fuelIncluded: boolean // gas-tank refills (rent and network fees) without paying SKR
 }
 export const tierPerks: Record<'free' | 'member' | 'business', TierPerks> = {
-  free: { maxBatchRecipients: 2, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
-  member: { maxBatchRecipients: 5, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
+  free: { maxBatchRecipients: 1, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
+  member: { maxBatchRecipients: 2, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
   business: {
-    maxBatchRecipients: 20,
+    maxBatchRecipients: 4,
     maxOpenPots: null,
     multiTokenPots: true,
     sendFeeWaived: true,

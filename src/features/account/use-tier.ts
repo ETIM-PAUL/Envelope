@@ -42,10 +42,10 @@ export async function fetchTierInfo(owner: string): Promise<TierInfo> {
 }
 
 const FALLBACK_PERKS: Record<Tier, TierPerks> = {
-  free: { maxBatchRecipients: 2, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
-  member: { maxBatchRecipients: 5, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
+  free: { maxBatchRecipients: 1, maxOpenPots: 1, multiTokenPots: false, sendFeeWaived: false, fuelIncluded: false },
+  member: { maxBatchRecipients: 2, maxOpenPots: 5, multiTokenPots: true, sendFeeWaived: true, fuelIncluded: true },
   business: {
-    maxBatchRecipients: 20,
+    maxBatchRecipients: 4,
     maxOpenPots: null,
     multiTokenPots: true,
     sendFeeWaived: true,

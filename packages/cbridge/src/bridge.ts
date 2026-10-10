@@ -589,10 +589,14 @@ channel.on('buildBatchTransferPlan', async (params) => {
   // before leaves, so a wallet simulating them as separate transactions (against the chain as it
   // is now) sees every transfer after the first fail ("Simulation failed"), even though they land
   // fine in order. Inside one transaction the simulation runs them in order and passes.
+  // The transfers go into as few transactions as fit. Each one's proofs assume the balance the one
+  // before leaves, so a wallet simulating them as separate transactions (against the chain as it
+  // is now) sees every transfer after the first fail ("Simulation failed"), even though they land
+  // fine in order. Inside one transaction the simulation runs them in order and passes.
   const continuationId = `batch-${owner}-${Date.now()}`
   continuations.set(continuationId, packMessages(finalMessages))
   const signedTransactions = await signPlannedMessages(setupMessages, rpc)
-  return { signedTransactions, continuationId } satisfies BuildBatchTransferPlanResult
+  return { signedTransactions, continuationId, transfersPerTransaction } satisfies BuildBatchTransferPlanResult
 })
 
 // Leaves room under the 1232-byte limit for what wallets add while signing (Solflare appends
@@ -861,11 +865,12 @@ channel.on('buildWithdrawPlan', async (params) => {
 })
 
 channel.on('signContinuation', async (params) => {
-  const { rpcUrl, continuationId } = params as SignContinuationParams
+  const { rpcUrl, continuationId, from = 0, count } = params as SignContinuationParams
   const messages = continuations.get(continuationId)
   if (!messages) throw new Error('nothing to continue — start the withdraw again')
-  const signedTransactions = await signPlannedMessages(messages, createSolanaRpc(rpcUrl))
-  return { signedTransactions } satisfies SignContinuationResult
+  const slice = messages.slice(from, count === undefined ? undefined : from + count)
+  const signedTransactions = await signPlannedMessages(slice, createSolanaRpc(rpcUrl))
+  return { signedTransactions, total: messages.length } satisfies SignContinuationResult
 })
 
 function hasExtension(extensions: { __kind: string }[] | undefined, kind: string): boolean {

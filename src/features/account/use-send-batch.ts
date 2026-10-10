@@ -1,7 +1,10 @@
-// Batch send: several private transfers of one token from one balance, approved once. Same shape as
-// useSendPrivately — proof setup relayed first with no approval, then the wallet signs every
-// transfer in a single request and the relayer lands them in order — but the bridge chains each
-// transfer's proofs off the balance the previous one leaves (see BuildBatchTransferPlanParams).
+// Batch send: several private transfers of one token from one balance. Same shape as
+// useSendPrivately — proof setup relayed first with no approval, then the transfers — but the
+// bridge chains each transfer's proofs off the balance the previous one leaves and packs them two
+// to a transaction (see BuildBatchTransferPlanParams). The wallet approves one transaction at a
+// time, each after the one before has landed, so its preview always simulates cleanly: Member's
+// 2 people are one approval, Business's 4 are two. If it stops partway, PartialBatchError says
+// how many were paid.
 import { useCBridge } from '@envelope/rn-confidential'
 import { useCallback, useState } from 'react'
 import { getAsset, type AssetId } from '../../config/assets'
@@ -15,7 +18,23 @@ import { fetchTierInfo } from './use-tier'
 import type { SendStep } from './use-send-privately'
 
 // The most any tier allows (Business); each tier's own cap comes from the relayer (TierPerks).
-export const MAX_BATCH_RECIPIENTS = 20
+export const MAX_BATCH_RECIPIENTS = 4
+
+// A batch that stopped after paying the first `paid` recipients (in order). The rest weren't sent,
+// so their money is still in the sender's balance.
+export class PartialBatchError extends Error {
+  constructor(
+    readonly paid: number,
+    readonly total: number,
+    readonly signatures: string[],
+    cause: unknown,
+  ) {
+    super(
+      `Sent to ${paid} of ${total} people. The other ${total - paid} weren't sent, and that money is still in your balance.`,
+      { cause },
+    )
+  }
+}
 
 export type BatchRecipient = { address: string; amount: bigint }
 
@@ -25,6 +44,8 @@ export function useSendBatch() {
   const { isRecipientReady } = useConfidentialAccount()
   const { refetchBalance } = usePrivateBalance()
   const [step, setStep] = useState<SendStep>('idle')
+  // Which wallet approval the batch is on, when it needs more than one.
+  const [approval, setApproval] = useState<{ current: number; total: number } | null>(null)
 
   const sendBatch = useCallback(
     async (recipients: BatchRecipient[], asset: AssetId): Promise<string[]> => {
@@ -51,7 +72,11 @@ export function useSendBatch() {
         }
 
         setStep('preparing-proofs')
-        const { signedTransactions: proofSetup, continuationId } = await bridge.call('buildBatchTransferPlan', {
+        const {
+          signedTransactions: proofSetup,
+          continuationId,
+          transfersPerTransaction,
+        } = await bridge.call('buildBatchTransferPlan', {
           rpcUrl: DEVNET_RPC_URL,
           mint: getAsset(asset).confidentialMint,
           owner: walletAddress,
@@ -69,13 +94,31 @@ export function useSendBatch() {
         const setupSignatures = proofSetup.length > 0 ? await relayTransactions(walletAddress, proofSetup) : []
 
         setStep('relaying')
-        const transferSignatures = await retryOnExpiry(async () => {
-          const { signedTransactions } = await bridge.call('signContinuation', {
-            rpcUrl: DEVNET_RPC_URL,
-            continuationId,
-          })
-          return relayTransactions(walletAddress, signedTransactions)
-        })
+        const transferSignatures: string[] = []
+        let paid = 0
+        for (let index = 0; index < transfersPerTransaction.length; index++) {
+          setApproval({ current: index + 1, total: transfersPerTransaction.length })
+          try {
+            // Re-signing after an expiry is safe: the expired transaction never landed.
+            transferSignatures.push(
+              ...(await retryOnExpiry(async () => {
+                const { signedTransactions } = await bridge.call('signContinuation', {
+                  rpcUrl: DEVNET_RPC_URL,
+                  continuationId,
+                  from: index,
+                  count: 1,
+                })
+                return relayTransactions(walletAddress, signedTransactions)
+              })),
+            )
+            paid += transfersPerTransaction[index]!
+          } catch (error) {
+            if (paid === 0) throw error
+            await refetchBalance()
+            throw new PartialBatchError(paid, recipients.length, [...setupSignatures, ...transferSignatures], error)
+          }
+        }
+        setApproval(null)
 
         setStep('confirming')
         await refetchBalance()
@@ -84,11 +127,12 @@ export function useSendBatch() {
         return [...setupSignatures, ...transferSignatures]
       } catch (err) {
         setStep('idle')
+        setApproval(null)
         throw err
       }
     },
     [bridge, walletAddress, isRecipientReady, refetchBalance],
   )
 
-  return { sendBatch, step, isBusy: step !== 'idle' && step !== 'done' }
+  return { sendBatch, step, approval, isBusy: step !== 'idle' && step !== 'done' }
 }

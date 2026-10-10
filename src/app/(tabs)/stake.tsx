@@ -94,7 +94,7 @@ function perkLines(perks: TierPerks, dailyLimit: bigint | undefined, sendFee?: b
       : sendFee === undefined
         ? 'SKR fee per private send'
         : `${formatExactBaseUnits(sendFee, SKR_DECIMALS)} SKR per private send`,
-    `Send to ${perks.maxBatchRecipients} people at once`,
+    perks.maxBatchRecipients > 1 ? `Send to ${perks.maxBatchRecipients} people at once` : 'One person per send',
     perks.maxOpenPots === null
       ? 'Unlimited open pots'
       : `${perks.maxOpenPots} open pot${perks.maxOpenPots === 1 ? '' : 's'} at a time`,
