@@ -1,12 +1,10 @@
-// Phase 14: the static tip-link site (`https://<site>/tip/<owner>`, a page that deep-links into
-// the app with an install fallback for anyone who doesn't have it yet). That site isn't part of
-// this repo — it needs its own tiny static page hosted somewhere — so this is a placeholder
-// pointing at nothing real yet. Until it's deployed, the tip link in the Receive screen just
-// won't resolve for someone without the app installed; the `envelope://` QR code works regardless
-// since it only needs the app already installed, not a web fallback.
+// Tip links and pot invites (`<site>/tip/<address>`): a page that opens the app on that address,
+// with a download for anyone who doesn't have it yet. The relayer serves it (relayer/src/tip-page.ts),
+// the same way it serves gift links. The `envelope://` QR codes work regardless; they only need the
+// app already installed.
 import { RELAYER_URL } from './relayer'
 
-export const TIP_SITE_URL = process.env.EXPO_PUBLIC_TIP_SITE_URL || 'https://envelope.example/tip'
+export const TIP_SITE_URL = process.env.EXPO_PUBLIC_TIP_SITE_URL || `${RELAYER_URL}/tip`
 
 // Gift links (features/gifts): `<GIFT_LINK_BASE>#<secret>`. The relayer serves that page — it
 // explains the gift, offers the app, and opens it — and the secret rides after the `#`, which

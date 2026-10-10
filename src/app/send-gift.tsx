@@ -18,6 +18,7 @@ import { ASSET_DECIMALS, formatAssetAmount, getAsset, type AssetId } from '../co
 import { usePrivateBalance } from '../features/account/use-private-balance'
 import { useTier } from '../features/account/use-tier'
 import { readGiftSecret } from '../features/gifts/gift-store'
+import { giftLink } from '../config/site'
 import {
   useClaimGift,
   useCreateGift,
@@ -231,9 +232,24 @@ function SentGifts({ disabled }: { disabled: boolean }) {
   const { data: gifts } = useSentGifts()
   const { claimGift, isBusy } = useClaimGift()
   const [takingBack, setTakingBack] = useState<string | null>(null)
+  const [copiedGift, setCopiedGift] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   if (!gifts || gifts.length === 0) return null
+
+  // The link again, for a gift that hasn't been claimed: the secret is kept on this phone.
+  async function copyLink(gift: SentGift) {
+    setError(null)
+    try {
+      const secret = await readGiftSecret(gift.giftOwner)
+      if (!secret) throw new Error("This gift's link isn't stored on this phone.")
+      await Clipboard.setStringAsync(giftLink(secret))
+      setCopiedGift(gift.giftOwner)
+      setTimeout(() => setCopiedGift((current) => (current === gift.giftOwner ? null : current)), 2000)
+    } catch (e) {
+      setError(formatError(e))
+    }
+  }
 
   async function takeBack(gift: SentGift) {
     setError(null)
@@ -270,15 +286,33 @@ function SentGifts({ disabled }: { disabled: boolean }) {
               </Text>
             </View>
             {gift.status === 'waiting' ? (
-              <Pressable
-                onPress={() => void takeBack(gift)}
-                disabled={disabled || isBusy}
-                accessibilityLabel={`Take back the ${getAsset(gift.asset).symbol} gift`}
-              >
-                <Text className="text-seal-400 text-sm" style={{ fontFamily: fontFamily.uiSemibold }}>
-                  {takingBack === gift.giftOwner ? 'Taking back…' : 'Take back'}
-                </Text>
-              </Pressable>
+              // Never shrinks: a squeezed row used to cut "Take back" down to "Take".
+              <View className="flex-row items-center gap-4 ml-3" style={{ flexShrink: 0 }}>
+                <Pressable
+                  onPress={() => void copyLink(gift)}
+                  hitSlop={10}
+                  accessibilityLabel={`Copy the link for the ${getAsset(gift.asset).symbol} gift`}
+                >
+                  <Feather
+                    name={copiedGift === gift.giftOwner ? 'check' : 'copy'}
+                    size={18}
+                    color={copiedGift === gift.giftOwner ? colors.gold[500] : colors.mute[500]}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() => void takeBack(gift)}
+                  disabled={disabled || isBusy}
+                  accessibilityLabel={`Take back the ${getAsset(gift.asset).symbol} gift`}
+                >
+                  <Text
+                    numberOfLines={1}
+                    className="text-seal-400 text-sm"
+                    style={{ fontFamily: fontFamily.uiSemibold }}
+                  >
+                    {takingBack === gift.giftOwner ? 'Taking back…' : 'Take back'}
+                  </Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
         ))}

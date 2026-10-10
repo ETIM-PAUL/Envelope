@@ -319,7 +319,7 @@ and devnet transaction links):
 - Verified app links, so a gift or tip link opens Envelope directly, and claim-after-install once Envelope is in the Solana dApp Store.
 - Scheduled and recurring payments: payroll and allowances built on batch send.
 - More private assets through the same vault, such as other stablecoins.
-- A hosted tip page for creators, replacing the placeholder tip link.
+- A branded tip page for creators, with their name and a payment history. Today a tip link opens a plain page that sends people to the app.
 
 ## License
 

@@ -32,6 +32,7 @@ import { claimFromFaucet, FaucetRefusal, getFaucetStatus } from './faucet.ts'
 import { FuelRefusal, requestFuel, submitFuel } from './fuel.ts'
 import { sendPushNotification } from './expo-push.ts'
 import { giftPage } from './gift-page.ts'
+import { isTipAddress, tipPage } from './tip-page.ts'
 
 // The outermost SolanaError is usually generic ("Transaction simulation failed"); the reason that
 // matters to the client — e.g. "Blockhash not found", which it retries by re-asking the wallet —
@@ -59,6 +60,16 @@ app.get('/gift', (c) => {
   c.header('Cache-Control', 'public, max-age=300')
   c.header('Referrer-Policy', 'no-referrer')
   return c.html(giftPage(APP_DOWNLOAD_URL))
+})
+
+// GET /tip/:address — the page tip links and pot invites open; see tip-page.ts. The address is
+// public, so unlike a gift it can live in the path.
+app.get('/tip/:address', (c) => {
+  const address = c.req.param('address')
+  if (!isTipAddress(address)) return c.text('Not a valid Envelope link.', 400)
+  c.header('Cache-Control', 'public, max-age=300')
+  c.header('Referrer-Policy', 'no-referrer')
+  return c.html(tipPage(address, c.req.query('assets'), APP_DOWNLOAD_URL))
 })
 
 // GET /tier/:wallet — read-only, no auth: lets a client (the phone app) show an accurate fee line
