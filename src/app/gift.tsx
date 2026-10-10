@@ -23,6 +23,7 @@ const STEP_LABEL: Record<ClaimStep, string> = {
   unsealing: 'Opening the gift…',
   moving: 'Moving it to your private balance…',
   closing: 'Finishing up…',
+  adding: 'Approve in your wallet to add it…',
   done: 'Done',
 }
 
@@ -36,7 +37,7 @@ export default function ClaimGift() {
   const { claimGift, step, isBusy } = useClaimGift()
   const [enabling, setEnabling] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [claimed, setClaimed] = useState<string | null>(null)
+  const [claimed, setClaimed] = useState<{ amount: string; added: boolean } | null>(null)
 
   async function handleClaim() {
     if (!secret || isBusy || enabling) return
@@ -52,8 +53,8 @@ export default function ClaimGift() {
         }
         setEnabling(false)
       }
-      const { asset, amount } = await claimGift(secret)
-      setClaimed(formatAssetAmount(amount, asset))
+      const { asset, amount, added } = await claimGift(secret)
+      setClaimed({ amount: formatAssetAmount(amount, asset), added })
     } catch (e) {
       setEnabling(false)
       setError(formatError(e))
@@ -74,10 +75,12 @@ export default function ClaimGift() {
       <Screen center>
         <SealMark size={56} />
         <Text className="text-paper-500 text-2xl mt-6 mb-2 text-center" style={{ fontFamily: fontFamily.display }}>
-          {claimed} is yours
+          {claimed.amount} is yours
         </Text>
         <Text className="text-mute-500 text-base mb-10 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
-          It&apos;s in your private balance. Only you can see it.
+          {claimed.added
+            ? "It's in your private balance. Only you can see it."
+            : "It's waiting on your Home screen. Tap Add to balance there to make it spendable."}
         </Text>
         <View className="w-full max-w-xs">
           <Button label="Go to my balance" onPress={() => router.replace('/(tabs)/home')} />

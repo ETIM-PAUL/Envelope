@@ -59,10 +59,15 @@ export default function Onboarding() {
         Approve the prompts in your wallet to continue.
       </Text>
 
-      {keysUnlocked ? (
-        <Text className="text-mute-500 text-base mb-6" style={{ fontFamily: fontFamily.ui }}>
-          Already enabled on this device.
-        </Text>
+      {/* Once the signature is in, keysUnlocked flips while the account setup is still running:
+          keep showing the progress until it finishes, then offer the way home. */}
+      {keysUnlocked && !isBusy ? (
+        <View className="w-full max-w-xs items-center">
+          <Text className="text-mute-500 text-base mb-6" style={{ fontFamily: fontFamily.ui }}>
+            Your private balance is ready on this phone.
+          </Text>
+          <Button label="Go to my balance" onPress={() => router.replace('/(tabs)/home')} />
+        </View>
       ) : (
         <View className="w-full max-w-xs">
           <Button

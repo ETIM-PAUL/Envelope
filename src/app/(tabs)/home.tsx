@@ -13,6 +13,7 @@ import { SealMark } from '../../components/seal-mark'
 import { TierBadge } from '../../components/tier-badge'
 import { colors, fontFamily } from '../../design/tokens'
 import { useBalanceChange } from '../../features/account/use-balance-change'
+import { useApplyPendingBalance } from '../../features/account/use-apply-pending-balance'
 import { useConfidentialAccount } from '../../features/account/use-confidential-account'
 import { usePrivateBalance } from '../../features/account/use-private-balance'
 import { useTier } from '../../features/account/use-tier'
@@ -28,7 +29,7 @@ export default function Home() {
   const setAsset = useAppStore((s) => s.setSelectedAsset)
   const { symbol, privateSymbol } = getAsset(asset)
   useTier(walletAddress)
-  const { keysUnlocked } = useConfidentialKeys()
+  const { keysUnlocked, enablePrivateBalance } = useConfidentialKeys()
   const { availableBalance, pendingBalance, isLoading: balanceLoading } = usePrivateBalance(asset)
   const { displayed, change } = useBalanceChange(keysUnlocked ? availableBalance : null, asset)
 
@@ -43,6 +44,49 @@ export default function Home() {
   })
   const [turningOn, setTurningOn] = useState(false)
   const [turnOnError, setTurnOnError] = useState<string | null>(null)
+
+  // Locked, but this wallet's private balance already exists on-chain: unlocking is one wallet
+  // signature right here (phones that can't keep it behind the fingerprint ask on every open), not
+  // the first-time setup screen.
+  const { data: alreadySetUp } = useQuery({
+    queryKey: ['own-account-exists', walletAddress],
+    enabled: Boolean(walletAddress && !keysUnlocked),
+    queryFn: () => isRecipientReady(walletAddress!, 'usdc'),
+  })
+  const [unlocking, setUnlocking] = useState(false)
+  const [unlockError, setUnlockError] = useState<string | null>(null)
+
+  async function handleUnlock() {
+    if (unlocking) return
+    setUnlocking(true)
+    setUnlockError(null)
+    try {
+      await enablePrivateBalance()
+    } catch (e) {
+      setUnlockError(formatError(e))
+    } finally {
+      setUnlocking(false)
+    }
+  }
+
+  // Incoming private payments and claimed gifts arrive as pending; adding them is the user's call
+  // (one wallet signature, the gas tank pays).
+  const { applyPendingBalance } = useApplyPendingBalance()
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  async function handleAddPending() {
+    if (adding) return
+    setAdding(true)
+    setAddError(null)
+    try {
+      await applyPendingBalance(asset)
+    } catch (e) {
+      setAddError(formatError(e))
+    } finally {
+      setAdding(false)
+    }
+  }
 
   async function handleTurnOn() {
     if (turningOn) return
@@ -117,8 +161,20 @@ export default function Home() {
           </Text>
         </View>
         {keysUnlocked && pendingBalance !== null && pendingBalance > 0n ? (
-          <Text className="text-gold-500 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
-            +{formatAssetAmount(pendingBalance, asset)} pending
+          <Pressable
+            onPress={() => void handleAddPending()}
+            disabled={adding}
+            className="flex-row items-center gap-2 mt-4 rounded-full border border-gold-500 px-4 py-2 active:bg-ink-800"
+            accessibilityLabel={`Add ${formatAssetAmount(pendingBalance, asset)} to your balance`}
+          >
+            <Text className="text-gold-500 text-sm" style={{ fontFamily: fontFamily.uiSemibold }}>
+              {adding ? 'Adding…' : `+${formatAssetAmount(pendingBalance, asset)} pending · Add to balance`}
+            </Text>
+          </Pressable>
+        ) : null}
+        {addError ? (
+          <Text className="text-seal-500 text-xs mt-2 text-center px-6" style={{ fontFamily: fontFamily.ui }}>
+            {addError}
           </Text>
         ) : null}
       </View>
@@ -171,7 +227,20 @@ export default function Home() {
         </Link>
       </View>
 
-      {keysUnlocked ? null : (
+      {keysUnlocked ? null : alreadySetUp ? (
+        <View className="mt-4">
+          <Button
+            label={unlocking ? 'Approve in your wallet…' : 'Unlock private balance'}
+            onPress={() => void handleUnlock()}
+            busy={unlocking}
+          />
+          {unlockError ? (
+            <Text className="text-seal-500 text-sm mt-2 text-center" style={{ fontFamily: fontFamily.ui }}>
+              {unlockError}
+            </Text>
+          ) : null}
+        </View>
+      ) : (
         <Link href="/onboarding" asChild>
           <Pressable className="bg-seal-500 rounded-2xl py-4 items-center mt-4 active:bg-seal-600">
             <Text className="text-paper-500" style={{ fontFamily: fontFamily.uiSemibold, fontSize: 16 }}>

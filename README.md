@@ -17,7 +17,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 - **Private balances in dollars and SKR** — wrap USDC 1:1 into cUSDC, or SKR 1:1 into cSKR, both confidential tokens. Balances are stored on-chain as ciphertext; only your device can decrypt them. Switch between them on Home.
 - **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL. Scan any Envelope or Solana wallet QR code to fill in the recipient.
 - **Batch send** — pay up to 20 people in one approval (payroll, splitting a bill). Each person sees only their own amount.
-- **Receive** — share your address as a QR code or a tip link; incoming transfers are applied to your balance automatically.
+- **Receive** — share your address as a QR code or a tip link; incoming transfers show on Home as pending, and one tap adds them to your balance (no SOL needed).
 - **Gift links** — put private dollars or SKR behind a link and send it to someone who isn't on Envelope yet. They open it, install the app, and claim it into their own private balance with no SOL and no approval beyond enabling their account. The amount stays hidden, and you can take back any gift that hasn't been claimed.
 - **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
 - **Withdraw** — turn private cUSDC or cSKR back into spendable USDC or SKR in one approval.

@@ -18,7 +18,7 @@ import { useEffect } from 'react'
 import { View } from 'react-native'
 import { DevnetBadge } from '../components/devnet-badge'
 import { DEVNET_RPC_URL } from '../config/rpc'
-import { AutoApplyOnOpen } from '../features/account/auto-apply'
+import { RefreshBalanceOnPush } from '../features/account/refresh-on-push'
 import { RegisterPushOnOpen } from '../features/account/register-push'
 import { AutoUnlockOnOpen } from '../features/keys/auto-unlock'
 import { NetworkProvider } from '../features/network/network-provider'
@@ -88,7 +88,7 @@ function AppShell() {
   return (
     <CBridgeHost onSignMessage={onSignMessage} onSignTransactions={onSignTransactions}>
       <AutoUnlockOnOpen />
-      <AutoApplyOnOpen />
+      <RefreshBalanceOnPush />
       <RegisterPushOnOpen />
       <Slot />
       <DevnetBadge />

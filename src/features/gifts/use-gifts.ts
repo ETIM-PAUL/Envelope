@@ -21,6 +21,7 @@ import { giftLink } from '../../config/site'
 import { useAppStore } from '../../store/app-store'
 import { retryOnExpiry } from '../../utils/retry-on-expiry'
 import { sendSignedTransactions } from '../../utils/send-signed-transactions'
+import { useApplyPendingBalance } from '../account/use-apply-pending-balance'
 import { useConfidentialAccount } from '../account/use-confidential-account'
 import { usePrivateBalance } from '../account/use-private-balance'
 import { useSendPrivately, type SendStep } from '../account/use-send-privately'
@@ -113,7 +114,7 @@ export function useOpenGift(secret: string | undefined) {
   })
 }
 
-export type ClaimStep = 'idle' | 'preparing' | 'unsealing' | 'moving' | 'closing' | 'done'
+export type ClaimStep = 'idle' | 'preparing' | 'unsealing' | 'moving' | 'closing' | 'adding' | 'done'
 
 // Moves a gift's whole balance into this wallet's private balance — the recipient claiming, or the
 // sender taking an unclaimed gift back. The wallet's private balance must be enabled (keys derived).
@@ -124,11 +125,15 @@ export function useClaimGift() {
   const { ensureGasTank } = useGasTank()
   const { ensureAccountReady } = useConfidentialAccount()
   const { refetchBalance } = usePrivateBalance()
+  const { applyPendingBalance } = useApplyPendingBalance()
   const queryClient = useQueryClient()
   const [step, setStep] = useState<ClaimStep>('idle')
 
   const claimGift = useCallback(
-    async (secret: string, { takingBack = false } = {}): Promise<{ asset: AssetId; amount: bigint }> => {
+    async (
+      secret: string,
+      { takingBack = false } = {},
+    ): Promise<{ asset: AssetId; amount: bigint; added: boolean }> => {
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
       const rpc = client.rpc as unknown as Rpc<SendTransactionApi & GetSignatureStatusesApi>
@@ -176,6 +181,14 @@ export function useClaimGift() {
         })
 
         if (takingBack) await markGiftTakenBack(walletAddress, giftOwner)
+
+        // The gift is now this wallet's, waiting as pending. One signature (the gas tank pays)
+        // makes it spendable; if the user declines, Home offers "Add to balance" later.
+        setStep('adding')
+        const added = await applyPendingBalance(asset).then(
+          () => true,
+          () => false,
+        )
         await recordNotification(walletAddress, {
           id: `gift-${takingBack ? 'returned' : 'received'}-${giftOwner}`,
           kind: takingBack ? 'gift-returned' : 'gift-received',
@@ -189,13 +202,22 @@ export function useClaimGift() {
           queryClient.invalidateQueries({ queryKey: ['sent-gifts', walletAddress] }),
         ])
         setStep('done')
-        return { asset, amount }
+        return { asset, amount, added }
       } catch (error) {
         setStep('idle')
         throw error
       }
     },
-    [bridge, client, walletAddress, ensureGasTank, ensureAccountReady, refetchBalance, queryClient],
+    [
+      bridge,
+      client,
+      walletAddress,
+      ensureGasTank,
+      ensureAccountReady,
+      refetchBalance,
+      applyPendingBalance,
+      queryClient,
+    ],
   )
 
   return { claimGift, step, isBusy: step !== 'idle' && step !== 'done' }
