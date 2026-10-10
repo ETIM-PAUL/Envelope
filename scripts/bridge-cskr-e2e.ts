@@ -185,28 +185,6 @@ async function main() {
     }
     return true
   }
-  // Each transaction simulated separately, signatures not checked (the relayer's is still missing),
-  // the way a wallet previews what it's asked to sign.
-  async function simulatesCleanly(transactions: string[]) {
-    for (const transaction of transactions) {
-      const { value } = await rpc
-        .simulateTransaction(transaction as never, {
-          encoding: 'base64',
-          sigVerify: false,
-          replaceRecentBlockhash: true,
-          commitment: 'confirmed',
-        })
-        .send()
-      if (value.err) {
-        console.log(
-          '    simulation error:',
-          JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? String(v) : v)),
-        )
-        return false
-      }
-    }
-    return true
-  }
   // Privacy negative check: the plaintext amount (the u64 a classic transfer would carry) appears
   // nowhere in the transactions' bytes, and their token-balance metadata shows `owner`'s accounts
   // at 0 before and after — a confidential balance lives only as ciphertext.

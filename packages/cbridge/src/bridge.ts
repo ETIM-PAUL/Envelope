@@ -589,12 +589,18 @@ channel.on('buildBatchTransferPlan', async (params) => {
   // before leaves, so a wallet simulating them as separate transactions (against the chain as it
   // is now) sees every transfer after the first fail ("Simulation failed"), even though they land
   // fine in order. Inside one transaction the simulation runs them in order and passes.
-  // The transfers go into as few transactions as fit. Each one's proofs assume the balance the one
-  // before leaves, so a wallet simulating them as separate transactions (against the chain as it
-  // is now) sees every transfer after the first fail ("Simulation failed"), even though they land
-  // fine in order. Inside one transaction the simulation runs them in order and passes.
   const continuationId = `batch-${owner}-${Date.now()}`
-  continuations.set(continuationId, packMessages(finalMessages))
+  const packed = packMessages(finalMessages)
+  continuations.set(continuationId, packed)
+  const transfersPerTransaction = packed.map(
+    (message) =>
+      message.instructions.filter(
+        (instruction) =>
+          instruction.programAddress === TOKEN_2022_PROGRAM_ADDRESS &&
+          instruction.data?.[0] === CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR &&
+          instruction.data?.[1] === CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR,
+      ).length,
+  )
   const signedTransactions = await signPlannedMessages(setupMessages, rpc)
   return { signedTransactions, continuationId, transfersPerTransaction } satisfies BuildBatchTransferPlanResult
 })
