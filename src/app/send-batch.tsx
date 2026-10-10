@@ -3,7 +3,7 @@
 // their own amount. Free sends to one person at a time, so it sees what the plans offer instead.
 // A scanned pot invite resolves to the pot's own address, so a pot can be one of the recipients.
 import Feather from '@expo/vector-icons/Feather'
-import { address, isAddress, type Base64EncodedDataResponse, type GetAccountInfoApi, type Rpc } from '@solana/kit'
+import { isAddress, type GetAccountInfoApi, type Rpc } from '@solana/kit'
 import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import * as Clipboard from 'expo-clipboard'
 import * as LocalAuthentication from 'expo-local-authentication'
@@ -23,7 +23,7 @@ import { MAX_BATCH_RECIPIENTS, PartialBatchError, useSendBatch } from '../featur
 import type { SendStep } from '../features/account/use-send-privately'
 import { useTier } from '../features/account/use-tier'
 import { useNetwork } from '../features/network/use-network'
-import { decodePot } from '../features/pots/decode-pot'
+import { fetchPot } from '../features/pots/use-pot-account'
 import { useStakeInfo } from '../features/stake/use-stake-info'
 import { useAppStore } from '../store/app-store'
 import { formatExactBaseUnits } from '../utils/format-amount'
@@ -106,13 +106,12 @@ export default function SendBatch() {
       setError("That's a gift link, not an address — open it from the Send tab to claim it.")
       return
     }
-    // A pot invite carries the pot's PDA; transfers go to the pot's own address (`pot_owner`).
+    // A pot invite carries the pot's record address; transfers go to the pot's own address.
     try {
-      const rpc = client.rpc as unknown as Rpc<GetAccountInfoApi>
-      const { value } = await rpc.getAccountInfo(address(code.potPda), { encoding: 'base64' }).send()
-      if (!value) throw new Error('pot not found')
-      const [data] = value.data as Base64EncodedDataResponse
-      updateRow(rowId, { address: decodePot(Uint8Array.from(Buffer.from(data, 'base64'))).potOwner })
+      const pot = await fetchPot(client.rpc as unknown as Rpc<GetAccountInfoApi>, code.potPda)
+      if (!pot) throw new Error("We couldn't find that pot.")
+      if (pot.closed) throw new Error('That pot is closed.')
+      updateRow(rowId, { address: pot.potOwner })
     } catch (e) {
       setError(formatError(e))
     }

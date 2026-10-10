@@ -1223,11 +1223,11 @@ channel.on('decryptActivity', async (params) => {
       data: string
     }[]
 
-    // Find this transaction's ConfidentialTransfer instruction (if any) to learn the direction —
-    // source/destination token accounts are its first and third accounts (see
-    // ConfidentialTransferInstruction's account list in the generated instruction).
-    let direction: 'incoming' | 'outgoing' | null = null
-    let transferInstruction: RawInstruction | null = null
+    // Every ConfidentialTransfer in this transaction that touches our token account (a batch packs
+    // two to a transaction). Source/destination token accounts are the instruction's first and
+    // third accounts (see ConfidentialTransferInstruction's account list in the generated
+    // instruction).
+    let ordinal = 0
     for (const ix of instructions) {
       const programId = accountKeys[ix.programIdIndex]
       if (programId !== TOKEN_2022_PROGRAM_ADDRESS) continue
@@ -1237,31 +1237,30 @@ channel.on('decryptActivity', async (params) => {
         data[1] !== CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR
       )
         continue
+      const index = ordinal++
       const sourceToken = accountKeys[ix.accounts[0]!]
       const destinationToken = accountKeys[ix.accounts[2]!]
-      if (sourceToken === token) direction = 'outgoing'
-      else if (destinationToken === token) direction = 'incoming'
-      transferInstruction = ix
-      break
-    }
-    if (!direction || !transferInstruction) continue
+      const direction = sourceToken === token ? 'outgoing' : destinationToken === token ? 'incoming' : null
+      if (!direction) continue
 
-    // Decrypt the handle matching our direction (our own ElGamal key never decrypts the other
-    // party's handle — that's the whole point of ElGamal's per-recipient handles).
-    const proofData = await findValidityProofData(rpc, signature, accountKeys, instructions, transferInstruction)
-    if (!proofData) continue
-    try {
-      const handleIndex = direction === 'outgoing' ? SOURCE_HANDLE_INDEX : DESTINATION_HANDLE_INDEX
-      const amount = decryptProofInstructionAmount(proofData, keys.elgamalKeypair.secret(), handleIndex)
-      entries.push({
-        signature,
-        direction,
-        amount: amount.toString(),
-        blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
-      })
-    } catch {
-      // A proof that doesn't decrypt cleanly with our key isn't ours to show — skip rather than
-      // surface a broken entry.
+      // Decrypt the handle matching our direction (our own ElGamal key never decrypts the other
+      // party's handle — that's the whole point of ElGamal's per-recipient handles).
+      const proofData = await findValidityProofData(rpc, signature, accountKeys, instructions, ix)
+      if (!proofData) continue
+      try {
+        const handleIndex = direction === 'outgoing' ? SOURCE_HANDLE_INDEX : DESTINATION_HANDLE_INDEX
+        const amount = decryptProofInstructionAmount(proofData, keys.elgamalKeypair.secret(), handleIndex)
+        entries.push({
+          signature,
+          index,
+          direction,
+          amount: amount.toString(),
+          blockTime: tx.blockTime != null ? Number(tx.blockTime) : null,
+        })
+      } catch {
+        // A proof that doesn't decrypt cleanly with our key isn't ours to show — skip rather than
+        // surface a broken entry.
+      }
     }
   }
 

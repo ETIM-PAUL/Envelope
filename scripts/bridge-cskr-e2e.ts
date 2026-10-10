@@ -413,22 +413,36 @@ async function main() {
   )
   const batchSignatures = await relay(batch.signedTransactions)
   const approvals = signRequests
-  const batchFinal = (await call('signContinuation', { rpcUrl, continuationId: batch.continuationId }))
-    .signedTransactions
-  // What a wallet does before showing the approval: simulate each transaction on its own against
-  // the chain as it is now. Chained transfers split across transactions fail this.
-  check(
-    "a wallet's simulation of the batch passes",
-    await simulatesCleanly(batchFinal),
-    `${batchFinal.length} transaction(s) to approve`,
-  )
-  batchSignatures.push(...(await relay(batchFinal)))
-  check('one wallet approval for the whole batch', signRequests - approvals === 1, `${signRequests - approvals}`)
-  check('bob received 1 transfer', (await bobCredits()) - bobCreditsBefore === 1n)
-  check('pot now holds 2.35 cSKR (pending)', (await privateBalance(cskr, potOwnerAddress)).pending === 2_350_000n)
+  for (let index = 0; index < batch.transfersPerTransaction.length; index++) {
+    const { signedTransactions } = await call('signContinuation', {
+      rpcUrl,
+      continuationId: batch.continuationId,
+      from: index,
+      count: 1,
+    })
+    // What a wallet does before showing an approval: simulate the transaction against the chain
+    // as it is now.
+    check(`approval ${index + 1}: the wallet's preview simulates cleanly`, await simulatesCleanly(signedTransactions))
+    batchSignatures.push(...(await relay(signedTransactions)))
+  }
+  check('one wallet approval per transaction', signRequests - approvals === 2, `${signRequests - approvals}`)
+  check('bob received 2 transfers', (await bobCredits()) - bobCreditsBefore === 2n)
+  check('pot now holds 2.5 cSKR (pending)', (await privateBalance(cskr, potOwnerAddress)).pending === 2_500_000n)
   check(
     'alice private cSKR -1.81',
     aliceBeforeBatch.available - (await privateBalance(cskr, aliceAddress)).available === 1_810_000n,
+  )
+  // The Notifications feed reads this: every transfer must show up, two to a transaction.
+  const { entries: activity } = await call('decryptActivity', { rpcUrl, mint: cskr, owner: aliceAddress, limit: 20 })
+  const batchSet = new Set(batchSignatures)
+  const batchAmounts = activity
+    .filter((entry) => batchSet.has(entry.signature) && entry.direction === 'outgoing')
+    .map((entry) => entry.amount)
+    .sort()
+  check(
+    'activity lists all four batch transfers, amounts decrypted',
+    batchAmounts.join(',') === ['1100000', '350000', '210000', '150000'].sort().join(','),
+    batchAmounts.join(' '),
   )
   check(
     'no amount appears in the batch transactions',

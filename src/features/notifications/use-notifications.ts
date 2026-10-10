@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { getAsset, type AssetId } from '../../config/assets'
 import { DEVNET_RPC_URL } from '../../config/rpc'
 import { useAppStore } from '../../store/app-store'
-import { readActivityCache } from '../account/activity-cache'
+import { activityEntryKey, readActivityCache } from '../account/activity-cache'
 import { listPotSummaries } from '../pots/pot-store'
 import { fetchPotAssets } from '../pots/use-pot-assets'
 import {
@@ -76,7 +76,7 @@ export function useNotifications() {
     const fromTransfers: AppNotification[] = (transfers.data ?? [])
       .filter((entry) => !covered.has(entry.signature))
       .map((entry) => ({
-        id: entry.signature,
+        id: activityEntryKey(entry),
         kind: entry.direction === 'incoming' ? 'received' : 'sent',
         amount: entry.amount,
         asset: entry.asset,

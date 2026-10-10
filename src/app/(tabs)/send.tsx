@@ -1,8 +1,10 @@
 // Phase 13: recipient entry — the tab's entry point. Paste, type, or scan an address, check it's
 // set up to receive privately, then hand off to /send-confirm (a pushed route, not a tab) for the
-// amount + confirm step. Scanning a pot invite opens that pot instead (see parse-scanned-code.ts).
+// amount + confirm step. A scanned pot invite fills in the pot's own address, so contributing to a
+// pot is an ordinary send (see parse-scanned-code.ts); a gift link opens the claim screen.
 import Feather from '@expo/vector-icons/Feather'
-import { isAddress } from '@solana/kit'
+import { isAddress, type GetAccountInfoApi, type Rpc } from '@solana/kit'
+import { useMobileWallet } from '@wallet-ui/react-native-kit'
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
@@ -13,6 +15,7 @@ import { Screen } from '../../components/screen'
 import { colors, fontFamily } from '../../design/tokens'
 import { useConfidentialAccount } from '../../features/account/use-confidential-account'
 import { availableAssetIds } from '../../config/assets'
+import { fetchPot } from '../../features/pots/use-pot-account'
 import { useAppStore } from '../../store/app-store'
 import { formatError } from '../../utils/format-error'
 import type { ScannedCode } from '../../utils/parse-scanned-code'
@@ -21,6 +24,7 @@ export default function Send() {
   const router = useRouter()
   const walletAddress = useAppStore((s) => s.walletAddress)
   const { isRecipientReady } = useConfidentialAccount()
+  const { client } = useMobileWallet()
   const [addressText, setAddressText] = useState('')
   const [isChecking, setIsChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,11 +41,20 @@ export default function Send() {
     if (clipboardText) setAddressText(clipboardText.trim())
   }
 
-  function handleScanned(code: ScannedCode) {
+  async function handleScanned(code: ScannedCode) {
     setIsScanning(false)
     setError(null)
     if (code.kind === 'pot') {
-      router.push({ pathname: '/pot/[potPda]', params: { potPda: code.potPda } })
+      // The invite carries the pot's record address; the money goes to the pot's own address.
+      try {
+        const pot = await fetchPot(client.rpc as unknown as Rpc<GetAccountInfoApi>, code.potPda)
+        if (!pot) throw new Error("We couldn't find that pot.")
+        if (pot.closed) throw new Error('That pot is closed.')
+        setAddressText(pot.potOwner)
+        setScannedAssets(null)
+      } catch (e) {
+        setError(formatError(e))
+      }
       return
     }
     if (code.kind === 'gift') {
@@ -140,7 +153,11 @@ export default function Send() {
         </Text>
       </Pressable>
 
-      <QrScanner visible={isScanning} onScanned={handleScanned} onClose={() => setIsScanning(false)} />
+      <QrScanner
+        visible={isScanning}
+        onScanned={(code) => void handleScanned(code)}
+        onClose={() => setIsScanning(false)}
+      />
     </Screen>
   )
 }

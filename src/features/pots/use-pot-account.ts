@@ -7,18 +7,20 @@ import { address, type Base64EncodedDataResponse, type GetAccountInfoApi, type R
 import { useQuery } from '@tanstack/react-query'
 import { decodePot } from './decode-pot'
 
+// null when there's no pot at that address.
+export async function fetchPot(rpc: Rpc<GetAccountInfoApi>, potPda: string) {
+  const { value } = await rpc.getAccountInfo(address(potPda), { encoding: 'base64' }).send()
+  if (!value) return null
+  const [base64Data] = value.data as Base64EncodedDataResponse
+  return decodePot(Uint8Array.from(Buffer.from(base64Data, 'base64')))
+}
+
 export function usePotAccount(potPda: string | null) {
   const { client } = useMobileWallet()
 
   return useQuery({
     queryKey: ['pot-account', potPda],
     enabled: Boolean(potPda),
-    queryFn: async () => {
-      const rpc = client.rpc as unknown as Rpc<GetAccountInfoApi>
-      const { value } = await rpc.getAccountInfo(address(potPda!), { encoding: 'base64' }).send()
-      if (!value) return null
-      const [base64Data] = value.data as Base64EncodedDataResponse
-      return decodePot(Uint8Array.from(Buffer.from(base64Data, 'base64')))
-    },
+    queryFn: () => fetchPot(client.rpc as unknown as Rpc<GetAccountInfoApi>, potPda!),
   })
 }

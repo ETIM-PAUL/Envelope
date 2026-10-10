@@ -4,6 +4,7 @@ import { FlatList, Text, View } from 'react-native'
 import { BackButton } from '../components/back-button'
 import { Screen } from '../components/screen'
 import { colors, fontFamily } from '../design/tokens'
+import { activityEntryKey } from '../features/account/activity-cache'
 import { useActivity } from '../features/account/use-activity'
 import { formatAssetAmount } from '../config/assets'
 
@@ -27,7 +28,7 @@ export default function Activity() {
 
       <FlatList
         data={entries}
-        keyExtractor={(entry) => entry.signature}
+        keyExtractor={activityEntryKey}
         ListEmptyComponent={
           <Text className="text-mute-500 text-center mt-10" style={{ fontFamily: fontFamily.ui }}>
             {isLoading ? 'Decrypting…' : 'No private transfers yet'}

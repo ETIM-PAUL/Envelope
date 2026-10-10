@@ -158,6 +158,9 @@ export type PrepareApplyPendingBalanceResult = {
 export type ActivityDirection = 'incoming' | 'outgoing'
 export type ActivityEntry = {
   signature: string
+  // Which of the transaction's private transfers this is (0-based): a batch packs two to a
+  // transaction, so a signature alone doesn't identify one.
+  index: number
   direction: ActivityDirection
   amount: string // stringified bigint, base units
   blockTime: number | null
