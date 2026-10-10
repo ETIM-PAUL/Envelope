@@ -17,6 +17,7 @@ import {
   getCompiledTransactionMessageDecoder,
   getSignersFromTransactionMessage,
   getTransactionDecoder,
+  getTransactionMessageSize,
   partiallySignTransaction,
   isTransactionModifyingSigner,
   isSolanaError,
@@ -490,7 +491,8 @@ channel.on('buildTransferPlan', async (params) => {
   ]
 
   const continuationId = `transfer-${owner}-${Date.now()}`
-  continuations.set(continuationId, finalMessages)
+  // Fee and transfer as one transaction where they fit: one thing for the wallet to show.
+  continuations.set(continuationId, packMessages(finalMessages))
   const signedTransactions = await signPlannedMessages(setupMessages, rpc)
   return { signedTransactions, continuationId } satisfies BuildTransferPlanResult
 })
@@ -583,11 +585,36 @@ channel.on('buildBatchTransferPlan', async (params) => {
     )
   }
 
+  // The transfers go into as few transactions as fit. Each one's proofs assume the balance the one
+  // before leaves, so a wallet simulating them as separate transactions (against the chain as it
+  // is now) sees every transfer after the first fail ("Simulation failed"), even though they land
+  // fine in order. Inside one transaction the simulation runs them in order and passes.
   const continuationId = `batch-${owner}-${Date.now()}`
-  continuations.set(continuationId, finalMessages)
+  continuations.set(continuationId, packMessages(finalMessages))
   const signedTransactions = await signPlannedMessages(setupMessages, rpc)
   return { signedTransactions, continuationId } satisfies BuildBatchTransferPlanResult
 })
+
+// Leaves room under the 1232-byte limit for what wallets add while signing (Solflare appends
+// compute-budget instructions).
+const PACKED_MESSAGE_BUDGET = 1232 - 100
+
+// Merges consecutive messages (same fee payer) into as few as fit the budget, in order.
+function packMessages(messages: PlannedMessage[]): PlannedMessage[] {
+  const packed: PlannedMessage[] = []
+  for (const message of messages) {
+    const last = packed[packed.length - 1]
+    if (last && last.feePayer.address === message.feePayer.address) {
+      const merged = appendTransactionMessageInstructions(message.instructions, last)
+      if (getTransactionMessageSize(merged) <= PACKED_MESSAGE_BUDGET) {
+        packed[packed.length - 1] = merged
+        continue
+      }
+    }
+    packed.push(message)
+  }
+  return packed
+}
 
 channel.on('decryptAvailable', async (params) => {
   const { rpcUrl, mint, owner } = params as DecryptAvailableParams

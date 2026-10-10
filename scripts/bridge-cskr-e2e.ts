@@ -154,6 +154,28 @@ async function main() {
     for (const signature of body.signatures ?? []) landed.push({ label: `${step} (relayed)`, signature })
     return body.signatures ?? []
   }
+  // Each transaction simulated separately, signatures not checked (the relayer's is still missing),
+  // the way a wallet previews what it's asked to sign.
+  async function simulatesCleanly(transactions: string[]) {
+    for (const transaction of transactions) {
+      const { value } = await rpc
+        .simulateTransaction(transaction as never, {
+          encoding: 'base64',
+          sigVerify: false,
+          replaceRecentBlockhash: true,
+          commitment: 'confirmed',
+        })
+        .send()
+      if (value.err) {
+        console.log(
+          '    simulation error:',
+          JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? String(v) : v)),
+        )
+        return false
+      }
+    }
+    return true
+  }
   // Privacy negative check: the plaintext amount (the u64 a classic transfer would carry) appears
   // nowhere in the transactions' bytes, and their token-balance metadata shows `owner`'s accounts
   // at 0 before and after — a confidential balance lives only as ciphertext.
@@ -329,11 +351,16 @@ async function main() {
   })
   const batchSignatures = await relay(batch.signedTransactions)
   const approvals = signRequests
-  batchSignatures.push(
-    ...(await relay(
-      (await call('signContinuation', { rpcUrl, continuationId: batch.continuationId })).signedTransactions,
-    )),
+  const batchFinal = (await call('signContinuation', { rpcUrl, continuationId: batch.continuationId }))
+    .signedTransactions
+  // What a wallet does before showing the approval: simulate each transaction on its own against
+  // the chain as it is now. Chained transfers split across transactions fail this.
+  check(
+    "a wallet's simulation of the batch passes",
+    await simulatesCleanly(batchFinal),
+    `${batchFinal.length} transaction(s) to approve`,
   )
+  batchSignatures.push(...(await relay(batchFinal)))
   check('one wallet approval for the whole batch', signRequests - approvals === 1, `${signRequests - approvals}`)
   check('bob received 1 transfer', (await bobCredits()) - bobCreditsBefore === 1n)
   check('pot now holds 2.35 cSKR (pending)', (await privateBalance(cskr, potOwnerAddress)).pending === 2_350_000n)
