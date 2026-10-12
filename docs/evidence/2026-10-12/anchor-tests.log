@@ -1,0 +1,34 @@
+# Anchor program tests, including the scanners' three leads
+# date:    2026-10-12T20:46:49Z
+# commit:  bb9c908918df8ed92c9e8500a444934e787a9bc5 (with uncommitted changes)
+# command: cd anchor && anchor build && anchor test --validator legacy --skip-build
+# node v22.22.3, solana-cli 3.1.10, anchor-cli 1.1.2, relayer https://envelope-relayer.onrender.com
+
+    Finished `release` profile [optimized] target(s) in 0.38s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (/Users/henchman/myapp/anchor/target/debug/deps/hello_world-beb991a3e9d90337)
+   Compiling envelope_stake v0.1.0 (/Users/henchman/myapp/anchor/programs/envelope_stake)
+   Compiling envelope_vault v0.1.0 (/Users/henchman/myapp/anchor/programs/envelope_vault)
+    Finished `release` profile [optimized] target(s) in 4.30s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (/Users/henchman/myapp/anchor/target/debug/deps/envelope_vault-4002a0afa92c97ed)
+   Compiling envelope_stake v0.1.0 (/Users/henchman/myapp/anchor/programs/envelope_stake)
+    Finished `release` profile [optimized] target(s) in 1.67s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (/Users/henchman/myapp/anchor/target/debug/deps/envelope_stake-2fa2542de1485f87)
+
+Found a 'test' script in the Anchor.toml. Running it as a test suite!
+
+Running test suite: "/Users/henchman/myapp/anchor/Anchor.toml"
+
+
+ RUN  v4.1.11 /Users/henchman/myapp/anchor
+
+
+ Test Files  3 passed (3)
+      Tests  36 passed (36)
+   Start at  21:47:02
+   Duration  137.37s (transform 401ms, setup 0ms, import 1.15s, tests 135.64s, environment 0ms)
+
+
+# exit 0 after 150s

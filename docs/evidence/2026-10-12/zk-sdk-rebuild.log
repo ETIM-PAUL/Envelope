@@ -1,0 +1,319 @@
+# The vendored zk-sdk WebAssembly is byte-identical to a fresh build of Solana's tagged source
+# date:    2026-10-12T20:41:32Z
+# commit:  bb9c908918df8ed92c9e8500a444934e787a9bc5 (with uncommitted changes)
+# command: bash packages/cbridge/scripts/build-zk-sdk-compat.sh --check
+# node v22.22.3, solana-cli 3.1.10, anchor-cli 1.1.2, relayer https://envelope-relayer.onrender.com
+
+Note: switching to 'b9d9bdf843335a247a081695b4ab3e721926e053'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+source: zk-sdk-wasm-js@v0.5.3 at commit b9d9bdf843335a247a081695b4ab3e721926e053, checked out in /private/tmp/claude-501/-Users-henchman-myapp/41d12f96-18c9-4558-9725-93f3a0b4293a/scratchpad/zk-elgamal-proof
+info: component rust-std for target wasm32-unknown-unknown is up to date
+    Updating crates.io index
+  Installing wasm-bindgen-cli v0.2.100
+    Updating crates.io index
+warning: package `spin v0.9.8` in Cargo.lock is yanked in registry `crates-io`
+  |
+  = help: consider running without --locked
+    Updating crates.io index
+   Compiling proc-macro2 v1.0.93
+   Compiling unicode-ident v1.0.14
+   Compiling cfg-if v1.0.0
+   Compiling stable_deref_trait v1.2.0
+   Compiling libc v0.2.169
+   Compiling byteorder v1.5.0
+   Compiling autocfg v1.4.0
+   Compiling once_cell v1.20.2
+   Compiling serde v1.0.217
+   Compiling crossbeam-utils v0.8.21
+   Compiling log v0.4.22
+   Compiling bitflags v2.7.0
+   Compiling version_check v0.9.5
+   Compiling memchr v2.7.4
+   Compiling ahash v0.8.11
+   Compiling rayon-core v1.12.1
+   Compiling indexmap v1.9.3
+   Compiling heck v0.5.0
+   Compiling semver v1.0.24
+   Compiling writeable v0.5.5
+   Compiling litemap v0.7.4
+   Compiling crossbeam-epoch v0.9.18
+   Compiling getrandom v0.2.15
+   Compiling crossbeam-deque v0.8.6
+   Compiling equivalent v1.0.1
+   Compiling anyhow v1.0.95
+   Compiling hashbrown v0.15.2
+   Compiling either v1.13.0
+   Compiling hashbrown v0.12.3
+   Compiling leb128 v0.2.5
+   Compiling icu_locid_transform_data v1.5.0
+   Compiling fallible-iterator v0.2.0
+   Compiling shlex v1.3.0
+   Compiling cc v1.2.9
+   Compiling quote v1.0.38
+   Compiling wasm-encoder v0.214.0
+   Compiling syn v2.0.96
+   Compiling icu_properties_data v1.5.0
+   Compiling utf16_iter v1.0.5
+   Compiling utf8_iter v1.0.4
+   Compiling smallvec v1.13.2
+   Compiling icu_normalizer_data v1.5.0
+   Compiling rustix v0.38.43
+   Compiling ring v0.17.8
+   Compiling rayon v1.10.0
+   Compiling write16 v1.0.0
+   Compiling errno v0.3.10
+   Compiling utf8parse v0.2.2
+   Compiling gimli v0.26.2
+   Compiling unicase v2.8.1
+   Compiling anstyle-parse v0.2.6
+   Compiling mime_guess v2.0.5
+   Compiling rand_core v0.6.4
+   Compiling synstructure v0.13.1
+   Compiling aho-corasick v1.1.3
+   Compiling num-traits v0.2.19
+   Compiling is_terminal_polyfill v1.70.1
+   Compiling anstyle-query v1.1.2
+   Compiling httparse v1.9.5
+   Compiling spin v0.9.8
+   Compiling regex-syntax v0.8.5
+   Compiling id-arena v2.2.1
+   Compiling serde_json v1.0.135
+   Compiling fastrand v2.3.0
+   Compiling zerocopy-derive v0.7.35
+   Compiling zerofrom-derive v0.1.5
+   Compiling yoke-derive v0.7.5
+   Compiling zerocopy v0.7.35
+   Compiling zerovec-derive v0.10.3
+   Compiling zerofrom v0.1.5
+   Compiling yoke v0.7.5
+   Compiling serde_derive v1.0.217
+   Compiling displaydoc v0.2.5
+   Compiling zerovec v0.10.4
+   Compiling icu_provider_macros v1.5.0
+   Compiling walrus-macro v0.22.0
+   Compiling ppv-lite86 v0.2.20
+   Compiling percent-encoding v2.3.1
+   Compiling colorchoice v1.0.3
+   Compiling anstyle v1.0.10
+   Compiling untrusted v0.9.0
+   Compiling rustls-pki-types v1.10.1
+   Compiling anstream v0.6.18
+   Compiling form_urlencoded v1.2.1
+   Compiling rand_chacha v0.3.1
+   Compiling tinystr v0.7.6
+   Compiling icu_collections v1.5.0
+   Compiling regex-automata v0.4.9
+   Compiling icu_locid v1.5.0
+   Compiling tempfile v3.15.0
+   Compiling icu_provider v1.5.0
+   Compiling icu_locid_transform v1.5.0
+   Compiling powerfmt v0.2.0
+   Compiling icu_properties v1.5.1
+   Compiling adler2 v2.0.0
+   Compiling ryu v1.0.18
+   Compiling wasm-bindgen-shared v0.2.100
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling mime v0.3.17
+   Compiling safemem v0.3.3
+   Compiling core-foundation-sys v0.8.7
+   Compiling rustls v0.23.21
+   Compiling itoa v1.0.14
+   Compiling iana-time-zone v0.1.61
+   Compiling buf_redux v0.8.4
+   Compiling indexmap v2.7.0
+   Compiling hashbrown v0.14.5
+   Compiling alloc-stdlib v0.2.2
+   Compiling miniz_oxide v0.8.2
+   Compiling deranged v0.3.11
+   Compiling wasmparser v0.214.0
+   Compiling regex v1.11.1
+   Compiling rustls-webpki v0.102.8
+   Compiling icu_normalizer v1.5.0
+   Compiling rand v0.8.5
+   Compiling num_cpus v1.16.0
+   Compiling num_threads v0.1.7
+   Compiling idna_adapter v1.2.0
+   Compiling twoway v0.1.8
+   Compiling idna v1.0.3
+   Compiling crc32fast v1.4.2
+   Compiling url v2.5.4
+   Compiling clap_lex v0.7.4
+   Compiling httpdate v1.0.3
+   Compiling ascii v1.1.0
+   Compiling time-core v0.1.2
+   Compiling num-conv v0.1.0
+   Compiling zeroize v1.8.1
+   Compiling strsim v0.11.1
+   Compiling quick-error v1.2.3
+   Compiling chunked_transfer v1.5.0
+   Compiling subtle v2.6.1
+   Compiling base64 v0.22.1
+   Compiling tiny_http v0.12.0
+   Compiling clap_builder v4.5.26
+   Compiling multipart v0.18.0
+   Compiling time v0.3.37
+   Compiling flate2 v1.0.35
+   Compiling threadpool v1.8.1
+   Compiling env_filter v0.1.3
+   Compiling chrono v0.4.39
+   Compiling brotli-decompressor v4.0.1
+   Compiling webpki-roots v0.26.7
+   Compiling clap_derive v4.5.24
+   Compiling walrus v0.23.3
+   Compiling filetime v0.2.25
+   Compiling base64 v0.13.1
+   Compiling humantime v2.1.0
+   Compiling rustc-demangle v0.1.24
+   Compiling sha1_smol v1.0.1
+   Compiling rouille v3.6.2
+   Compiling env_logger v0.11.6
+   Compiling ureq v2.12.1
+   Compiling clap v4.5.26
+   Compiling wasm-bindgen-wasm-conventions v0.2.100
+   Compiling wasm-bindgen-wasm-interpreter v0.2.100
+   Compiling wasm-bindgen-externref-xform v0.2.100
+   Compiling wasm-bindgen-threads-xform v0.2.100
+   Compiling wasm-bindgen-multi-value-xform v0.2.100
+   Compiling wasm-bindgen-cli-support v0.2.100
+   Compiling wasm-bindgen-cli v0.2.100
+    Finished `release` profile [optimized] target(s) in 1m 03s
+warning: the following packages contain code that will be rejected by a future version of Rust: buf_redux v0.8.4, multipart v0.18.0
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+  Installing /private/var/folders/8j/q9cvvgyx0h96g_vsrvxb487c0000gn/T/tmp.3DRgbI97q5/tools/bin/wasm-bindgen
+  Installing /private/var/folders/8j/q9cvvgyx0h96g_vsrvxb487c0000gn/T/tmp.3DRgbI97q5/tools/bin/wasm-bindgen-test-runner
+  Installing /private/var/folders/8j/q9cvvgyx0h96g_vsrvxb487c0000gn/T/tmp.3DRgbI97q5/tools/bin/wasm2es6js
+   Installed package `wasm-bindgen-cli v0.2.100` (executables `wasm-bindgen`, `wasm-bindgen-test-runner`, `wasm2es6js`)
+warning: be sure to add `/private/var/folders/8j/q9cvvgyx0h96g_vsrvxb487c0000gn/T/tmp.3DRgbI97q5/tools/bin` to your PATH to be able to run the installed binaries
+   Compiling unicode-ident v1.0.18
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling typenum v1.20.1
+   Compiling wasm-bindgen-shared v0.2.100
+   Compiling cfg-if v1.0.1
+   Compiling log v0.4.27
+   Compiling bumpalo v3.19.0
+   Compiling rustversion v1.0.21
+   Compiling version_check v0.9.5
+   Compiling wasm-bindgen v0.2.100
+   Compiling once_cell v1.21.3
+   Compiling five8_core v1.0.0
+   Compiling generic-array v0.14.7
+   Compiling cmov v0.5.4
+   Compiling hybrid-array v0.4.12
+   Compiling ctutils v0.4.2
+   Compiling solana-sanitize v3.0.1
+   Compiling solana-program-error v3.0.0
+   Compiling five8 v1.0.0
+   Compiling bytemuck v1.25.2
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling subtle v2.6.1
+   Compiling five8_const v1.0.0
+   Compiling serde_core v1.0.229
+   Compiling syn v2.0.117
+   Compiling syn v3.0.2
+   Compiling semver v1.0.26
+   Compiling inout v0.2.2
+   Compiling const-oid v0.10.2
+   Compiling zerocopy v0.8.26
+   Compiling digest v0.11.3
+   Compiling thiserror v2.0.20
+   Compiling autocfg v1.5.0
+   Compiling serde v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling block-buffer v0.10.4
+   Compiling bytemuck_derive v1.12.1
+   Compiling crypto-common v0.1.6
+   Compiling rustc_version v0.4.1
+   Compiling digest v0.10.7
+   Compiling thiserror-impl v2.0.20
+   Compiling serde_derive v1.0.229
+   Compiling cipher v0.5.2
+   Compiling solana-instruction-error v3.0.0
+   Compiling lazy_static v1.5.0
+   Compiling zmij v1.0.13
+   Compiling solana-address v2.7.0
+   Compiling wasm-bindgen-backend v0.2.100
+   Compiling cpubits v0.1.1
+   Compiling fnv v1.0.7
+   Compiling percent-encoding v2.3.1
+   Compiling solana-pubkey v4.3.0
+   Compiling qstring v0.7.2
+   Compiling uriparse v0.6.4
+   Compiling ppv-lite86 v0.2.21
+   Compiling wasm-bindgen-macro-support v0.2.100
+   Compiling curve25519-dalek v4.2.0
+   Compiling zeroize_derive v1.5.0
+   Compiling universal-hash v0.6.1
+   Compiling serde_json v1.0.151
+   Compiling base64 v0.23.1
+   Compiling keccak v0.1.5
+   Compiling solana-nullable v1.3.0
+   Compiling derivation-path v0.2.0
+   Compiling zeroize v1.9.0
+   Compiling solana-derivation-path v3.0.0
+   Compiling solana-zk-sdk-pod v0.1.2 (/private/tmp/claude-501/-Users-henchman-myapp/41d12f96-18c9-4558-9725-93f3a0b4293a/scratchpad/zk-elgamal-proof/zk-sdk-pod)
+   Compiling polyval v0.7.3
+   Compiling wasm-bindgen-macro v0.2.100
+   Compiling solana-instruction v4.0.0
+   Compiling solana-sdk-ids v3.1.0
+   Compiling aes v0.9.3
+   Compiling solana-transaction-error v4.0.0
+   Compiling ctr v0.10.1
+   Compiling hmac v0.12.1
+   Compiling pbkdf2 v0.11.0
+   Compiling sha2 v0.10.9
+   Compiling num-derive v0.5.1
+   Compiling hmac v0.13.0
+   Compiling aead v0.6.1
+   Compiling solana-signature v3.5.2
+   Compiling keccak v0.2.0
+   Compiling sponge-cursor v0.1.0
+   Compiling memchr v2.7.5
+   Compiling itoa v1.0.15
+   Compiling either v1.15.0
+   Compiling byteorder v1.5.0
+   Compiling itertools v0.15.0
+   Compiling shake v0.1.0
+   Compiling solana-zk-elgamal-proof-interface v1.0.0 (/private/tmp/claude-501/-Users-henchman-myapp/41d12f96-18c9-4558-9725-93f3a0b4293a/scratchpad/zk-elgamal-proof/interface)
+   Compiling aes-gcm-siv v0.12.1
+   Compiling solana-signer v4.0.0
+   Compiling hkdf v0.13.0
+   Compiling solana-seed-phrase v3.0.0
+   Compiling solana-seed-derivable v3.0.0
+   Compiling sha3 v0.10.9
+   Compiling wasm-bindgen-test-macro v0.3.50
+   Compiling sha2 v0.11.0
+   Compiling bincode v1.3.3
+   Compiling js-sys v0.3.77
+   Compiling getrandom v0.2.17
+   Compiling wasm-bindgen-futures v0.4.50
+   Compiling wasm-bindgen-test v0.3.50
+   Compiling rand_core v0.6.4
+   Compiling rand_chacha v0.3.1
+   Compiling merlin v3.0.0
+   Compiling rand v0.8.6
+   Compiling solana-zk-sdk v8.0.1 (/private/tmp/claude-501/-Users-henchman-myapp/41d12f96-18c9-4558-9725-93f3a0b4293a/scratchpad/zk-elgamal-proof/zk-sdk)
+   Compiling solana-zk-sdk-wasm-js v0.1.0 (/private/tmp/claude-501/-Users-henchman-myapp/41d12f96-18c9-4558-9725-93f3a0b4293a/scratchpad/zk-elgamal-proof/zk-sdk-wasm-js)
+    Finished `release` profile [optimized] target(s) in 22.08s
+f109f9e07eb454552edfe501a9a117ba0827b72cedf52e81761da2e30c059d7e  optimized.wasm
+146e2a8d3308cac3b8135e94eaa6e12e821e7a293f00e6a9b6e0e85728e9d734  bindgen/index.js
+18945982ad2082d3a92c23403a9006993420b46a4c95c848a3abc34a52893ba0  bindgen/index.d.ts
+vendor/zk-sdk-web is byte-identical to a fresh build of zk-sdk-wasm-js@v0.5.3
+
+# exit 0 after 108s

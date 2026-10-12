@@ -287,7 +287,7 @@ async function main() {
   }
   if (before.available < 6_000_000n)
     throw new Error(
-      `alice needs 6+ private cSKR (has ${before.available} available, ${before.pending} pending) — run devnet:cskr-roundtrip`,
+      `alice needs 6+ private cSKR (has ${before.available} available, ${before.pending} pending) — run npm run devnet:cskr-roundtrip -- --top-up`,
     )
   const skrBefore = await skrWallet()
   await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)

@@ -66,6 +66,11 @@ async function expectRejected(name: string, owner: string, wire: string) {
   if (status === 200) {
     throw new Error(`FUZZ FAILURE: "${name}" was accepted by the relayer — this gap is NOT closed`)
   }
+  // Only the relayer's policy check counts as a refusal: any other error (a 404 from something
+  // else on the port, a crash) means the case never reached it, so it proves nothing.
+  if (status !== 400 || typeof body?.error !== 'string' || !body.error.startsWith('rejected:')) {
+    throw new Error(`"${name}" didn't reach the relayer's policy check (${status}) — is RELAYER_URL a relayer?`)
+  }
   console.log(`  correctly rejected.\n`)
 }
 

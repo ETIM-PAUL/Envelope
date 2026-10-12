@@ -283,6 +283,9 @@ that assert the exact on-chain error, and the checks, results and transaction li
   Only Expo's Xcode project tooling uses it, at build time, and only `uuid.v4()`, which 11.x
   keeps. The Android prebuild still passes. (The advisory covers v3/v5/v6 with a caller-supplied
   buffer, so 7.0.3 wasn't affected in practice.)
+- **`shell-quote` 1.10.0** (Critical, GHSA-pqg4-j6r4-53mv) and **`source-map-js` 1.2.1** (High,
+  GHSA-68fv-2mgg-jv7q) — now 1.12.0 and 1.2.2 through `overrides`. Both are build tools (React
+  Native's dev tooling and the Tailwind compiler); neither ships in the app.
 
 ### Checked, not a defect
 
@@ -299,11 +302,25 @@ that assert the exact on-chain error, and the checks, results and transaction li
 
 ### Packages — accepted for now
 
+Status on 12 October 2026 ([full reports](docs/evidence/)): `cargo audit` finds no
+vulnerabilities in the Anchor programs' 234 crates, and the relayer's production dependencies have
+none (`npm audit --workspace relayer --omit=dev`). For the app, `npm audit` reports 30 entries, but
+they come from three advisories: every other entry is a package that depends on one of these. Two
+have no fixed release at all; the third needs the next Expo SDK. None is used by Envelope's own
+code.
+
 - **`decode-uri-component` 0.2.2** (Medium, ships in the app via `expo-router` → `query-string`):
   a malformed percent-encoded link can make decoding slow. Worst case is the app freezing while a
   link a user chose to open is parsed; no funds or keys are reachable. The fixed release (0.5.0) is
   ESM-only and `query-string` 7 `require()`s it, so forcing it would break link handling — it'll
   be picked up when Expo moves to a fixed `query-string`.
+- **`braces` 3.0.3** (High, via `micromatch` in Metro's file watcher) — deeply nested glob patterns
+  can exhaust the stack. Build-time only: Metro matches the project's own patterns while bundling,
+  and nothing from it ships in the app. 3.0.3 is the latest release; there is no fixed version yet.
+- **`node-forge` 1.4.0** (High, via `@expo/code-signing-certificates` in the Expo CLI) — RSA
+  signature verification accepts malformed signatures. The Expo CLI uses it only to sign
+  over-the-air updates, which Envelope doesn't use (the app ships as an APK), and it doesn't ship in
+  the app. 1.4.0 is the latest release; there is no fixed version yet.
 - **`bincode` 1.3.3 unmaintained** (Medium) — a transitive dependency of the Solana/Anchor crates,
   with no maintained replacement upstream yet. An advisory about maintenance, not a known
   vulnerability.

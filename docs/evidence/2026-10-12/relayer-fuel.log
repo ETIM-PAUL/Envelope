@@ -1,0 +1,31 @@
+# SKR fuel refills: paid, refused when not due, tamper-proof
+# date:    2026-10-12T20:50:04Z
+# commit:  bb9c908918df8ed92c9e8500a444934e787a9bc5 (with uncommitted changes)
+# command: npm run relayer:test-fuel
+# node v22.22.3, solana-cli 3.1.10, anchor-cli 1.1.2, relayer https://envelope-relayer.onrender.com
+
+
+> myapp@1.0.0 relayer:test-fuel
+> tsx scripts/test-fuel.ts
+
+1. Free-tier refill paid in SKR
+  ok   free wallet: first refill is the free welcome — {"status":"sent","signature":"W325cNj4kvJaaR32TpWi1UbAao1sZ4xzsQHQvW3hkMyc1RTwwk8y4hyrfkRGE7RLbStzPGd1dmpSnuq9D7FEpu2","lamports":"25000000"}
+  ok   quote returned — {"status":"quote","transaction":"AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  ok   submitted — {"signature":"WEnbXAhNPCyd5LpQHEuVx8qury9ZXb93Td3Ux5zzohWcha9R3ambUHah7LSxtXM61ycY4Y5QpXdq4fnmkuYbFeu"}
+  ok   tank holds 0.025 SOL
+2. refusals
+  ok   full tank: not needed
+  ok   a different tank is refused — this wallet refuels a different gas tank
+3. Member refill included (after buying a pass)
+  ok   member wallet: first refill is the free welcome — {"status":"sent","signature":"3j18bhRtZRS7UzthCvhFqxbGfshPKkPsfhuf5EUKu54suJY7N67GfrPWAJuWmcq2M9u5ncAXC3qphuKQgmxWhaQw","lamports":"25000000"}
+  ok   member by pass — {"tier":"member","expiresAt":1794430228}
+  ok   sent without a wallet signature — {"status":"sent","signature":"297feRnzfc9sMTTDKYv3FdHgVyiQtsFg2mdMqtLic4EosSW1tuVrrufJgXKfsD5mA5Z93og9opkXK1qZzDJ9d8DL",
+  ok   tank holds 0.025 SOL
+4. tampered transaction
+  ok   tampering wallet: first refill is the free welcome — {"status":"sent","signature":"23u5jYP2Y5wYFcRCUmcbPEFugoz1UAmS3FJKvqxwGzCfoFtmYKvfBFuXPm9M6PoMiz8VF8FC16tpoY4UziEktUy5","lamports":"25000000"}
+  ok   quote returned
+  ok   10x SOL refused — the SOL transfer does not match the quote
+  ok   tank untouched
+fuel OK
+
+# exit 0 after 36s

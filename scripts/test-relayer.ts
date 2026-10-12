@@ -1,6 +1,6 @@
 // Verifies Phase 12's "done when": a malicious tx is rejected, and a well-formed, fully-signed
 // tx is relayed successfully end to end (submitted, confirmed on-chain).
-// Prerequisite: the relayer must be running locally first (`npm run relayer:dev`).
+// Prerequisite: a relayer at RELAYER_URL (default a local one: `npm run relayer:dev`).
 // Run with `npm run relayer:test-policy`.
 import { readFileSync } from 'node:fs'
 import {
@@ -34,9 +34,10 @@ import { loadWalletSigner, readDevnetConfig } from './lib/keys.ts'
 import { createDevnetClients } from './lib/rpc.ts'
 
 const RELAYER_ADDRESS = address('Fjqmc1BpebL3FMVZo93zXMKMuiiMxSS57r5w8PHUP8Fe')
+const RELAYER_URL = process.env.RELAYER_URL ?? 'http://localhost:8787'
 
 async function relay(owner: string, wireBase64: string) {
-  const response = await fetch(`${process.env.RELAYER_URL ?? 'http://localhost:8787'}/relay`, {
+  const response = await fetch(`${RELAYER_URL}/relay`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ owner, transactions: [wireBase64] }),
@@ -80,8 +81,13 @@ async function main() {
   }
   const maliciousWire = Buffer.from(getTransactionEncoder().encode(maliciousTransaction)).toString('base64')
 
+  console.log(`relayer: ${RELAYER_URL}`)
   console.log('--- malicious transaction (System Transfer from relayer) ---')
-  console.log(await relay(alice.address, maliciousWire))
+  const malicious = await relay(alice.address, maliciousWire)
+  console.log(malicious)
+  if (malicious.status !== 400 || !String(malicious.body?.error).startsWith('rejected:')) {
+    throw new Error(`the malicious transaction wasn't refused by the relayer's policy check (${malicious.status})`)
+  }
 
   // --- benign: ComputeBudget price + real SKR fee transfer, fully signed by alice ---
   const [aliceSkrAta] = await findAssociatedTokenPda({
@@ -150,7 +156,10 @@ async function main() {
   const benignWire = getBase64EncodedWireTransaction(aliceSigned)
 
   console.log('--- benign transaction (ComputeBudget + real SKR fee, signed by alice) ---')
-  console.log(await relay(alice.address, benignWire))
+  const benign = await relay(alice.address, benignWire)
+  console.log(benign)
+  if (benign.status !== 200) throw new Error(`the benign transaction wasn't relayed (${benign.status})`)
+  console.log('relayer policy OK: the malicious transaction was refused, the benign one relayed')
 }
 
 main().catch((err) => {

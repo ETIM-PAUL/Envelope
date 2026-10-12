@@ -1,0 +1,145 @@
+# Private sends, pots, batch send and gift links end to end, with ciphertext checks
+# date:    2026-10-12T20:52:25Z
+# commit:  bb9c908918df8ed92c9e8500a444934e787a9bc5 (with uncommitted changes)
+# command: npm run devnet:cskr-roundtrip -- --top-up && npm run devnet:bridge-e2e
+# node v22.22.3, solana-cli 3.1.10, anchor-cli 1.1.2, relayer https://envelope-relayer.onrender.com
+
+
+> myapp@1.0.0 devnet:cskr-roundtrip
+> tsx scripts/cskr-roundtrip.ts --top-up
+
+minting 10000000 test SKR to alice...
+step 1: wrap_asset 10000000 SKR -> public cSKR
+  cSKR supply vs vault SKR: 158000000 (expected 158000000)
+step 2: deposit public -> pending, apply -> available
+  alice private cSKR gain: 10000000 (expected 10000000)
+cSKR top-up OK: alice keeps the wrapped cSKR
+
+> myapp@1.0.0 devnet:bridge-e2e
+> tsx scripts/bridge-cskr-e2e.ts
+
+bridge ping: {"ok":true,"wasmReady":true}
+  ok   alice can receive private SKR
+  ok   alice is on the Business plan
+1. withdraw 1 cSKR to SKR
+  ok   SKR wallet +1
+  ok   private cSKR -1
+2. create a pot accepting dollars and SKR
+  ok   pot accepts dollars
+  ok   pot accepts SKR
+3. send 2 cSKR to the pot through the relayer
+  ok   pot holds 2 cSKR (pending), readable with the host-derived pot key
+  ok   pot's public token balance still reads 0
+  ok   the 2 cSKR amount appears nowhere in the contribution transactions — 5 transactions scanned
+3b. batch (Business: 4 people): bob and the pot, twice each — two approvals
+  ok   two transfers per transaction — 2 + 2
+  ok   approval 1: the wallet's preview simulates cleanly
+  ok   approval 2: the wallet's preview simulates cleanly
+  ok   one wallet approval per transaction — 2
+  ok   bob received 2 transfers
+  ok   pot now holds 2.5 cSKR (pending)
+  ok   alice private cSKR -1.81
+  ok   activity lists all four batch transfers, amounts decrypted — 1100000 150000 210000 350000
+  ok   no amount appears in the batch transactions — 18 transactions scanned
+4. close the pot
+  ok   alice got the pot's 2.5 cSKR back
+5. zero-SOL user (dave): welcome fuel, setup, receive, withdraw, pot — no SOL in the wallet
+  ok   another wallet can't derive alice's pot key
+  ok   welcome fuel sent with no approval — {"status":"sent","signature":"5hbC3Vpkph1eV2xeTaTgqcdxZnHB9snMJuGhkTc3enbzhQDhVkG3W56i1PXphtvb7WuN9FvfvdUagbkuq3skivbF","lamports":"25000000"}
+  ok   dave can receive dollars
+  ok   dave can receive SKR
+  ok   dave holds 1 private cSKR
+  ok   dave withdrew to SKR (account created for him)
+  ok   dave created a pot
+  ok   dave still holds 0 SOL
+6. gift link: alice gifts 0.5 cSKR, a brand-new wallet claims it; alice takes back a second gift
+  ok   the link opens the gift: 0.5 cSKR waiting
+  ok   the gift amount appears nowhere on-chain — 5 transactions scanned
+  ok   new wallet: welcome fuel — {"status":"sent","signature":"4VcPYaJr5dxiM88FaBDNJgHFsN9pVKDDzbp4GaYaCKjH9Q6ArDKPoR4dt9SV28G7G3BYWnS43zsa9N7dCw3k5NVe","lamports":"25000000"}
+  ok   claimed with no wallet approval — 0
+  ok   the new wallet received 0.5 cSKR
+  ok   the gift is spent: its account is closed
+  ok   the new wallet still holds 0 SOL
+  ok   alice took the unclaimed 0.2 cSKR back
+
+Transactions (devnet):
+  withdraw 1 cSKR to SKR: https://explorer.solana.com/tx/3BE3LApniBr6iUeqEq3Xk8JDaa5Fzhm3gWrivNeVA8Js8kz9bn38obbo5X5cSCe9Cqj2Hok6strZBa3cY912CC1r?cluster=devnet
+  withdraw 1 cSKR to SKR: https://explorer.solana.com/tx/5Kbo4jEHoN2dCuibiBKEap2w7ecgyLDFFvfz4PMAh1mHnK6qS8sSkZqDSjwVYa9Z7UYQv7GNixLT5E6jkF8MZM84?cluster=devnet
+  withdraw 1 cSKR to SKR: https://explorer.solana.com/tx/3MboKy1SUBMLAgyRWEVj8mDmCwyASttDVJ7Tp9w6qvMiFbqS2KhDH6UuZQUmiHfndThcX2GA8a3u3ohJ3Wzt6q2u?cluster=devnet
+  withdraw 1 cSKR to SKR: https://explorer.solana.com/tx/33mST7aU5u6Qmisei9io19qfhKviVz2Yf4ZnKZaCYB7Qg5TnFXzoFfRktA8zqcmD2yRjDYdHGUq4nDERrU7EpNkn?cluster=devnet
+  create a pot (dollars + SKR): https://explorer.solana.com/tx/43Ryyn8k3Sm5HBRp9m5QxachkacvrRSRLyj6XwSZ3VmdvGrBiieLCCm9Ce64Jm2SWq3VaPGPPBoAiaYLXywsKnJm?cluster=devnet
+  create a pot (dollars + SKR): https://explorer.solana.com/tx/AqTX1VWEUh8zmc6Kdj5aCiQcPjfYp5zdaTNdzkAxdQkD5PeN1T8CKRZVzEAmVm3Cdq9QPqoPeQyzisxyhvDmtva?cluster=devnet
+  contribute 2 cSKR to the pot (relayed): https://explorer.solana.com/tx/r6vf2sx3UfxKesnEjrzXFP8auvzMuNpYqEyDmnjARreAypSEjeKArgYSkKVwdjLVF2biYyRaqbF5jjjUqjGwy12?cluster=devnet
+  contribute 2 cSKR to the pot (relayed): https://explorer.solana.com/tx/4kTcf7pPqkNXG7SMFKSCQinRt8UUxz4ntTpJo7w2R7WidXgj483S78VxtztCBVaufchpybAA2CxJ4z8s6NXKn5NF?cluster=devnet
+  contribute 2 cSKR to the pot (relayed): https://explorer.solana.com/tx/37yQi9g3K3JiNXqHXBL77tCx6WS5h8o3yjT9MZa7rEhq7MRmqTWa4yZB6tqNnvXQTzoCoQrdw5VytxHaVMVjWtFA?cluster=devnet
+  contribute 2 cSKR to the pot (relayed): https://explorer.solana.com/tx/2NH4wJEedjWhosH5pPJ3ypSwTMdYL6CVgcCFUkuGRVVshAtpjtq6TxT6VnKoyDpKNvzZXQLkZu5PNWYW6Z4YJ6dw?cluster=devnet
+  contribute 2 cSKR to the pot (relayed): https://explorer.solana.com/tx/2y7fwBtsgTwYTwLGmwpqsLJxKXPZQWVs4FAaX5toLiPFXaTayWjcW6UxyHW8qyrYaMpK5vkowciJdcHroJkzfGwD?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/4ytyeDA14DMVySiXV44ZX7VTd3TqVdfxHN9J2iXK7Xr9yvVtTRAek1pJYGq5jpReBdGWBetZ1e87jmXJpd88aE8g?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/2o1opzNrzx5aF3gdS6SZdnjXW9PJQUTKwBNWBwaW6uCVegG3bWrj4XFQozksTcNnmg9sGzPGzv5nZnPiygreneAH?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/2qJR6FjyJrR9taRBmjCaUw2EKQcFne6ZBw5pYpgQnkaF42qmAcF2Z2usDgfmsjCTXqg2azkPYqZijqvhzMLdFMLL?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/4E87VxbJqvvftZTv3midKQvG4JqTE44kVbRTRH8hUazouf9wdzX1ApAHEPCV9VkGmNHjPBpVFP3T3r2oUVuT9Tee?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/BpEMLgUwfA3uqUTiRTbXKVxn4P4RqWnaNFpDnJBbUZCnCgmi3dy7ezrnCskFZ5deWjGyR73upmwRpL7N6YxWyzn?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/5r1yBgui8PAv852v9J2uLbeFiF3gnEQpyygWDyNCEuHNW24zypsmpHNUHorhTJHPmxN7D4gWAXwYYnnC6Zrs6uMm?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/61cbNH3mqfarbjrertpHkPM4G3MPCKWQyBpGpfrKu4M6oH5jVziUGJjPmVaadgvfJdvz8K4fVLtpPmvufmnKsDB9?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/4MRwSLYNbMdD3mjUspiJ4LLZiwbKaQWFDrd75yNj3n7CZPK2Debs94ydgU83rWsWs5Roq2kGHNx9YYGF2ycq5Y8N?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/3nfjseELtBhPtkeFQyjK5BFhaEBPXnREm6gEM1vT9VB4BzkZ9aUZYX8xqeHTGCu8BdL23WQtkRUUd79NK9UyeUYK?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/VFnVpDokBWB8A6D1KmU7vnevC8YoWnkGeRWs5bGKZiHmxm4DXeNcbcDtQzbfWyXhrmJo4Bgdws7uSrBxCo56UrU?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/kqEsnnNE4VgiYLp4PDGUzi19vF9DpGZHHNGSqV3PpLfJYGfYbE7o56CpdvzXwP6w6hMc2ZBQF1553xQ5HbExvz2?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/3aaQgDchopyAQ5VDFwxgaxfCUuHY9i8UJug6hn3mwg6CSEr6UkpZWdUJpehJ6o4VFTrYZaboa5uw69pXFFeTUsaK?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/2PMEkUdPCs9Gsrcgjt5twHa6fpyp5i5pHELATKBYX3GANw2ib29PrBuwRMdFNs94udc1DVuLANgssBVECANsvVpo?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/2SfsmHaS8aKeJf9VJQQMHJ9BALGXT7TvN2rFmaptaqXVJvrHUAQVv4pyUnVCR7SEiymsNEFGH6Ne8ggWg63VLF6r?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/2K3bpL9xBhJnmkyNpXYWdBQycn8PnWgkkKuybb5Ee9WhfPtD6G8HzhLccRe3R9hXBJTqLWVM8uh6QnWgx85gJb2n?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/2Kd1jf8dQmQrc75zoDyW1Yeo94UBchMg6Wygp8bXXAmvHZKmKYoG92ax1LN7rYLZBxVQUoBHA1Fb4We6rabKyAXX?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/4UHG7Jj1XWm5Cd28nk1ynBr7xsahoxW85HKThVHA66q7iSesHZSM3am1xsFNYYqjSXWsNRJEGTp5MQpxpz7noEMf?cluster=devnet
+  batch: 4 transfers to bob and the pot (relayed): https://explorer.solana.com/tx/3qiGH8xsWbyphTocZ9nxFxp6nL8UYz7Zcv2P7BLjHprsKdvVFChpZSx1KQGCeRRfx39foYrmWHRmurzZ3Qio3dLV?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/BJFZYV3wLMaiip9FT67kY2n7kyz7Lg8Q8bamiNWvhB8VKdmTBi9RhnuQ2spkpUtNPzvFdYNHFteoypSr5spexSj?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/QucizsF7dA9JgLiHa5A1KFbvT6nJ22ebFMGvc1iDoLbyqEP9AHeYXBkjEWhFrMEF8QJeWYcRQ9jjmWAVdYj9GWU?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/i1qpRS2qP2Biwa3PJV62TT2YB7SHmqywz5h4K9HyjA7jQKi3N78HWTLwLdRu9aLecxbQE2RUBCwvPwmTLQMpgkG?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/BFe95KnNBYP779ue3HkTjuX5rLVfmAmyGCp5xQThVNypVyzSH87YBpo9soLBsAZdT2WNCaW5biYCbniVHjGrRfw?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/4U2JCEFWfR2drZAWDs1fyEXajBfftboTvwmWzEANYJpwS8ePhkBfa5b9mNwMaXcTNCrzvUyDZy9jqWuFH4jSs7DY?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/3pGeV5yeeufY1pQAzoi738XaX3ezWgQUrerwCzgan1rbeWNnjrXX3ydxcqVrnK26BhaRnt3RYc1GVS25XEbfh156?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/43Wg26JrQvXsGs8oPn9fopR9TEJvYD3MsDzRv2UaZvyaDvaVNyuvrzYJqKk6cjQXMiH2RKN1YGmPS6KB4xk9caKw?cluster=devnet
+  close the pot: https://explorer.solana.com/tx/3EKrQoLsVUhaisP21gefSbA3rMSUEpsoG2Cszb6ZeXSPPP3ZhXfr1KvEBdCGwkZ9SXCw1rps5G72pp7wep62FPdk?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/4K8eAxD4U6J7QJEB9CeqniKoPymjgoWYVBWwhwzczerHkYK6bqeV1HoAvesajBHRBNy6xsgHtFnKCQoSSx5dk4uW?cluster=devnet
+  zero-SOL user (relayed): https://explorer.solana.com/tx/2bLNmhdwQBrqqvQnpVz999Y9QBuzYE1jqpfXzxT5DBYKfg4swRuPw3JrvP2PZKZnzaKbuqrZt1xQCWp78rFzX1QK?cluster=devnet
+  zero-SOL user (relayed): https://explorer.solana.com/tx/54iNJtkaMaXe78MLaqa68Zv3gNU7z1J2LE5RmQNyCBcXhHc1vrpDSFpYhBgmCZi9hKbkeiZxasksYkm2EqFKShU1?cluster=devnet
+  zero-SOL user (relayed): https://explorer.solana.com/tx/4V8dnmUUWzGZAED49jDBXRPLScAs3P9GXrmEfLPEbd3VrhWWjQVAuSfYQG83xrcqo1xsYLmJtbEBMdQBDGPZFFBS?cluster=devnet
+  zero-SOL user (relayed): https://explorer.solana.com/tx/3qhqqT6MsrayeXBURya5Xe4VanmSLghsJ7Yd9rsa5kcyeFzpQBgkGWZ7MF1uWd49Bq9TW55Ym3ApgvqEdhXhCSn?cluster=devnet
+  zero-SOL user (relayed): https://explorer.solana.com/tx/3GRHsnLf7bwkA1dyRKy2B7bCbT3FmyqUFwxZSPgRGSWLKnuXfaP1EeSf14VeLFGjNhH16PKF3vCbdawvtahmSvYX?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/5DqcPEzUtR3P6imKWLoKcUELBoMyza5ha2PJLQS6bSMp6SG3RySMFkGKM9wf6xkTfcFdG4TxdJJNdPtFEksZZXFg?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/5aLrXPqypUc5sJ9iT4XhQ3um1CPNfrD3T5P4dpXQ7jHBBJBFNfuwP7kXbbZw8GUWSE1A9dFQ3c7zaaRDNbBbbzni?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/KBnJqUQUYbeK7nxUE5k2CnyVnCeqjVaVYGYXRkS5G4vqaJky61ZVRCBc25Nx6SbQ49x8vSPoTeAyiEztmdZisop?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/24newKmSjmiDCAPR41nSkuPRTfAfCb1ox5CQP6fTsK5y69gPq86V7f5jvWu5KL6J9LjhziCABuunPVGDKZHjdLTz?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/JEerDQhsdTCqW4Eb4Wa9fR9SAXRdusYBovHTga6s16vGmL82dJ3RreoqgD9gEXNCt8aq3Z22rVejpQHZP4bRbTM?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/5SzGmL5AWdnKL8xiQ8Cahyihq4TtqhRcYwfXWhh7ftvyUB4EmDajVWHiPs9arCTomrLvtFszyRPgE5NFp2oLwQ43?cluster=devnet
+  zero-SOL user: https://explorer.solana.com/tx/ohNPjzKeZsPHhbt93ZxcJPe3ZTBQAwxNxrStb2k1EntxoDc17dzbxeqwTWiez8CpTwjcRDahxihtiwmoS4EiBZ7?cluster=devnet
+  gift: create, 0.5 cSKR: https://explorer.solana.com/tx/9XTqrs8d8yARZMBxNQggX1aDETd6ZDYWka6Ad5CNFLNWHAWZTiMHuZQzH4aaJ9oPEXyWzDwRwPuK8Q8K55cMFUV?cluster=devnet
+  gift: create, 0.5 cSKR (relayed): https://explorer.solana.com/tx/3F838yU1Pe8DTFgziQRor2BTbegzQSsTaDd5pfaw5rLun3QFwWdcoSA9WS1trqirKxdGdxp63Dt1Po5xA5ani7kQ?cluster=devnet
+  gift: create, 0.5 cSKR (relayed): https://explorer.solana.com/tx/2t9L7dZBAynJ8AbDbM34958gP7bP7i9pWfPYxLwWKH81uwnZX2A1yngTL9ELwc1D3fmzZf7n6jrPxfb2LfBEpBAn?cluster=devnet
+  gift: create, 0.5 cSKR (relayed): https://explorer.solana.com/tx/4MKMEQh4YPXGzV5ve6hYsZXjWUBNMWmVzFev9HQYiFbcTbLzwuXPi52W6m4iU46UTLzrqiM6XTYt5rS7nG8ChKTG?cluster=devnet
+  gift: create, 0.5 cSKR (relayed): https://explorer.solana.com/tx/23gBNqZ7huZ53G3Hk45xUPEMB29fsmoXyMbTr3FNm4TmkQcfhmeyKGFvgdPWv1UBUn7GgNV1SL5dzcYLu65HLi3N?cluster=devnet
+  gift: create, 0.5 cSKR (relayed): https://explorer.solana.com/tx/2PaVqMvSb1Tj2hgwpT4YP2EncQgPZzibwW26oeEV5dZmZnHJcWqQ6CirXA9dQkDcPtqRMzaA5qFy5dWTpCtiXhzW?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/QH16pTWoK9yVBff32BHHnJqHbe5CToV1YDSr2nT1Xs8Kk4dc5TEJeyx4VmDn2wb5PSPju9nN8uRitNqwoonT4Bv?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/5hBUiwCKPYWyWuA5kDo1QZqiuRZyaarBU5pSr4PnGFaptmBmJBcKZMAq6zhJdjS5H6Kq6rMrXpzJ4GrjiPhGsMij?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/3XV1K8gsv6ccW6GNEqCPNrFsgNUhct8Lh1rjvLZ5w9BNeywxDMoJtr139UqmaH4Z72T8Aog3WCNxhYPEfxamxgSf?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/5zJkt8vyRFaboCymC8K8P8EKj8gEDXTfYY48pd5MsvVuYLatay3RWz63gf5AoPEGoNPW185XKtDBshYEiG6PHcDX?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/3qSSJqr611Sk85UF6As8nkRHzmwAZybirhL7cXfqYw3tycR46h5NqSBbyc49MgUVZM61KsifhEeUrSmyK1ukHTao?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/5dW5jk1XBTpKRegrCjZA3noapcb42UnbGSRc69fficVAkjA6fW2kZMNo7BCme3nfNgucNdrpGnLYkrNJEyDUc3or?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/45Cy46FRwQDvS5tyaeMr81ErzzU8UdpqDdJYDCvAmEHbr7KPkLyDd9qVt2Vo2Ad1u8tNfsREHJSMf5tGpYoUvWJW?cluster=devnet
+  gift: a new wallet claims it: https://explorer.solana.com/tx/3w8WiVPHUPGLGMHLFWyiAHFGQEQb95HGLi1ZnJUtcMbCxwsBAy3XRBAVyZZqfPpwiKQA4VsWVV5cxj6Tbmvc4Pd6?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/2wyifaWA62HnpJXmKiLZgwmXFRk7JNA4TyUFQGuc6Z2F5hvcu77HRL8J9eQGtf3E8LWzSFCYSiL1JSGwStbodidN?cluster=devnet
+  gift: create 0.2 cSKR, then take it back (relayed): https://explorer.solana.com/tx/34E4USZrS6nwd3isoPJ34J9vwf6EmYnzSrTbT2wFFJ5xJsubzza6moDGjZCMJUqeodFYxEZ5V6gWkRjDX6pd9uev?cluster=devnet
+  gift: create 0.2 cSKR, then take it back (relayed): https://explorer.solana.com/tx/4srJwyMz2zYbgM6DdQrE39wcWQVLoScpxXWRMNAbrVCmtcFDV9yvfqMtRDAMVXutbEKSYL9peb9cjRVeggXupu61?cluster=devnet
+  gift: create 0.2 cSKR, then take it back (relayed): https://explorer.solana.com/tx/56fha9bJ264tzKMtxWeuKkiTc3w48BHjayprfsQ67up8hD3RRBoHNL9byGLoqmzfanh3RoCyBRUTdpX71xahmnE7?cluster=devnet
+  gift: create 0.2 cSKR, then take it back (relayed): https://explorer.solana.com/tx/AEJi4EFTWbh48VtE69EmXFGgUthHhHLM7UfJJgYVUiyzEESxcBKiF7xa6DZCqSYrdKH5MrCxwA5PUCxrfcE9GgX?cluster=devnet
+  gift: create 0.2 cSKR, then take it back (relayed): https://explorer.solana.com/tx/4TG3cRQjJ3UpwToDd8jzVKw9bJXy235SCjqgQ4qmotcBkgTCepfkrPFgY1wE5bsfxpMSBRXgmg6HEfvtUy2t2Lbm?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/WCHKL88BfgsQcYEH17Z3dtkbeiSgBKWKyiNSwFmfsHKHhwJeZZSk7cxcxwvCRa6ACMJM2hfC1soEDg3EacxUkSG?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/557QG3XHQ5UjtMopMbBLSj5Zj6s5Q3NT26qYjKpTsBuSMxHghYuHEJhLEhDv5n39EdDjiyJTeD4MFRvRVgrtD59x?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/5iio88Pix58AtqTZtb8TZTfaRcv2z83xpDcLst4XnMy2ZT1kN58ZvRqAgBZRzcGWBag5ANRRnmn6DfBc3KVhma5a?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/2jfdaNzaHjoG46gArM8yVoevyDmU7XpfdQSSxYE5UQE9McAZjr2HDhWcJ7j5aqzyVsJrMKbGXWLBpvZuHe1c8JmY?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/2d1iY4bQuGJ26bjteq9ecsLfyVcCa3uxgzB2ep4GugjyGGCNdCisd2UHCAQKmru431tkjFnj2EpbQz7dtNG5D4Zb?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/itwLpJAMYm8eewS2kPGcNWmVyumWq3xkg4P5pT6ZBoUzRf6L3XgAnxdVXtqz9ZMs4YfGiFSRjhE3d4MQrHAbvzC?cluster=devnet
+  gift: create 0.2 cSKR, then take it back: https://explorer.solana.com/tx/3AZ1FBQVxgGhYbYCNtZ3YUwUmMzszBP6PLAK8LRDXNXy5krZLnFNaQx8mQgp9oSnjZ3RcBTpEZux1oeBECBseWaG?cluster=devnet
+bridge cSKR e2e OK
+
+# exit 0 after 385s

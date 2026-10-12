@@ -1,0 +1,51 @@
+# The relayer's policy refuses every drain attempt and relays a legitimate transaction
+# date:    2026-10-12T20:43:37Z
+# commit:  bb9c908918df8ed92c9e8500a444934e787a9bc5 (with uncommitted changes)
+# command: npm run relayer:test-attacks
+# node v22.22.3, solana-cli 3.1.10, anchor-cli 1.1.2, relayer https://envelope-relayer.onrender.com
+
+
+> myapp@1.0.0 relayer:test-attacks
+> tsx scripts/test-relayer.ts && tsx scripts/fuzz-relayer-policy.ts
+
+relayer: https://envelope-relayer.onrender.com
+--- malicious transaction (System Transfer from relayer) ---
+{
+  status: 400,
+  body: {
+    error: 'rejected: System instructions other than CreateAccount are not allowed'
+  }
+}
+funding alice with mock SKR (if needed)...
+creating the relayer's SKR ATA (if needed)...
+--- benign transaction (ComputeBudget + real SKR fee, signed by alice) ---
+{
+  status: 200,
+  body: {
+    signatures: [
+      '4HUWXSi5dLksYYzZXu2wQsWTJZuKkU9P5yVuCczC52UNNPseLJJXSCBQ7KCyiW5JJcDCGmMDT7vSm33qvy7r2aDw'
+    ]
+  }
+}
+relayer policy OK: the malicious transaction was refused, the benign one relayed
+--- CreateAccount funding a non-ZK-proof-program-owned account ---
+{
+  status: 400,
+  body: {
+    error: 'rejected: relayer is writable in a 11111111111111111111111111111111 instruction outside its allowed roles'
+  }
+}
+  correctly rejected.
+
+--- CloseContextState with the relayer as destination but an attacker as authority ---
+{
+  status: 400,
+  body: {
+    error: 'rejected: relayer is writable in a ZkE1Gama1Proof11111111111111111111111111111 instruction outside its allowed roles'
+  }
+}
+  correctly rejected.
+
+all fuzz cases correctly rejected — both gaps are closed.
+
+# exit 0 after 12s

@@ -4,6 +4,12 @@ Each claim below has a check you can run, plus the output of our runs on **9 and
 (Solana devnet, against the hosted relayer at `https://envelope-relayer.onrender.com`). Every
 transaction link opens on Solana Explorer.
 
+**Complete logs.** The excerpts below are trimmed for reading. The complete, unedited output of a
+full rerun of every check on 12 October 2026 is in
+[docs/evidence/2026-10-12](evidence/2026-10-12/SUMMARY.md), one log per check, each headed with
+the date, commit and command. `scripts/collect-evidence.sh` reruns them all and writes a new dated
+folder (`scripts/collect-evidence.sh public` runs only the checks that need no project keys).
+
 **Who can run what:**
 
 - **Anyone with a clone:** the zk-sdk comparison and the unit tests, after `npm install`.
@@ -11,16 +17,17 @@ transaction link opens on Solana Explorer.
   `.keys/` (gitignored). The programs only accept their own admin key, and only that key can mint
   the test SKR. The logs and transaction links below are what those runs produced.
 
-| Claim                                                           | Check                                                        | Result                       |
-| --------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------- |
-| Proofs run on old WebViews (Chrome 85+), same crypto as the SDK | `npm run cbridge:verify-zk-sdk`                              | 23/23 checks pass            |
-| Private sends, pots and batch send work end to end              | `npm run devnet:bridge-e2e`                                  | All checks pass              |
-| Amounts never appear on-chain (privacy negative checks)         | part of `devnet:bridge-e2e`                                  | 23 transactions scanned      |
-| Guests can't read a pot's total                                 | `npm run devnet:pot-roundtrip`                               | 3 guests, none can decrypt   |
-| Gift links: a new wallet claims with only the link's secret     | part of `devnet:bridge-e2e`                                  | Claimed, no approval, no SOL |
-| The relayer can't be drained                                    | `npm run relayer:test-attacks`, `npm run relayer:test-fuel`  | Every attack refused         |
-| The scanner's three "high" Anchor leads are not exploitable     | `anchor test --validator legacy --skip-build` (in `anchor/`) | 36/36 tests pass             |
-| Background network retry and biometric fallback behave          | `npm run test:unit`                                          | 7/7 tests pass               |
+| Claim                                                           | Check                                                          | Result                       |
+| --------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------- |
+| The vendored zk-sdk is a reproducible build of Solana's source  | `bash packages/cbridge/scripts/build-zk-sdk-compat.sh --check` | Byte-identical (SHA-256)     |
+| Proofs run on old WebViews (Chrome 85+), same crypto as the SDK | `npm run cbridge:verify-zk-sdk`                                | 21/21 checks pass            |
+| Private sends, pots and batch send work end to end              | `npm run devnet:bridge-e2e`                                    | All checks pass              |
+| Amounts never appear on-chain (privacy negative checks)         | part of `devnet:bridge-e2e`                                    | 23 transactions scanned      |
+| Guests can't read a pot's total                                 | `npm run devnet:pot-roundtrip`                                 | 3 guests, none can decrypt   |
+| Gift links: a new wallet claims with only the link's secret     | part of `devnet:bridge-e2e`                                    | Claimed, no approval, no SOL |
+| The relayer can't be drained                                    | `npm run relayer:test-attacks`, `npm run relayer:test-fuel`    | Every attack refused         |
+| The scanner's three "high" Anchor leads are not exploitable     | `anchor test --validator legacy --skip-build` (in `anchor/`)   | 36/36 tests pass             |
+| Network retry, biometric fallback, QR and link parsing          | `npm run test:unit`                                            | 13/13 tests pass             |
 
 ## 1. Proofs on old WebViews
 
@@ -57,6 +64,21 @@ zk-sdk builds match
 Keys, ciphertexts and commitments are byte-identical. Proofs use fresh randomness each time, so
 for them the check is that a proof made by either build verifies in the other, and a tampered one
 doesn't.
+
+**The vendored build is reproducible.** `build-zk-sdk-compat.sh --check` clones Solana's
+`zk-sdk-wasm-js@v0.5.3` tag, builds it with the pinned toolchain, and compares the result with
+`vendor/zk-sdk-web` instead of overwriting it. All three files match byte for byte
+([log](evidence/2026-10-12/zk-sdk-rebuild.log)):
+
+```
+source: zk-sdk-wasm-js@v0.5.3 at commit b9d9bdf843335a247a081695b4ab3e721926e053, checked out in …/zk-elgamal-proof
+f109f9e07eb454552edfe501a9a117ba0827b72cedf52e81761da2e30c059d7e  optimized.wasm
+vendor/zk-sdk-web is byte-identical to a fresh build of zk-sdk-wasm-js@v0.5.3
+```
+
+The WebAssembly embeds one source path (in a panic message), so the check builds at the same path
+the vendored copy was built from. Built anywhere else, the code is the same and only that string
+differs.
 
 On a real device: our demo video was recorded on a Huawei phone whose WebView is Chrome 92.
 Every proof in it was generated by this build.
@@ -165,7 +187,10 @@ closing the pot and sweeping the balance to the host...
 
 The relayer pays network fees, so it's the obvious target. From
 [`test-relayer.ts`](../scripts/test-relayer.ts) and
-[`fuzz-relayer-policy.ts`](../scripts/fuzz-relayer-policy.ts), run against the hosted relayer:
+[`fuzz-relayer-policy.ts`](../scripts/fuzz-relayer-policy.ts), run against the hosted relayer
+(`RELAYER_URL=https://envelope-relayer.onrender.com npm run relayer:test-attacks`). A case only
+passes if the relayer's own policy check refuses it (`400`, `rejected: …`), and the legitimate
+transaction has to be relayed (`200`), so the tests can't pass against anything but a relayer:
 
 ```
 --- malicious transaction (System Transfer from relayer) ---

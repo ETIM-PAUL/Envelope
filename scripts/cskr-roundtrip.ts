@@ -1,7 +1,8 @@
 // Confidential SKR end to end on devnet, against the upgraded envelope_vault: SKR -> wrap_asset
 // -> public cSKR -> deposit/apply -> confidential transfer alice -> bob -> withdraw ->
 // [Approve, unwrap_asset] -> SKR. Checks every balance delta and the supply invariant (cSKR
-// supply == SKR held by the vault). Needs `npm run devnet:cskr` first.
+// supply == SKR held by the vault). Needs `npm run devnet:cskr` first. With --top-up it stops
+// after the deposit, leaving alice the wrapped cSKR.
 import { address, nonDivisibleSequentialInstructionPlan, singleInstructionPlan, type Address } from '@solana/kit'
 import {
   findAssociatedTokenPda as findClassicAta,
@@ -168,6 +169,12 @@ async function main() {
     (await privateBalance(aliceCskr, aliceKeys)).availableBalance - aliceBefore.availableBalance,
     WRAP_AMOUNT + aliceBefore.pendingBalance,
   )
+  if (process.argv.includes('--top-up')) {
+    // Stops with the wrapped SKR in alice's private balance, for runs that spend it
+    // (bridge-cskr-e2e.ts).
+    console.log('cSKR top-up OK: alice keeps the wrapped cSKR')
+    return
+  }
 
   console.log(`step 3: confidential transfer ${TRANSFER_AMOUNT} cSKR alice -> bob`)
   const [aliceAccount, bobAccount] = await Promise.all([fetchToken(rpc, aliceCskr), fetchToken(rpc, bobCskr)])
