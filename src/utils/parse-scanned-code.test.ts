@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { encodeGiftMessage } from '../features/gifts/gift-link'
 import { parseScannedCode } from './parse-scanned-code'
 
 const POT_PDA = '5o6FbFsnSrAduCSRwGt1nTeRfWNSKPvmEq9mkdoFoGTA'
@@ -40,6 +41,15 @@ describe('parseScannedCode', () => {
       secret: GIFT_SECRET,
     })
     expect(parseScannedCode(`envelope://gift?k=${GIFT_SECRET}`)).toEqual({ kind: 'gift', secret: GIFT_SECRET })
+  })
+
+  it("keeps a gift link's message, still encoded, in both forms", () => {
+    const encodedMessage = encodeGiftMessage('Happy birthday!')
+    const expected = { kind: 'gift', secret: GIFT_SECRET, encodedMessage }
+    expect(parseScannedCode(`https://envelope-relayer.onrender.com/gift#${GIFT_SECRET}.${encodedMessage}`)).toEqual(
+      expected,
+    )
+    expect(parseScannedCode(`envelope://gift?k=${GIFT_SECRET}&m=${encodedMessage}`)).toEqual(expected)
   })
 
   it('rejects anything else', () => {

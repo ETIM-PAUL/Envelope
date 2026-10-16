@@ -353,11 +353,16 @@ A gift is a one-off "gift wallet" whose keys come from a random 32-byte secret: 
 that keypair the way any wallet's are. The sender's phone generates the secret, sets up the gift's
 confidential account (rent from the sender's gas tank), and funds it with an ordinary private
 send. The amount is hidden exactly as in any transfer. The link is
-`<relayer>/gift#<secret>`.
+`<relayer>/gift#<secret>`, or `<relayer>/gift#<secret>.<message>` when the sender adds a note.
 
 - **The secret never reaches a server.** It's after the `#`, which browsers don't send. The
   relayer's `/gift` page is static: its own script reads the fragment and builds the
   `envelope://gift?k=…` app link. The page sets `Referrer-Policy: no-referrer`.
+- **The message is as private as the link, and no more.** The sender's note (one line, 120
+  characters) is base64url text in the link itself: never on-chain, never sent to the relayer, and
+  readable by anyone who holds the link, like the gift. The app and the page treat it as untrusted
+  text: malformed input reads as no message, and the page shows it with `textContent`, never as
+  HTML.
 - **A gift link is a bearer instrument.** Whoever opens it first can claim it, and a claim can't
   be undone. The app says so when the link is created. Until a gift is claimed, the sender can
   take it back: the secret is kept on the sending phone in SecureStore (Keystore-encrypted). It is

@@ -58,7 +58,10 @@ export default function Send() {
       return
     }
     if (code.kind === 'gift') {
-      router.push({ pathname: '/gift', params: { k: code.secret } })
+      router.push({
+        pathname: '/gift',
+        params: { k: code.secret, ...(code.encodedMessage ? { m: code.encodedMessage } : {}) },
+      })
       return
     }
     setAddressText(code.address)

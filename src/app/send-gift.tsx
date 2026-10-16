@@ -12,11 +12,13 @@ import QRCode from 'react-native-qrcode-svg'
 import { AssetToggle } from '../components/asset-picker'
 import { BackButton } from '../components/back-button'
 import { Button } from '../components/button'
+import { GiftMessage } from '../components/gift-message'
 import { Screen } from '../components/screen'
 import { colors, fontFamily } from '../design/tokens'
 import { ASSET_DECIMALS, formatAssetAmount, getAsset, type AssetId } from '../config/assets'
 import { usePrivateBalance } from '../features/account/use-private-balance'
 import { useTier } from '../features/account/use-tier'
+import { cleanGiftMessage, GIFT_MESSAGE_MAX } from '../features/gifts/gift-link'
 import { readGiftSecret } from '../features/gifts/gift-store'
 import { giftLink } from '../config/site'
 import {
@@ -56,8 +58,9 @@ export default function SendGift() {
   const { createGift, step, isBusy } = useCreateGift()
 
   const [amountText, setAmountText] = useState('')
+  const [message, setMessage] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [created, setCreated] = useState<{ link: string; shownAmount: string } | null>(null)
+  const [created, setCreated] = useState<{ link: string; shownAmount: string; message: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
   const amount = parseDollarsToBaseUnits(amountText, ASSET_DECIMALS)
@@ -78,8 +81,9 @@ export default function SendGift() {
       return
     }
     try {
-      const { link } = await createGift(asset, amount)
-      setCreated({ link, shownAmount })
+      const note = cleanGiftMessage(message)
+      const { link } = await createGift(asset, amount, note)
+      setCreated({ link, shownAmount, message: note })
     } catch (e) {
       setError(formatError(e))
     }
@@ -96,6 +100,7 @@ export default function SendGift() {
             Send this link to the person it&apos;s for. They open it, install Envelope, and the gift lands in their
             private balance.
           </Text>
+          {created.message ? <GiftMessage message={created.message} /> : null}
           <View className="bg-paper-500 p-4 rounded-3xl mb-6">
             <QRCode value={created.link} size={180} color={colors.ink[950]} backgroundColor={colors.paper[500]} />
           </View>
@@ -183,6 +188,23 @@ export default function SendGift() {
             ? `Send fee: ${formatExactBaseUnits(feeAmount, SKR_DECIMALS)} SKR · claiming is free for them`
             : 'No fee · claiming is free for them'}
         </Text>
+        <View className="w-full max-w-xs mb-6">
+          <TextInput
+            value={message}
+            onChangeText={(text) => setMessage(text.replace(/\n/g, ' '))}
+            placeholder="Add a message (optional)"
+            placeholderTextColor={colors.mute[600]}
+            maxLength={GIFT_MESSAGE_MAX}
+            editable={!isBusy}
+            accessibilityLabel="Message for the person you're sending the gift to"
+            className="bg-ink-900 border border-ink-800 rounded-2xl px-4 py-3 text-paper-500 text-base"
+            style={{ fontFamily: fontFamily.ui }}
+          />
+          <Text className="text-mute-600 text-xs mt-2" style={{ fontFamily: fontFamily.ui }}>
+            Travels inside the link, never on-chain. {message.length}/{GIFT_MESSAGE_MAX}
+          </Text>
+        </View>
+
         {notEnoughSkrForFee ? (
           <Text className="text-paper-400 text-xs mb-8 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
             You need {formatExactBaseUnits(feeAmount, SKR_DECIMALS)} SKR in your wallet for this fee.{' '}
@@ -243,7 +265,7 @@ function SentGifts({ disabled }: { disabled: boolean }) {
     try {
       const secret = await readGiftSecret(gift.giftOwner)
       if (!secret) throw new Error("This gift's link isn't stored on this phone.")
-      await Clipboard.setStringAsync(giftLink(secret))
+      await Clipboard.setStringAsync(giftLink(secret, gift.message))
       setCopiedGift(gift.giftOwner)
       setTimeout(() => setCopiedGift((current) => (current === gift.giftOwner ? null : current)), 2000)
     } catch (e) {
@@ -281,6 +303,11 @@ function SentGifts({ disabled }: { disabled: boolean }) {
               <Text className="text-paper-500" style={{ fontFamily: fontFamily.uiSemibold }}>
                 {formatAssetAmount(BigInt(gift.amount), gift.asset)}
               </Text>
+              {gift.message ? (
+                <Text numberOfLines={1} className="text-paper-400 text-xs italic" style={{ fontFamily: fontFamily.ui }}>
+                  “{gift.message}”
+                </Text>
+              ) : null}
               <Text className="text-mute-500 text-xs" style={{ fontFamily: fontFamily.ui }}>
                 {STATUS_LABEL[gift.status]} · {new Date(gift.createdAt).toLocaleDateString()}
               </Text>

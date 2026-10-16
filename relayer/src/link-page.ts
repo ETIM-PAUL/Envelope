@@ -36,6 +36,10 @@ export function linkPage({ title, body, script }: { title: string; body: string;
   a.secondary { background: #232733; color: #F6F1E7; }
   a:focus-visible { outline: 2px solid #C9A227; outline-offset: 3px; }
   .note { font-size: 13px; color: #6B7185; margin-top: 20px; }
+  .message {
+    color: #DCD6C8; font-style: italic; background: #171A21; border: 1px solid #232733;
+    border-radius: 16px; padding: 12px 16px; overflow-wrap: anywhere;
+  }
   .hidden { display: none; }
 </style>
 </head>

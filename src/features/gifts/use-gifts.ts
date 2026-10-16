@@ -27,7 +27,7 @@ import { usePrivateBalance } from '../account/use-private-balance'
 import { useSendPrivately, type SendStep } from '../account/use-send-privately'
 import { recordNotification } from '../notifications/notification-log'
 import { useGasTank } from '../wallet/use-gas-tank'
-import { isGiftSecret } from './gift-link'
+import { cleanGiftMessage, isGiftSecret } from './gift-link'
 import { listGifts, markGiftTakenBack, saveGift, type GiftRecord } from './gift-store'
 
 const signatureOf = (wireBase64: string) =>
@@ -45,7 +45,8 @@ export function useCreateGift() {
   const [creating, setCreating] = useState(false)
 
   const createGift = useCallback(
-    async (asset: AssetId, amount: bigint): Promise<{ link: string; giftOwner: string }> => {
+    async (asset: AssetId, amount: bigint, message?: string): Promise<{ link: string; giftOwner: string }> => {
+      const note = message ? cleanGiftMessage(message) : ''
       if (!walletAddress) throw new Error('connect a wallet first')
       if (!bridge.ready) throw new Error('confidential bridge is not ready yet')
       setCreating(true)
@@ -65,7 +66,11 @@ export function useCreateGift() {
           created.signedTransactions,
         )
         // Kept before any funds move, so the sender can always take the gift back.
-        await saveGift(walletAddress, { giftOwner, asset, amount: amount.toString(), createdAt: Date.now() }, secret)
+        await saveGift(
+          walletAddress,
+          { giftOwner, asset, amount: amount.toString(), createdAt: Date.now(), ...(note ? { message: note } : {}) },
+          secret,
+        )
       } finally {
         setCreating(false)
       }
@@ -79,7 +84,7 @@ export function useCreateGift() {
         covers: signatures,
       })
       await queryClient.invalidateQueries({ queryKey: ['sent-gifts', walletAddress] })
-      return { link: giftLink(secret), giftOwner }
+      return { link: giftLink(secret, note), giftOwner }
     },
     [bridge, client, walletAddress, ensureGasTank, sendPrivately, queryClient],
   )

@@ -10,6 +10,7 @@ export type GiftRecord = {
   asset: AssetId
   amount: string // stringified bigint, base units
   createdAt: number
+  message?: string // the sender's note, also carried in the link
   takenBack?: boolean
 }
 

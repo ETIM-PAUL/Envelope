@@ -1,4 +1,4 @@
-// `envelope://gift?k=<secret>`: claiming a gift link (see features/gifts/use-gifts.ts). Shows what
+// `envelope://gift?k=<secret>[&m=<message>]`: claiming a gift link (see features/gifts/use-gifts.ts). Shows what
 // the gift holds before anything else (decrypted with the gift's own key — no wallet needed to
 // look), then: connect, enable the private balance if this is someone's first time, and claim. The
 // claimer's gas tank pays every fee, so a brand-new wallet with no SOL can claim.
@@ -6,12 +6,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useState } from 'react'
 import { Text, View } from 'react-native'
 import { Button } from '../components/button'
+import { GiftMessage } from '../components/gift-message'
 import { Screen } from '../components/screen'
 import { SealMark } from '../components/seal-mark'
 import { fontFamily } from '../design/tokens'
 import { availableAssetIds, formatAssetAmount } from '../config/assets'
 import { useConfidentialAccount } from '../features/account/use-confidential-account'
-import { isGiftSecret } from '../features/gifts/gift-link'
+import { decodeGiftMessage, isGiftSecret } from '../features/gifts/gift-link'
 import { useClaimGift, useOpenGift, type ClaimStep } from '../features/gifts/use-gifts'
 import { useConfidentialKeys } from '../features/keys/use-confidential-keys'
 import { useWalletSession } from '../features/wallet/use-wallet-session'
@@ -29,7 +30,8 @@ const STEP_LABEL: Record<ClaimStep, string> = {
 
 export default function ClaimGift() {
   const router = useRouter()
-  const { k: secret } = useLocalSearchParams<{ k?: string }>()
+  const { k: secret, m } = useLocalSearchParams<{ k?: string; m?: string }>()
+  const message = decodeGiftMessage(m)
   const { isConnected, isBusy: connecting, connect } = useWalletSession()
   const { keysUnlocked, unlockOnOpen, enablePrivateBalance } = useConfidentialKeys()
   const { ensureAccountReady } = useConfidentialAccount()
@@ -77,6 +79,7 @@ export default function ClaimGift() {
         <Text className="text-paper-500 text-2xl mt-6 mb-2 text-center" style={{ fontFamily: fontFamily.display }}>
           {claimed.amount} is yours
         </Text>
+        {message ? <GiftMessage message={message} /> : null}
         <Text className="text-mute-500 text-base mb-10 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
           {claimed.added
             ? "It's in your private balance. Only you can see it."
@@ -110,6 +113,7 @@ export default function ClaimGift() {
       <Text className="text-paper-500 text-5xl mb-3 text-center" style={{ fontFamily: fontFamily.display }}>
         {shownAmount}
       </Text>
+      {message ? <GiftMessage message={message} /> : null}
       <Text className="text-mute-500 text-base mb-10 text-center max-w-xs" style={{ fontFamily: fontFamily.ui }}>
         {isConnected
           ? 'Claim it into your private balance. Nobody else can see the amount, and you need no SOL to claim.'
