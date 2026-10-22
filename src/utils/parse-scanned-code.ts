@@ -15,7 +15,7 @@ export type ScannedCode =
   | { kind: 'gift'; secret: string; encodedMessage?: string } // the message still encoded (gift-link.ts)
 
 // Parsed by hand: React Native's URLSearchParams doesn't implement get() on every version.
-function queryParam(text: string, name: string): string | undefined {
+export function queryParam(text: string, name: string): string | undefined {
   const query = text.split('?')[1]?.split('#')[0] ?? ''
   for (const pair of query.split('&')) {
     const [key, value] = pair.split('=')

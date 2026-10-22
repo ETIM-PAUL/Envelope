@@ -358,6 +358,15 @@ send. The amount is hidden exactly as in any transfer. The link is
 - **The secret never reaches a server.** It's after the `#`, which browsers don't send. The
   relayer's `/gift` page is static: its own script reads the fragment and builds the
   `envelope://gift?k=…` app link. The page sets `Referrer-Policy: no-referrer`.
+- **App Links.** Tapping a gift or tip link in another app opens Envelope directly, with no web
+  page in between. Android only hands the app a link after verifying that the relayer's host
+  serves `/.well-known/assetlinks.json` naming `com.etimpaul.envelope` and the release signing
+  key's SHA-256 (`relayer/src/app-links.ts`), so another app can't claim to handle these links.
+  Verification checks the host's file against the installed app, not the link's contents: the
+  secret is still only in the fragment, and for a verified link it goes straight to the app
+  without a browser page ever loading it. Where verification hasn't happened (an unsigned or
+  debug build, an old Android, the link typed into a browser), the link opens the static page,
+  which offers the app. The file lists a public key fingerprint and holds nothing secret.
 - **The message is as private as the link, and no more.** The sender's note (one line, 120
   characters) is base64url text in the link itself: never on-chain, never sent to the relayer, and
   readable by anyone who holds the link, like the gift. The app and the page treat it as untrusted

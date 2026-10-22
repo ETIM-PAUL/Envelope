@@ -31,6 +31,7 @@ import { getPushTokens, registerPushToken } from './push-store.ts'
 import { claimFromFaucet, FaucetRefusal, getFaucetStatus } from './faucet.ts'
 import { FuelRefusal, requestFuel, submitFuel } from './fuel.ts'
 import { sendPushNotification } from './expo-push.ts'
+import { assetLinks, certFingerprints } from './app-links.ts'
 import { giftPage } from './gift-page.ts'
 import { isTipAddress, tipPage } from './tip-page.ts'
 
@@ -60,6 +61,13 @@ app.get('/gift', (c) => {
   c.header('Cache-Control', 'public, max-age=300')
   c.header('Referrer-Policy', 'no-referrer')
   return c.html(giftPage(APP_DOWNLOAD_URL))
+})
+
+// GET /.well-known/assetlinks.json — Android App Links verification; see app-links.ts.
+const ASSET_LINKS = assetLinks(certFingerprints(process.env.APP_CERT_SHA256))
+app.get('/.well-known/assetlinks.json', (c) => {
+  c.header('Cache-Control', 'public, max-age=3600')
+  return c.json(ASSET_LINKS)
 })
 
 // GET /tip/:address — the page tip links and pot invites open; see tip-page.ts. The address is

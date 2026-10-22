@@ -18,7 +18,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 - **Send privately** — the amount is encrypted end to end; only you and the recipient can read it. A relayer pays the SOL network fee, so senders never need SOL. Scan any Envelope or Solana wallet QR code to fill in the recipient.
 - **Batch send** — Members pay 2 people at once and Business 4 (splitting a bill, small payrolls), with one wallet approval for every two. Each person sees only their own amount.
 - **Receive** — share your address as a QR code or a tip link; incoming transfers show on Home as pending, and one tap adds them to your balance (no SOL needed).
-- **Gift links** — put private dollars or SKR behind a link and send it to someone who isn't on Envelope yet. They open it, install the app, and claim it into their own private balance with no SOL and no approval beyond enabling their account. The amount stays hidden, and you can take back any gift that hasn't been claimed.
+- **Gift links** — put private dollars or SKR behind a link and send it to someone who isn't on Envelope yet. They open it, install the app, and claim it into their own private balance with no SOL and no approval beyond enabling their account. The amount stays hidden, you can add a short private message that travels inside the link, and you can take back any gift that hasn't been claimed. Tap a gift or tip link in a chat and it opens Envelope directly (Android App Links, verified against the relayer's host).
 - **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
 - **Withdraw** — turn private cUSDC or cSKR back into spendable USDC or SKR in one approval.
 - **Ask for the token you want** — your Receive code says whether you take dollars, SKR, or both; the payer's app only offers those.
@@ -315,8 +315,8 @@ and devnet transaction links):
 
 **Payments**
 
-- Gift links that expire and return to the sender automatically, with a short private message inside the gift.
-- Verified app links, so a gift or tip link opens Envelope directly, and claim-after-install once Envelope is in the Solana dApp Store.
+- Gift links that expire and return to the sender automatically.
+- Claim-after-install: a gift link that survives installing Envelope, so the recipient lands on the claim screen instead of reopening the link. This needs the install referrer, which the Solana dApp Store would have to pass on. Today the recipient installs, then opens the link again.
 - Scheduled and recurring payments: payroll and allowances built on batch send.
 - More private assets through the same vault, such as other stablecoins.
 - A branded tip page for creators, with their name and a payment history. Today a tip link opens a plain page that sends people to the app.
