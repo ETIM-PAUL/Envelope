@@ -50,6 +50,10 @@ export default function Settings() {
 
       {keysUnlocked ? (
         <>
+          <Button label="Share a statement" onPress={() => router.push('/statement')} variant="secondary" />
+          <Text className="text-mute-500 text-sm mt-2 mb-4" style={{ fontFamily: fontFamily.ui }}>
+            Prove your balance or chosen transfers to someone, without sharing a key.
+          </Text>
           <Button label="Lock private balance" onPress={() => void handleLock()} busy={lockBusy} variant="secondary" />
           {lockError ? (
             <Text className="text-seal-500 mt-3 text-center" style={{ fontFamily: fontFamily.ui }}>

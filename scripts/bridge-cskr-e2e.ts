@@ -5,7 +5,8 @@
 // sends through the hosted relayer. Covers: withdraw cSKR -> SKR, a pot that accepts dollars *and*
 // SKR, a private cSKR contribution to it (with privacy negative checks: the amount appears nowhere
 // on-chain in plaintext), a Business batch to four recipients (one approval per two), closing the pot (sweep
-// back to the host), a zero-SOL user, and gift links (a brand-new wallet claims a gift with only
+// back to the host), a zero-SOL user, statements (selective disclosure, with tampered copies), and
+// gift links (a brand-new wallet claims a gift with only
 // the link's secret; the sender takes back an unclaimed one). Prints an Explorer link for every
 // transaction.
 //
@@ -17,6 +18,7 @@ import { join } from 'node:path'
 import {
   appendTransactionMessageInstructions,
   createSignerFromKeyPair,
+  createSolanaRpc,
   createTransactionMessage,
   generateKeyPairSigner,
   getBase64EncodedWireTransaction,
@@ -40,6 +42,8 @@ import {
 } from '@solana-program/token-2022'
 import { envelopeStake } from '../anchor/src/index.ts'
 import { RpcChannel } from '../packages/cbridge/src/rpcChannel.ts'
+import { encodeStatement, verifyStatement } from '../packages/cbridge/src/statement.ts'
+import zkWebInit from '@solana/zk-sdk/web'
 import type { BridgeMethodMap } from '../packages/cbridge/src/protocol.ts'
 import { readDevnetConfig } from './lib/keys.ts'
 import { createDevnetClients, getDevnetRpcUrl } from './lib/rpc.ts'
@@ -53,16 +57,28 @@ function check(label: string, ok: boolean, detail = '') {
 }
 
 // The bridge makes its own RPC calls; public devnet answers bursts with 429. A local pass-through
-// that retries those keeps a rate limit from looking like a bridge failure.
+// that retries those (and dropped connections) keeps a flaky node from looking like a bridge failure.
 async function startRetryingRpcProxy(upstream: string): Promise<string> {
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const body = Buffer.concat(chunks)
+    const backoff = (attempt: number) => new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** Math.min(attempt, 4)))
     for (let attempt = 0; ; attempt++) {
-      const response = await fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+      let response: Response
+      try {
+        response = await fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+      } catch (err) {
+        if (attempt < 8) {
+          await backoff(attempt)
+          continue
+        }
+        res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: String(err) }))
+        return
+      }
       if (response.status === 429 && attempt < 8) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** Math.min(attempt, 4)))
+        await backoff(attempt)
         continue
       }
       res.writeHead(response.status, { 'content-type': 'application/json' })
@@ -567,6 +583,89 @@ async function main() {
   check('dave created a pot', (await call('isAccountReady', { rpcUrl, mint: cskr, owner: davePot })).ready)
   check('dave still holds 0 SOL', (await rpc.getBalance(dave.address).send()).value === 0n)
 
+  // 5b. Statements: selective disclosure. alice proves chosen figures (balance only, transfers
+  // only, both) without sharing a key; a checker that trusts nothing but the proofs and the chain
+  // (statement.ts's verifyStatement, run here with the published zk-sdk build, so this also
+  // cross-checks it against the bridge's rebuilt one) confirms them, and rejects tampered ones.
+  console.log('5b. statements: alice proves her cSKR balance and two transfers; tampered copies fail')
+  step = 'statement: apply pending first'
+  if ((await privateBalance(cskr, aliceAddress)).pending > 0n) {
+    await send((await call('ensureGasTank', { rpcUrl, owner: aliceAddress })).signedTransactions)
+    await send(
+      (await call('applyPendingBalance', { rpcUrl, mint: cskr, owner: aliceAddress, payer: aliceAddress }))
+        .signedTransactions,
+    )
+  }
+  await zkWebInit({ module_or_path: readFileSync(join(ROOT, 'node_modules/@solana/zk-sdk/dist/web/index_bg.wasm')) })
+  const statementRpc = createSolanaRpc(rpcUrl)
+  const { entries: aliceActivity } = await call('decryptActivity', {
+    rpcUrl,
+    mint: cskr,
+    owner: aliceAddress,
+    limit: 15,
+  })
+  const picked = [
+    aliceActivity.find((entry) => entry.direction === 'outgoing'),
+    aliceActivity.find((entry) => entry.direction === 'incoming'),
+  ].filter((entry) => entry !== undefined)
+  check('alice has transfers to disclose', picked.length > 0, `${picked.length}`)
+  const chosen = picked.map(({ signature, index }) => ({ signature, index }))
+  const base = { rpcUrl, cluster: 'devnet' as const, mint: cskr, owner: aliceAddress }
+
+  const { statement } = await call('buildStatement', { ...base, includeBalance: true, transfers: chosen })
+  const report = await verifyStatement(statementRpc, statement)
+  const aliceNow = await privateBalance(cskr, aliceAddress)
+  check('balance and transfers: balance proven', report.balance?.status === 'proven', report.balance?.reason ?? '')
+  check('...it is her real available balance', statement.balance?.amount === aliceNow.available.toString())
+  check(
+    '...every transfer proven, at the amounts she decrypts',
+    report.transfers.length === picked.length &&
+      report.transfers.every((t, i) => t.status === 'proven' && t.amount === picked[i]!.amount),
+    report.transfers.map((t) => `${t.direction} ${t.amount} ${t.status}${t.reason ? ` (${t.reason})` : ''}`).join(', '),
+  )
+  check(
+    '...direction and counterparty read from the chain',
+    report.transfers.every((t) => t.direction && t.counterparty),
+  )
+
+  const balanceOnly = (await call('buildStatement', { ...base, includeBalance: true, transfers: [] })).statement
+  const balanceOnlyReport = await verifyStatement(statementRpc, balanceOnly)
+  check('balance only: proven, no transfers', balanceOnlyReport.ok && !balanceOnly.transfers)
+  const transfersOnly = (
+    await call('buildStatement', { ...base, includeBalance: false, transfers: chosen.slice(0, 1) })
+  ).statement
+  const transfersOnlyReport = await verifyStatement(statementRpc, transfersOnly)
+  check('transfers only: proven, no balance', transfersOnlyReport.ok && !transfersOnly.balance)
+
+  const tampered = async (label: string, edit: (copy: typeof statement) => void) => {
+    const copy = structuredClone(statement)
+    edit(copy)
+    const result = await verifyStatement(statementRpc, copy)
+    check(
+      `rejects ${label}`,
+      !result.ok,
+      result.error ?? result.balance?.reason ?? result.transfers.find((t) => t.reason)?.reason ?? '',
+    )
+  }
+  await tampered('a raised balance', (copy) => {
+    copy.balance!.amount = (BigInt(copy.balance!.amount) + 1_000_000n).toString()
+  })
+  await tampered('a changed transfer amount', (copy) => {
+    copy.transfers![0]!.amount = (BigInt(copy.transfers![0]!.amount) + 1n).toString()
+  })
+  await tampered("one transfer's proof on another's figure", (copy) => {
+    copy.transfers![0]!.lo = copy.balance!.proof
+  })
+  await tampered("someone else's wallet", (copy) => {
+    copy.owner = bob
+  })
+  await tampered("a transfer that isn't hers", (copy) => {
+    copy.transfers![0]!.index += 1
+  })
+  // One link to open the verify page against (alice is a devnet test wallet).
+  console.log(`  statement link: https://etim-paul.github.io/Envelope/verify.html#${encodeStatement(statement)}`)
+  const statementBeforeGift = statement
+
   // 6. Gift links: alice parks cSKR behind a link's secret; a brand-new wallet (no SOL, no SKR,
   // never used Envelope) claims it with nothing but that secret. Then alice takes back a second,
   // unclaimed gift.
@@ -695,6 +794,15 @@ async function main() {
   )
 
   console.log('\nTransactions (devnet):')
+  // Back to 5b: alice's balance has moved since, so her earlier statement can't vouch for it any
+  // more. Its transfers still check out: they're history.
+  const stale = await verifyStatement(statementRpc, statementBeforeGift)
+  check(
+    'an old statement: balance out of date, transfers still proven',
+    stale.balance?.status === 'changed' && stale.transfers.every((t) => t.status === 'proven'),
+    stale.balance?.reason ?? '',
+  )
+
   for (const { label, signature } of landed) console.log(`  ${label}: ${explorer(signature)}`)
   console.log('bridge cSKR e2e OK')
   process.exit(0)

@@ -127,7 +127,128 @@ async function main() {
   )
 
   console.log(`wrote dist/bridge.html (${(html.length / 1024).toFixed(0)}KB)`)
+
+  await buildVerifyPage()
 }
+
+// The statement verify page, for GitHub Pages (docs/). Same zk-sdk build as the bridge; the page
+// names the tokens it knows from config/devnet.json, so a statement can't relabel a token.
+async function buildVerifyPage() {
+  const repo = join(ROOT, '..', '..')
+  const { mints } = JSON.parse(readFileSync(join(repo, 'config', 'devnet.json'), 'utf8')) as {
+    mints: { cusdc: string; cskr?: string }
+  }
+  const knownMints: Record<string, { name: string; unit: string }> = {
+    [mints.cusdc]: { name: 'cUSDC, private dollars', unit: 'USDC' },
+  }
+  if (mints.cskr) knownMints[mints.cskr] = { name: 'cSKR, private SKR', unit: 'SKR' }
+
+  const result = await build({
+    entryPoints: [join(ROOT, 'src', 'verify-page.ts')],
+    bundle: true,
+    write: false,
+    format: 'iife',
+    platform: 'browser',
+    target: ['es2020'],
+    alias: {
+      '@solana/zk-sdk/bundler': join(ZK_SDK_COMPAT_DIR, 'index.js'),
+      '@solana/zk-sdk/web': join(ZK_SDK_COMPAT_DIR, 'index.js'),
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      KNOWN_MINTS: JSON.stringify(knownMints),
+    },
+    logLevel: 'warning',
+  })
+  // `</script` can't appear inside an inline script.
+  const js = result.outputFiles[0].text.replace(/<\/script/gi, '<\\/script')
+  const page = VERIFY_PAGE.replace('/*SCRIPT*/', () => js)
+  writeFileSync(join(repo, 'docs', 'verify.html'), page)
+  console.log(`wrote docs/verify.html (${(page.length / 1024).toFixed(0)}KB)`)
+}
+
+const VERIFY_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Check an Envelope statement</title>
+<style>
+  :root { color-scheme: dark; --ink: #0F1116; --raised: #171A21; --line: #2E3341; --paper: #F6F1E7;
+    --dim: #DCD6C8; --mute: #8C93A6; --seal: #C4432E; --gold: #C9A227; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ink); color: var(--paper); padding: 40px 16px 64px;
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .seal { width: 40px; height: 40px; border-radius: 50%; background: var(--seal); display: flex;
+    align-items: center; justify-content: center; box-shadow: inset 0 0 0 3px #A6371F; flex: none; }
+  h1 { font: 600 28px/1.2 Georgia, "Times New Roman", serif; margin: 0; }
+  h2 { font: 600 20px/1.3 Georgia, "Times New Roman", serif; margin: 0 0 12px; }
+  p { margin: 0; }
+  .lead { color: var(--mute); margin-bottom: 24px; }
+  form { display: grid; gap: 10px; margin-bottom: 20px; }
+  textarea { width: 100%; min-height: 76px; resize: vertical; background: var(--raised); color: var(--paper);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
+  button { justify-self: start; background: var(--seal); color: var(--paper); border: 0; border-radius: 12px;
+    padding: 12px 20px; font-weight: 600; font-size: 15px; cursor: pointer; }
+  button:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  #status { color: var(--mute); min-height: 1.5em; margin-bottom: 12px; }
+  .banner { border-radius: 14px; padding: 16px 18px; margin-bottom: 20px; border: 1px solid var(--line); }
+  .banner strong { display: block; font-size: 18px; margin-bottom: 4px; }
+  .banner p { color: var(--dim); }
+  .banner.proven { background: #1B2318; border-color: #3C5A2E; }
+  .banner.invalid { background: #2A1714; border-color: #6B2A1F; }
+  .banner.changed { background: #2A2516; border-color: #5E5023; }
+  button.link { background: none; color: var(--gold); padding: 0; margin-bottom: 16px; font-weight: 500; text-decoration: underline; }
+  [hidden] { display: none !important; }
+  dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 20px; }
+  dt { color: var(--mute); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .card { background: var(--raised); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 16px; }
+  .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .amount { font: 600 22px/1.3 Georgia, "Times New Roman", serif; }
+  .transfer { padding: 12px 0; border-top: 1px solid var(--line); }
+  .transfer:first-of-type { border-top: 0; padding-top: 0; }
+  .details { color: var(--mute); font-size: 14px; margin-top: 2px; }
+  .reason { color: #E58C79; font-size: 14px; margin-top: 4px; }
+  .note { color: var(--mute); font-size: 14px; margin-top: 8px; }
+  .badge { font-size: 13px; font-weight: 600; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .badge.proven { background: #2B3A22; color: #B9D99A; }
+  .badge.changed { background: #3A3320; color: #E3C76A; }
+  .badge.invalid { background: #46201A; color: #F0A391; }
+  a { color: var(--gold); }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 14px; }
+  footer { color: var(--mute); font-size: 14px; margin-top: 32px; border-top: 1px solid var(--line); padding-top: 16px; }
+  footer p + p { margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="seal" aria-hidden="true"><svg width="20" height="15" viewBox="0 0 34 26"><path d="M0 0 L17 13 L34 0 V26 H0 Z" fill="#F6F1E7"/></svg></div>
+    <h1>Check an Envelope statement</h1>
+  </header>
+  <p class="lead">Someone shared figures from their private Envelope balance. This page checks each one against Solana, in your browser.</p>
+  <form id="form">
+    <label for="input" class="lead" style="margin:0">Statement link</label>
+    <textarea id="input" placeholder="Paste the statement link here"></textarea>
+    <button type="submit">Check statement</button>
+  </form>
+  <button type="button" id="another" class="link" hidden>Check another statement</button>
+  <p id="status" role="status"></p>
+  <div id="result"></div>
+  <footer>
+    <p>Each amount comes with a zero-knowledge proof that the encrypted amount stored on Solana, under the wallet's own key, is exactly that number. The page reads the encrypted values from the chain itself, so a statement can't make up a figure, a transfer or a token.</p>
+    <p>A statement shows only what its owner chose to include. It can't reveal anything else, and nothing here gives access to the account. Checking reads public data from a Solana RPC node, which sees which accounts are looked up.</p>
+  </footer>
+</main>
+<script>/*SCRIPT*/</script>
+</body>
+</html>
+`
 
 main().catch((err) => {
   console.error(err)

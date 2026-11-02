@@ -19,6 +19,7 @@ By default, every Solana payment is public. Pay a friend for dinner and they —
 - **Batch send** — Members pay 2 people at once and Business 4 (splitting a bill, small payrolls), with one wallet approval for every two. Each person sees only their own amount.
 - **Receive** — share your address as a QR code or a tip link; incoming transfers show on Home as pending, and one tap adds them to your balance (no SOL needed).
 - **Gift links** — put private dollars or SKR behind a link and send it to someone who isn't on Envelope yet. They open it, install the app, and claim it into their own private balance with no SOL and no approval beyond enabling their account. The amount stays hidden, you can add a short private message that travels inside the link, and you can take back any gift that hasn't been claimed. Tap a gift or tip link in a chat and it opens Envelope directly (Android App Links, verified against the relayer's host).
+- **Statements** — selective disclosure without sharing a key. Pick a token's balance, chosen transfers, or both, and share a link. The recipient's browser checks each figure against Solana: every amount carries a zero-knowledge proof that the encrypted value on-chain, under your own key, is exactly that number. They see only what you picked, and since no key leaves your phone there's nothing to revoke.
 - **Event pots** — sealed group gifts (a wedding, a farewell) in dollars, SKR, or both: guests contribute privately, the host sees the totals, and guests never see each other's amounts.
 - **Withdraw** — turn private cUSDC or cSKR back into spendable USDC or SKR in one approval.
 - **Ask for the token you want** — your Receive code says whether you take dollars, SKR, or both; the payer's app only offers those.
@@ -309,7 +310,7 @@ and devnet transaction links):
 
 **Privacy**
 
-- Selective disclosure: share a read-only view of your balance and history with an accountant or auditor, revocable.
+- An ongoing view for an accountant: today's statements are snapshots you make each time. A live, revocable view would need re-keying the account (Token-2022 keeps one encryption key per account) or a per-user auditor key.
 - Proof of funds: prove a balance is above an amount without revealing it, for rent deposits, escrow or a creator's minimum.
 - One-time receive addresses, so repeated payments to the same person can't be linked by their address.
 

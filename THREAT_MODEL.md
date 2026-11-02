@@ -393,6 +393,42 @@ Verified on devnet in [docs/VERIFY.md](docs/VERIFY.md): a brand-new wallet with 
 gift with only the secret and no wallet approval, the gift account ends up closed, and the amount
 appears nowhere in the gift's transactions.
 
+## Statements (selective disclosure)
+
+A statement reveals chosen figures from a private balance: a token's available balance, chosen
+transfers, or both (`packages/cbridge/src/statement.ts`). For each amount the phone makes a
+ciphertext-commitment equality proof: that the ElGamal ciphertext on-chain, under the account's
+own key, holds the same value as a commitment to the stated amount. The commitment uses a zero
+opening (`amount·G`), so the verifier recomputes it from the amount alone; the amount is being
+revealed, so there's nothing for it to hide.
+
+- **No key leaves the phone.** The proof shows the ciphertext holds the amount without revealing
+  the secret key, and the statement can't be used to read anything else: other transfers, later
+  balances, or the other side of a transfer.
+- **The verifier trusts only the chain and the proofs.** The verify page (`docs/verify.html`,
+  static, run in the browser) derives the account from the owner and token, reads the account's
+  ElGamal key and current encrypted balance from Solana, and checks each proof's context against
+  them. For a transfer it reads the transaction, checks it moves money in or out of that account,
+  then follows it to the ciphertext-validity proof the transfer consumed: in the same transaction,
+  or verified earlier into the proof context account the transfer names. It checks the owner's key
+  is the one that handle was encrypted to. Direction, counterparty, decimals and the token's name
+  all come from the chain or the page itself, never from the statement.
+- **A balance is proven as of now.** Each transfer changes the account's encrypted balance, so a
+  statement's balance proof only matches until the next change; after that the page says the
+  balance has changed rather than vouching for it. Transfers are history and stay provable.
+  Funds waiting in the pending balance aren't part of the available balance, so the app asks for
+  them to be added first.
+- **A statement is a bearer document.** Whoever has the link sees its figures. It travels after
+  the link's `#`, which browsers don't send, so the page's host never sees it, though the RPC node
+  the page reads from sees which accounts are looked up.
+- **What it doesn't prove.** That the phone's clock was right (`createdAt` is the phone's), or that
+  a statement shows everything: it shows what its owner chose.
+
+Tested on devnet by `npm run devnet:bridge-e2e`: statements with a balance only, transfers only and
+both verify; a raised balance, a changed transfer amount, a proof moved to another figure, another
+wallet and another transfer are each rejected; and a statement made before the balance moved
+reports it as out of date while its transfers still check out.
+
 ## Batch send
 
 A batch builds each transfer's proofs against the source balance the _previous_ transfer leaves

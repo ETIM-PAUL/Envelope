@@ -170,6 +170,35 @@ export type ActivityEntry = {
 export type DecryptActivityParams = { rpcUrl: string; mint: string; owner: string; limit?: number; known?: string[] }
 export type DecryptActivityResult = { entries: ActivityEntry[] }
 
+// Statements (statement.ts): selective disclosure without sharing a key. The owner picks what to
+// reveal, a token's balance, chosen transfers, or both, and each amount carries a proof that the
+// on-chain ciphertext under the owner's key holds it. Anyone can check one against the chain.
+export const STATEMENT_KIND = 'envelope-statement'
+export const STATEMENT_VERSION = 1
+export const STATEMENT_MAX_TRANSFERS = 10
+export type Statement = {
+  kind: typeof STATEMENT_KIND
+  v: typeof STATEMENT_VERSION
+  cluster: 'devnet' | 'mainnet-beta'
+  createdAt: number // ms since the epoch, as the phone saw it
+  owner: string // the wallet
+  mint: string // the confidential token
+  // The token's available balance, proven against the account's current ciphertext.
+  balance?: { amount: string; proof: string }
+  // Chosen transfers. On-chain an amount is two ciphertexts, its low 16 and high 32 bits, so each
+  // gets its own proof.
+  transfers?: { signature: string; index: number; amount: string; lo: string; hi: string }[]
+}
+export type BuildStatementParams = {
+  rpcUrl: string
+  cluster: Statement['cluster']
+  mint: string
+  owner: string
+  includeBalance: boolean
+  transfers: { signature: string; index: number }[]
+}
+export type BuildStatementResult = { statement: Statement }
+
 // Phase 15: a pot's own signing + confidential-balance identity, derived entirely from one MWA
 // signature the host makes over `envelope-pot:<potId>` — never stored raw, recoverable any time by
 // re-signing the same fixed message. The signature hashes (SHA-256) to a 32-byte seed for a real
@@ -318,6 +347,7 @@ export type BridgeMethodMap = {
   prepareApplyPendingBalance: { params: PrepareApplyPendingBalanceParams; result: PrepareApplyPendingBalanceResult }
   applyPendingBalance: { params: ApplyPendingBalanceParams; result: ApplyPendingBalanceResult }
   decryptActivity: { params: DecryptActivityParams; result: DecryptActivityResult }
+  buildStatement: { params: BuildStatementParams; result: BuildStatementResult }
   derivePotKeys: { params: DerivePotKeysParams; result: DerivePotKeysResult }
   restorePotKeys: { params: RestorePotKeysParams; result: RestorePotKeysResult }
   createPot: { params: CreatePotParams; result: CreatePotResult }

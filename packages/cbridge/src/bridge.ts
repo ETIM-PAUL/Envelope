@@ -80,6 +80,20 @@ import { ZK_SDK_WASM_BASE64 } from './generated/wasmBase64.ts'
 import { deriveWalletConfidentialKeys } from './confidentialKeys.ts'
 import { getTransferSolInstruction } from '@solana-program/system'
 import { RpcChannel } from './rpcChannel.ts'
+import {
+  CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR,
+  CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR,
+  DESTINATION_HANDLE_INDEX,
+  SOURCE_HANDLE_INDEX,
+  TRANSFER_AMOUNT_LO_BIT_LENGTH,
+  TRANSFER_VALIDITY_PROOF_ACCOUNT_INDEX,
+  VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR,
+  ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS,
+  combineAmounts,
+  proofInstructionCiphertexts,
+} from './transferData.ts'
+import { proveAmount, readStatementAccount, readTransfer } from './statement.ts'
+import { STATEMENT_KIND, STATEMENT_MAX_TRANSFERS, STATEMENT_VERSION } from './protocol.ts'
 import { planMessages, signInstructionPlan, signPlannedMessages, type PlannedMessage } from './signPlan.ts'
 import type {
   ApplyPendingBalanceParams,
@@ -124,6 +138,9 @@ import type {
   PingResult,
   DecryptActivityParams,
   DecryptActivityResult,
+  BuildStatementParams,
+  BuildStatementResult,
+  Statement,
   PrepareApplyPendingBalanceParams,
   PrepareApplyPendingBalanceResult,
   PotContribution,
@@ -1025,28 +1042,7 @@ channel.on('prepareApplyPendingBalance', async (params) => {
 })
 
 // --- Phase 11: activity decryption ---
-// Verified against a real devnet transfer with a known amount (see git history for the one-off
-// research script that confirmed this) — none of these constants are documented in
-// @solana/zk-sdk's public TS bindings, which expose the proof context as opaque toBytes()/
-// fromBytes() only, no field accessors.
-const ZK_ELGAMAL_PROOF_PROGRAM_ADDRESS = 'ZkE1Gama1Proof11111111111111111111111111111'
-const VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_DISCRIMINATOR = 12
-const CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR = 27 // Token-2022's top-level instruction byte
-const CONFIDENTIAL_TRANSFER_SUB_DISCRIMINATOR = 7 // the extension's own "Transfer" sub-instruction
 const CONFIDENTIAL_WITHDRAW_SUB_DISCRIMINATOR = 6 // ...and its "Withdraw" sub-instruction
-const TRANSFER_AMOUNT_LO_BIT_LENGTH = 16n
-// context = 3x32-byte pubkeys (first/second/third, matching the proof's constructor order) +
-// grouped_ciphertext_lo (128 bytes) + grouped_ciphertext_hi (128 bytes).
-const PROOF_CONTEXT_PUBKEYS_SIZE = 96
-const GROUPED_CIPHERTEXT_SIZE = 128 // 32-byte commitment + 3x32-byte handles
-// Handle order within a grouped ciphertext, fixed by how transfers are built
-// (buildConfidentialTransferProofData: sourcePubkey, destinationPubkey, auditorPubkey).
-const SOURCE_HANDLE_INDEX = 0
-const DESTINATION_HANDLE_INDEX = 1
-
-function combineAmounts(lo: bigint, hi: bigint, bitLength: bigint): bigint {
-  return (hi << bitLength) + lo
-}
 
 // ElGamal ciphertext arithmetic, as @solana-program/token-2022 does it internally (its
 // confidentialTransferArithmetic.ts — not exported): `left - (lo + hi << bitLength)`, applied to the
@@ -1093,34 +1089,6 @@ function withAvailableBalance(
   return { ...account, extensions: some(extensions) }
 }
 
-// Not exported by @solana-program/token-2022's public API (only leaks into its dist/types, never
-// re-exported from "." or "./confidential") despite being used internally — reimplemented from
-// its own doc comment: "32-byte commitment followed by N 32-byte handles. The returned 64-byte
-// array is [commitment, handle]."
-function extractCiphertextFromGroupedBytes(grouped: Uint8Array, handleIndex: number): Uint8Array {
-  const result = new Uint8Array(64)
-  result.set(grouped.slice(0, 32), 0)
-  result.set(grouped.slice(32 + handleIndex * 32, 32 + (handleIndex + 1) * 32), 32)
-  return result
-}
-
-// One handle's lo/hi ciphertexts (64 bytes each: commitment + that handle) from a ciphertext-validity
-// proof instruction's raw data (including its 1-byte discriminator prefix).
-function proofInstructionCiphertexts(instructionData: Uint8Array, handleIndex: number): [Uint8Array, Uint8Array] {
-  const proofDataBytes = instructionData.slice(1) // strip the 1-byte VerifyProof discriminator
-  const proofData = BatchedGroupedCiphertext3HandlesValidityProofData.fromBytes(proofDataBytes)
-  const contextBytes = proofData.context().toBytes()
-  const loBytes = contextBytes.slice(PROOF_CONTEXT_PUBKEYS_SIZE, PROOF_CONTEXT_PUBKEYS_SIZE + GROUPED_CIPHERTEXT_SIZE)
-  const hiBytes = contextBytes.slice(
-    PROOF_CONTEXT_PUBKEYS_SIZE + GROUPED_CIPHERTEXT_SIZE,
-    PROOF_CONTEXT_PUBKEYS_SIZE + 2 * GROUPED_CIPHERTEXT_SIZE,
-  )
-  return [
-    extractCiphertextFromGroupedBytes(loBytes, handleIndex),
-    extractCiphertextFromGroupedBytes(hiBytes, handleIndex),
-  ]
-}
-
 // Decrypts one handle (source or destination) of a ciphertext-validity proof instruction's amount,
 // given that instruction's raw data (including its 1-byte discriminator prefix).
 function decryptProofInstructionAmount(
@@ -1140,11 +1108,6 @@ function decryptProofInstructionAmount(
 type ElGamalSecretKeyLike = { decrypt(ciphertext: ElGamalCiphertext): bigint }
 
 type RawInstruction = { programIdIndex: number; accounts: number[]; data: string }
-
-// A ConfidentialTransfer instruction's account list: [source, mint, destination, equality proof,
-// ciphertext-validity proof, range proof, ...] — each proof slot being either a proof context
-// account or the instructions sysvar (proof inline in the same transaction).
-const TRANSFER_VALIDITY_PROOF_ACCOUNT_INDEX = 4
 
 // The ciphertext-validity proof's raw instruction data (the per-party encrypted amount handles
 // live in it, nowhere else). Older plans verified it inline in the transfer transaction itself;
@@ -1265,6 +1228,70 @@ channel.on('decryptActivity', async (params) => {
   }
 
   return { entries } satisfies DecryptActivityResult
+})
+
+// Selective disclosure (statement.ts): proves each chosen amount against its on-chain ciphertext.
+// Only the amounts asked for leave the phone, as plain numbers with proofs; no key does.
+channel.on('buildStatement', async (params) => {
+  const { rpcUrl, cluster, mint, owner, includeBalance, transfers } = params as BuildStatementParams
+  await wasmInit
+  const keys = sessionKeys.get(owner)
+  if (!keys) throw new Error(`call deriveKeys("${owner}") before buildStatement`)
+  if (!includeBalance && transfers.length === 0) throw new Error('choose a balance or at least one transfer')
+  if (transfers.length > STATEMENT_MAX_TRANSFERS) {
+    throw new Error(`a statement can hold at most ${STATEMENT_MAX_TRANSFERS} transfers`)
+  }
+
+  const rpc = createSolanaRpc(rpcUrl)
+  const account = await readStatementAccount(rpc, owner, mint)
+  const statement: Statement = {
+    kind: STATEMENT_KIND,
+    v: STATEMENT_VERSION,
+    cluster,
+    createdAt: Date.now(),
+    owner,
+    mint,
+  }
+
+  if (includeBalance) {
+    // Incoming funds wait in a separate pending balance until applied; a statement of the
+    // available balance alone would leave them out without saying so.
+    if (account.pendingCredits > 0n) {
+      throw new Error('Add your waiting funds to your balance first, so the statement includes them.')
+    }
+    const { availableBalance } = await fetchConfidentialTransferBalance({
+      token: account.token,
+      rpc,
+      elgamalSecretKey: keys.elgamalKeypair.secret(),
+      aesKey: keys.aesKey,
+    })
+    statement.balance = {
+      amount: availableBalance.toString(),
+      proof: proveAmount(keys.elgamalKeypair, account.availableBalance, availableBalance),
+    }
+  }
+
+  if (transfers.length > 0) statement.transfers = []
+  for (const { signature, index } of transfers) {
+    const onChain = await readTransfer(rpc, signature, index, account.token, account.elgamalPubkey)
+    if (typeof onChain === 'string') throw new Error(`transfer ${signature.slice(0, 8)}…: ${onChain}`)
+    const secret = keys.elgamalKeypair.secret()
+    const decrypt = (bytes: Uint8Array) => {
+      const ciphertext = ElGamalCiphertext.fromBytes(bytes)
+      if (!ciphertext) throw new Error('invalid ciphertext on-chain')
+      return secret.decrypt(ciphertext)
+    }
+    const [lo, hi] = [decrypt(onChain.lo), decrypt(onChain.hi)]
+    statement.transfers!.push({
+      signature,
+      index,
+      amount: combineAmounts(lo, hi, TRANSFER_AMOUNT_LO_BIT_LENGTH).toString(),
+      lo: proveAmount(keys.elgamalKeypair, onChain.lo, lo),
+      hi: proveAmount(keys.elgamalKeypair, onChain.hi, hi),
+    })
+  }
+
+  return { statement } satisfies BuildStatementResult
 })
 
 function base58ToBytes(base58: string): Uint8Array {

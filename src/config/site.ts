@@ -17,3 +17,8 @@ export function giftLink(secret: string, message?: string): string {
   const encoded = message ? encodeGiftMessage(message) : ''
   return `${GIFT_LINK_BASE}#${secret}${encoded ? `.${encoded}` : ''}`
 }
+
+// Statements (features/statements): a link to the verify page with the statement after the `#`, so
+// it never reaches a server. The page is static, served by GitHub Pages from docs/verify.html.
+export const STATEMENT_VERIFY_URL =
+  process.env.EXPO_PUBLIC_STATEMENT_VERIFY_URL || 'https://etim-paul.github.io/Envelope/verify.html'

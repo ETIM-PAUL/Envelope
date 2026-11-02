@@ -1,5 +1,6 @@
 // Subpath import — see src/app/(tabs)/_layout.tsx for why not the `@expo/vector-icons` barrel.
 import Feather from '@expo/vector-icons/Feather'
+import { Link } from 'expo-router'
 import { FlatList, Text, View } from 'react-native'
 import { BackButton } from '../components/back-button'
 import { Screen } from '../components/screen'
@@ -23,7 +24,10 @@ export default function Activity() {
         Activity
       </Text>
       <Text className="text-mute-500 text-sm mb-6" style={{ fontFamily: fontFamily.ui }}>
-        Decrypted on this device only.
+        Decrypted on this device only.{' '}
+        <Link href="/statement" className="text-seal-400" style={{ fontFamily: fontFamily.uiSemibold }}>
+          Share a statement
+        </Link>
       </Text>
 
       <FlatList
