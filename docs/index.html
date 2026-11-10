@@ -511,6 +511,99 @@
         line-height: 1.2;
       }
 
+      /* statements: the verify page's result, drawn from the same colours */
+      .sheet {
+        background: var(--ink-raised);
+        border: 1px solid var(--ink-line);
+        border-radius: 24px;
+        padding: 1.25rem 1.4rem 0.9rem;
+        max-width: 26rem;
+        width: 100%;
+        margin-inline: auto;
+      }
+      .sheet .banner {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        background: #1b2318;
+        border: 1px solid #3c5a2e;
+        border-radius: 14px;
+        padding: 0.8rem 0.95rem;
+        margin-bottom: 1.1rem;
+      }
+      .sheet .banner svg {
+        width: 22px;
+        height: 22px;
+        flex: none;
+        color: #b9d99a;
+      }
+      .sheet .banner strong {
+        display: block;
+        font-family: var(--display);
+        font-weight: 600;
+        font-size: 1.05rem;
+      }
+      .sheet .banner small {
+        color: var(--paper-dim);
+        font-size: 0.85rem;
+      }
+      .sheet .line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.75rem 0;
+        border-top: 1px solid var(--ink-line);
+      }
+      .sheet .line:first-of-type {
+        border-top: 0;
+      }
+      .sheet .line b {
+        font-family: var(--display);
+        font-weight: 600;
+        font-size: 1.3rem;
+        display: block;
+      }
+      .sheet .line small {
+        color: var(--mute);
+        font-size: 0.82rem;
+      }
+      .sheet .badge {
+        font-size: 0.8rem;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+        background: #2b3a22;
+        color: #b9d99a;
+      }
+      .sheet .sealed {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.85rem 0;
+        border-top: 1px solid var(--ink-line);
+      }
+      .sheet .sealed i {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--seal);
+        flex: none;
+      }
+      .sheet .sealed span {
+        height: 9px;
+        border-radius: 5px;
+        background: #262a35;
+      }
+      .sheet .note {
+        color: var(--mute);
+        font-size: 0.82rem;
+        text-align: center;
+        border-top: 1px solid var(--ink-line);
+        padding-top: 0.7rem;
+        margin-top: 0.2rem;
+      }
+
       /* plans */
       .plans {
         display: grid;
@@ -1036,9 +1129,48 @@
               <div>
                 <h3>Gift links</h3>
                 <p>
-                  Send money to someone who isn't on Envelope yet. They open the link, install the app, and claim it
-                  into their own private balance.
+                  Send money to someone who isn't on Envelope yet, with a short private message if you like. They open
+                  the link, install the app, and claim it into their own private balance.
                 </p>
+              </div>
+            </div>
+            <div class="feature">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 12l2 2 4-4" />
+                <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+              </svg>
+              <div>
+                <h3>Statements: prove what you choose</h3>
+                <p>
+                  Share your balance, a few transfers, or both, and anyone can check them against Solana. They see
+                  nothing else, and no key leaves your phone.
+                </p>
+              </div>
+            </div>
+            <div class="feature">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+                <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+              </svg>
+              <div>
+                <h3>Links open in Envelope</h3>
+                <p>Tap a gift or tip link in any chat and it opens the app directly, on the right screen.</p>
               </div>
             </div>
             <div class="feature">
@@ -1133,16 +1265,49 @@
             loading="lazy"
           />
           <div>
-            <p class="eyebrow">New</p>
+            <p class="eyebrow">Gift links</p>
             <h2 id="gift-title" style="font-size: var(--step-3)">Send money to someone who isn't here yet.</h2>
             <p class="lede" style="max-width: 46ch">
               A gift link carries private dollars or SKR to anyone. The amount stays hidden on-chain, and claiming costs
               them nothing.
             </p>
             <ol>
-              <li>Choose an amount and confirm with your fingerprint. You get a link and a QR code.</li>
+              <li>Choose an amount, add a short private message if you like, and confirm with your fingerprint. You get a link and a QR code.</li>
               <li>Send it however you like. Whoever opens it installs Envelope and taps Claim.</li>
-              <li>The gift lands in their private balance. Until then, you can take it back.</li>
+              <li>They see your message, and the gift lands in their private balance. Until then, you can take it back.</li>
+            </ol>
+          </div>
+        </section>
+
+        <section class="gift" aria-labelledby="statement-title">
+          <div class="sheet" role="img" aria-label="A statement showing a proven balance and two proven transfers, with other rows sealed">
+            <div class="banner">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M8 12.5l2.8 2.5L16 9.5" />
+              </svg>
+              <div>
+                <strong>Every figure checks out</strong>
+                <small>Each amount below is proven against Solana.</small>
+              </div>
+            </div>
+            <div class="line"><div><small>Balance</small><b>1,250.00 USDC</b></div><span class="badge">Proven</span></div>
+            <div class="line"><div><b>+400.00 USDC</b><small>from 7xKp&hellip;3fQa</small></div><span class="badge">Proven</span></div>
+            <div class="sealed"><i></i><span style="width: 48%"></span><span style="width: 20%; margin-left: auto"></span></div>
+            <div class="line"><div><b>&minus;85.50 USDC</b><small>to 9Lm2&hellip;Wq81</small></div><span class="badge">Proven</span></div>
+            <div class="sealed"><i></i><span style="width: 40%"></span><span style="width: 18%; margin-left: auto"></span></div>
+            <p class="note">Everything else stays private</p>
+          </div>
+          <div>
+            <p class="eyebrow">New</p>
+            <h2 id="statement-title" style="font-size: var(--step-3)">Prove what you choose. Keep the rest sealed.</h2>
+            <p class="lede" style="max-width: 46ch">
+              Show an accountant, a landlord or a lender exactly what you want them to see, and nothing more.
+            </p>
+            <ol>
+              <li>Pick your balance, up to 10 transfers, or both. Your phone proves each figure and gives you a link.</li>
+              <li>Send the link. Anyone who opens it checks every figure against Solana on a web page, with no app needed.</li>
+              <li>Nothing else is revealed and no key leaves your phone, so there is nothing to revoke afterwards.</li>
             </ol>
           </div>
         </section>
@@ -1273,8 +1438,16 @@
             <details>
               <summary>What happens if a gift link gets shared further?</summary>
               <p>
-                Anyone with the link can claim the gift, so send it only to the person it&rsquo;s for. Until someone
+                Anyone with the link can claim the gift, and read the message that comes with it, so send it only to the person it&rsquo;s for. Until someone
                 claims it, you can take it back from the gift screen. Once claimed, the link stops working.
+              </p>
+            </details>
+            <details>
+              <summary>What does a statement show, and who can open it?</summary>
+              <p>
+                Only the figures you picked: your balance, and up to 10 transfers. Each one is proven against Solana, so
+                the person checking doesn&rsquo;t have to trust you. Anyone with the link can open it, so share it only
+                with the person it&rsquo;s for. If your balance changes afterwards, the page marks it out of date.
               </p>
             </details>
             <details>
